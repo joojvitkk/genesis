@@ -674,14 +674,14 @@ export default function Torneios() {
                               disabled={selectedTournament.status === 'finished'}
                               className="py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-emerald-500/20 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                             >
-                              <PlusIcon size={18} /> Buy-in
+                              <Plus size={18} /> Buy-in
                             </button>
                             <button
                               onClick={() => handleRegisterEntry('re-entry', form.selected_stack_id)}
                               disabled={selectedTournament.status === 'finished'}
                               className="py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-600 transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-blue-500/20 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                             >
-                              <PlusIcon size={18} /> Re-entry
+                              <Plus size={18} /> Re-entry
                             </button>
                           </div>
                         </div>
