@@ -385,6 +385,4 @@ export default function ChipRace() {
       </AnimatePresence>
     </div>
   );
-}v>
-  );
 }
