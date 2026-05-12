@@ -4,7 +4,7 @@ import {
   Trophy, Plus, Search, Calendar, Clock, MapPin, 
   ChevronRight, Filter, MoreVertical, Edit2, Trash2, 
   Play, Pause, CheckCircle2, UserPlus, Users, Coins, 
-  Settings, Info, Layout, X, Save, AlertCircle, Briefcase, PlusCircle, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, ChevronDown
+  Settings, Info, Layout, X, Save, AlertCircle, Briefcase, PlusCircle, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, ChevronDown, Minus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
