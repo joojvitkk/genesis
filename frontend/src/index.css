@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-genesis-red: #E60000;
+  --color-genesis-dark: #0A0A0A;
+  --color-zinc-950: #09090b;
+}
+
+/* For Tailwind v4, we can define the dark variant selector */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --background: #f9fafb;
+    --foreground: #111827;
+  }
+
+  .dark {
+    --background: #0A0A0A;
+    --foreground: #f9fafb;
+  }
+
+  body {
+    @apply bg-white text-gray-900 transition-colors duration-300 antialiased font-sans;
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+
+  /* Smooth scroll for the whole app */
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
+  }
+  
+  .dark .glass {
+    @apply bg-black/40 backdrop-blur-md border border-white/10 shadow-2xl;
+  }
+}

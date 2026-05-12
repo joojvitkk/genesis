@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  genesis-db:
+    image: mongo:6.0
+    container_name: genesis-db
+    ports:
+      - "27017:27017"
+    volumes:
+      - genesis_data:/data/db
+    networks:
+      - genesis-net
+
+  genesis-backend:
+    build: ./backend
+    container_name: genesis-backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - MONGO_URI=mongodb://genesis-db:27017/genesis
+      - JWT_SECRET=super_secret_genesis_key_2026
+    depends_on:
+      - genesis-db
+    networks:
+      - genesis-net
+
+  genesis-frontend:
+    build: ./frontend
+    container_name: genesis-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_PORT=5173
+    depends_on:
+      - genesis-backend
+    networks:
+      - genesis-net
+
+networks:
+  genesis-net:
+    driver: bridge
+
+volumes:
+  genesis_data:
