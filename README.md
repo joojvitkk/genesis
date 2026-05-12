@@ -82,4 +82,3 @@ Para usar como **PWA** no celular:
 - **Senha**: `admin123`
 
 ---
-Desenvolvido com ❤️ pela equipe GENESIS.
