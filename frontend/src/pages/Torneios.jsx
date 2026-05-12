@@ -4,7 +4,7 @@ import {
   Trophy, Plus, Search, Calendar, Clock, MapPin, 
   ChevronRight, Filter, MoreVertical, Edit2, Trash2, 
   Play, Pause, CheckCircle2, UserPlus, Users, Coins, 
-  Settings, Info, Layout, X, Save, AlertCircle, Briefcase, PlusCircle, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, ChevronDown, Minus
+  Settings, Info, Layout, X, Save, AlertCircle, Briefcase, PlusCircle, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, ChevronDown, Minus, History, Package
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
@@ -459,7 +459,7 @@ export default function Torneios() {
                           onClick={() => handleUpdateTournament(selectedTournament._id, { actual_players: selectedTournament.actual_players + 1 })} 
                           className="p-4 bg-genesis-red rounded-xl shadow-lg shadow-red-500/20 hover:scale-105 active:scale-95 transition-all text-white disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                         >
-                          <PlusIcon />
+                          <Plus />
                         </button>
                       </div>
                     </div>
