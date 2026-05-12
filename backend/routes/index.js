@@ -258,7 +258,26 @@ router.get('/tournaments/:id', verifyToken, async (req, res) => {
 
 router.post('/tournaments', verifyToken, requirePageAccess('torneios'), async (req, res) => {
   try {
-    const tournament = new Tournament(req.body);
+    const body = { ...req.body };
+
+    // If a stack model was selected, derive starting_stack from it
+    if (body.stack_model_id) {
+      const stackModel = await StackModel.findById(body.stack_model_id).populate('composition.chip_id');
+      if (stackModel) {
+        // Calculate total stack value from composition
+        const totalValue = stackModel.composition.reduce((sum, comp) => {
+          return sum + (comp.chip_id?.value || 0) * comp.quantity;
+        }, 0);
+        body.starting_stack = totalValue || stackModel.total_value;
+        // Also set stack_composition from the model
+        body.stack_composition = stackModel.composition.map(c => ({
+          chip_id: c.chip_id?._id,
+          per_player: c.quantity
+        }));
+      }
+    }
+
+    const tournament = new Tournament(body);
     await tournament.save();
     await logActivity('Torneio Criado', 'tournament', `Nome: ${tournament.name}`, req.user);
     res.status(201).json(tournament);

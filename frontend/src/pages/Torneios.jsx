@@ -103,7 +103,7 @@ export default function Torneios() {
     date: new Date().toISOString().split('T')[0],
     start_time: '20:00',
     estimated_players: 50,
-    starting_stack: 15000,
+    stack_model_id: '',
     notes: ''
   });
 
@@ -782,8 +782,13 @@ export default function Torneios() {
                     <input required type="number" value={form.estimated_players} onChange={e => setForm({ ...form, estimated_players: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold mb-1">Stack Inicial</label>
-                    <input required type="number" value={form.starting_stack} onChange={e => setForm({ ...form, starting_stack: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
+                    <label className="block text-sm font-bold mb-1">Modelo de Stack</label>
+                    <CustomSelect
+                      placeholder="Selecione um modelo de stack"
+                      options={stackModels.map(s => ({ label: `${s.name} — ${s.total_value.toLocaleString()} fichas`, value: s._id }))}
+                      value={form.stack_model_id}
+                      onChange={val => setForm({ ...form, stack_model_id: val })}
+                    />
                   </div>
                 </div>
                 <button type="submit" className="w-full py-4 bg-genesis-red text-white font-bold rounded-xl shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all">Criar Evento</button>

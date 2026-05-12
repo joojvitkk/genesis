@@ -8,6 +8,7 @@ const TournamentSchema = new mongoose.Schema({
   estimated_players: { type: Number, default: 0 },
   actual_players: { type: Number, default: 0 },
   starting_stack: { type: Number, default: 0 },
+  stack_model_id: { type: mongoose.Schema.Types.ObjectId, ref: 'StackModel', default: null },
   blind_structure: [{
     level: { type: Number },
     small_blind: { type: Number },
