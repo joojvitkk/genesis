@@ -441,7 +441,7 @@ router.get('/chip-races', verifyToken, async (req, res) => {
 
 router.post('/chip-races', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
   try {
-    const { tournament_id, type, active_tables, from_chip, from_quantity, to_chip } = req.body;
+    const { tournament_id, type, active_tables, num_players, chips_per_player, from_chip, to_chip } = req.body;
     
     const fromChipModel = await ChipModel.findById(from_chip);
     const toChipModel = await ChipModel.findById(to_chip);
@@ -450,6 +450,7 @@ router.post('/chip-races', verifyToken, requirePageAccess('chip_race'), async (r
       return res.status(400).json({ error: 'Modelos de ficha inválidos.' });
     }
 
+    const from_quantity = num_players * chips_per_player;
     const total_value = from_quantity * fromChipModel.value;
     const to_quantity = total_value / toChipModel.value;
     
@@ -457,6 +458,8 @@ router.post('/chip-races', verifyToken, requirePageAccess('chip_race'), async (r
       tournament_id,
       type,
       active_tables,
+      num_players,
+      chips_per_player,
       from_chip,
       from_quantity,
       to_chip,
@@ -470,8 +473,52 @@ router.post('/chip-races', verifyToken, requirePageAccess('chip_race'), async (r
     io.emit('chipRaceUpdated', race);
 
     await logActivity('Cálculo de Chip Race Salvo', 'chip_race', `Torneio: ${tournament_id}`, req.user);
-    
     res.status(201).json(race);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/chip-races/:id', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
+  try {
+    const { tournament_id, type, active_tables, num_players, chips_per_player, from_chip, to_chip } = req.body;
+    
+    const fromChipModel = await ChipModel.findById(from_chip);
+    const toChipModel = await ChipModel.findById(to_chip);
+    
+    if (!fromChipModel || !toChipModel) {
+      return res.status(400).json({ error: 'Modelos de ficha inválidos.' });
+    }
+
+    const from_quantity = num_players * chips_per_player;
+    const total_value = from_quantity * fromChipModel.value;
+    const to_quantity = total_value / toChipModel.value;
+
+    const race = await ChipRace.findByIdAndUpdate(req.params.id, {
+      tournament_id,
+      type,
+      active_tables,
+      num_players,
+      chips_per_player,
+      from_chip,
+      from_quantity,
+      to_chip,
+      to_quantity,
+      total_value
+    }, { new: true });
+
+    await logActivity('Cálculo de Chip Race Editado', 'chip_race', `ID: ${race._id}`, req.user);
+    res.json(race);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/chip-races/:id', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
+  try {
+    const race = await ChipRace.findByIdAndDelete(req.params.id);
+    await logActivity('Cálculo de Chip Race Excluído', 'chip_race', `ID: ${req.params.id}`, req.user);
+    res.json({ message: 'Registro excluído' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
