@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 @theme {
   --color-genesis-red: #E60000;
@@ -6,38 +7,119 @@
   --color-zinc-950: #09090b;
 }
 
-/* For Tailwind v4, we can define the dark variant selector */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
-    --background: #f9fafb;
+    --background: #f4f4f5;
     --foreground: #111827;
+    --card: #ffffff;
+    --border: #e4e4e7;
+    --bottom-nav-h: 68px;
   }
 
   .dark {
     --background: #0A0A0A;
-    --foreground: #f9fafb;
+    --foreground: #f4f4f5;
+    --card: #111111;
+    --border: #27272a;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    /* Prevent text size adjustment on orientation change */
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
-    @apply bg-white text-gray-900 transition-colors duration-300 antialiased font-sans;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    @apply text-gray-900 transition-colors duration-300 antialiased;
     background-color: var(--background);
     color: var(--foreground);
+    /* Safe area insets for notched phones */
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
 
-  /* Smooth scroll for the whole app */
-  html {
-    scroll-behavior: smooth;
+  /* Prevent unwanted scroll bounce on iOS */
+  body {
+    overscroll-behavior: none;
   }
 }
 
 @layer components {
+  /* Glass morphism */
   .glass {
     @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
   }
-  
   .dark .glass {
     @apply bg-black/40 backdrop-blur-md border border-white/10 shadow-2xl;
   }
+
+  /* Card base */
+  .card {
+    @apply bg-white dark:bg-[#141414] rounded-2xl border border-gray-100 dark:border-zinc-800 shadow-sm;
+  }
+
+  /* Input base */
+  .input-base {
+    @apply w-full bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 
+           rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white 
+           focus:outline-none focus:ring-2 focus:ring-genesis-red/50 transition-all;
+  }
+
+  /* Button primary */
+  .btn-primary {
+    @apply px-5 py-3 bg-genesis-red text-white font-bold rounded-xl
+           hover:bg-red-700 active:scale-95 transition-all shadow-lg shadow-red-500/20
+           flex items-center justify-center gap-2;
+  }
+
+  /* Mobile bottom padding so content doesn't hide under bottom nav */
+  .mobile-content {
+    @apply pb-[calc(68px+env(safe-area-inset-bottom,0px))] md:pb-0;
+  }
+
+  /* Section header on mobile */
+  .page-title {
+    @apply text-2xl md:text-4xl font-black uppercase tracking-tighter text-gray-900 dark:text-white;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-gray-500 font-medium;
+  }
+
+  /* Stat card */
+  .stat-card {
+    @apply card p-4 md:p-6 flex flex-col gap-1;
+  }
+
+  /* Table header */
+  .th {
+    @apply px-4 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest;
+  }
+
+  /* Scrollable X with hidden bar */
+  .scroll-x {
+    @apply overflow-x-auto;
+    scrollbar-width: none;
+  }
+  .scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Badge */
+  .badge {
+    @apply px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider;
+  }
+}
+
+/* Smooth scroll for content areas */
+[data-scroll-container] {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
 }
