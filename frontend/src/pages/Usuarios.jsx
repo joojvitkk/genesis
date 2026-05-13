@@ -16,6 +16,9 @@ export default function Usuarios() {
   const [editingUser, setEditingUser] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Current logged-in user (to block self-delete)
+  const currentUser = JSON.parse(localStorage.getItem('genesis_user') || '{}');
+
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -79,6 +82,12 @@ export default function Usuarios() {
   };
 
   const handleDelete = async (id) => {
+    // Prevent self-deletion
+    const matchById = users.find(u => u._id === id);
+    if (matchById?.email === currentUser?.email) {
+      return showAlert('Você não pode excluir seu próprio usuário.', 'error');
+    }
+
     const confirmed = await showConfirm('Excluir este usuário permanentemente?');
     if (!confirmed) return;
 
@@ -140,16 +149,24 @@ export default function Usuarios() {
               initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
               className="bg-white dark:bg-[#111111] p-8 rounded-[40px] border border-gray-100 dark:border-zinc-800 shadow-sm relative group overflow-hidden"
             >
-              <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-5 group-hover:opacity-10 transition-all ${getRoleColor(user.role)}`}></div>
+              {/* Decorative ball — bottom-left, behind content */}
+              <div className={`absolute -left-6 -bottom-6 w-28 h-28 rounded-full opacity-5 group-hover:opacity-10 transition-all pointer-events-none ${getRoleColor(user.role)}`}></div>
               
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getRoleBadge(user.role)}`}>
                     {user.role}
                   </span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => handleEdit(user)} className="p-2 text-gray-400 hover:text-blue-500 transition-all"><Edit2 size={16}/></button>
-                    <button onClick={() => handleDelete(user._id)} className="p-2 text-gray-400 hover:text-red-500 transition-all"><Trash2 size={16}/></button>
+                  {/* Action buttons — z-10 to stay above decorative elements */}
+                  <div className="flex items-center gap-1 relative z-10">
+                    <button onClick={() => handleEdit(user)} className="p-2 text-gray-400 hover:text-blue-500 transition-all rounded-xl hover:bg-blue-50 dark:hover:bg-blue-500/10"><Edit2 size={16}/></button>
+                    {user.email !== currentUser?.email ? (
+                      <button onClick={() => handleDelete(user._id)} className="p-2 text-gray-400 hover:text-red-500 transition-all rounded-xl hover:bg-red-50 dark:hover:bg-red-500/10"><Trash2 size={16}/></button>
+                    ) : (
+                      <div className="p-2 text-gray-200 dark:text-zinc-700 cursor-not-allowed" title="Você não pode excluir sua própria conta">
+                        <Trash2 size={16}/>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -157,6 +174,9 @@ export default function Usuarios() {
                   <h3 className="text-xl font-black text-gray-900 dark:text-white uppercase leading-tight mb-1">{user.name}</h3>
                   <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
                     <Mail size={12}/> {user.email}
+                    {user.email === currentUser?.email && (
+                      <span className="ml-1 px-2 py-0.5 bg-genesis-red/10 text-genesis-red text-[9px] font-black uppercase rounded-full tracking-widest">Você</span>
+                    )}
                   </div>
                 </div>
 
