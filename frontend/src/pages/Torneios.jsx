@@ -160,9 +160,20 @@ export default function Torneios() {
     } catch (e) { console.error(e); }
   };
 
+  const fetchStackModels = async () => {
+    try {
+      const token = localStorage.getItem('genesis_token');
+      const res = await fetch(`${BACKEND_URL}/api/stacks`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setStackModels(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
   useEffect(() => {
     fetchTournaments();
     fetchCasesAndChips();
+    fetchStackModels();
   }, [fetchTournaments]);
 
   const handleRegisterEntry = async (type, stack_model_id) => {
