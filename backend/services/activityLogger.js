@@ -13,9 +13,9 @@ const logActivity = async (action, category, details, user) => {
       action,
       category,
       details: typeof details === 'object' ? JSON.stringify(details) : details,
-      user_name: user?.username || 'Sistema',
-      user_email: user?.email || '', 
-      related_id: user?.id || null
+      user_name:  user?.name || user?.username || 'Sistema',
+      user_email: user?.email || '',
+      related_id: user?.id || user?._id || null
     });
   } catch (error) {
     console.error('Falha ao registrar ActivityLog:', error);
