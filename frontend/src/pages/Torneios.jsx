@@ -369,62 +369,72 @@ export default function Torneios() {
         {selectedTournament && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-0 md:p-4 overflow-y-auto"
+            className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm"
             onClick={() => setSelectedTournament(null)}
           >
             <motion.div
-              initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }}
-              className="bg-gray-50 dark:bg-[#0A0A0A] w-full max-w-6xl min-h-screen md:min-h-0 md:rounded-3xl shadow-2xl flex flex-col overflow-hidden my-auto"
+              initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '100%', opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 35 }}
+              className="bg-gray-50 dark:bg-[#0A0A0A] w-full max-w-6xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+              style={{ maxHeight: '92dvh' }}
               onClick={e => e.stopPropagation()}
             >
               {/* Modal Header */}
-              <div className="p-6 bg-white dark:bg-[#111111] border-b border-gray-200 dark:border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-10">
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-4">
-                    <button onClick={() => setSelectedTournament(null)} className="md:hidden p-2 text-gray-500"><X /></button>
+              <div className="p-4 md:p-6 bg-white dark:bg-[#111111] border-b border-gray-200 dark:border-zinc-800 sticky top-0 z-10">
+                {/* Row 1: Title + close */}
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setSelectedTournament(null)} className="md:hidden p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-zinc-800 shrink-0"><X size={18} /></button>
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h2 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight">{selectedTournament.name}</h2>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-lg md:text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight leading-tight">{selectedTournament.name}</h2>
                         <StatusBadge status={selectedTournament.status} />
                       </div>
-                      <p className="text-sm text-gray-500 font-medium">{new Date(selectedTournament.date).toLocaleDateString()} às {selectedTournament.start_time}</p>
+                      <p className="text-xs text-gray-500 font-medium mt-0.5">{new Date(selectedTournament.date).toLocaleDateString()} às {selectedTournament.start_time}</p>
                     </div>
                   </div>
+                  <button onClick={() => setSelectedTournament(null)} className="hidden md:flex p-2 rounded-xl text-gray-400 hover:text-gray-600 transition-all shrink-0"><X size={22} /></button>
+                </div>
 
-                  {/* Tab Switcher */}
-                  <div className="hidden md:flex bg-gray-100 dark:bg-zinc-800 p-1 rounded-xl">
+                {/* Row 2: Tabs + Action buttons */}
+                <div className="flex items-center justify-between gap-3">
+                  {/* Tab switcher — visible on all sizes */}
+                  <div className="flex bg-gray-100 dark:bg-zinc-800 p-1 rounded-xl flex-1 md:flex-none">
                     <button
                       onClick={() => setActiveTab('logistica')}
-                      className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'logistica' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'logistica' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
                     >
-                      <Layout size={14} /> Logística
+                      <Layout size={13} /> Logística
                     </button>
                     <button
                       onClick={() => setActiveTab('salao')}
-                      className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'salao' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'salao' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
                     >
-                      <Monitor size={14} /> Visão do Salão
+                      <Monitor size={13} /> Salão
                     </button>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-3">
-                  {selectedTournament.status === 'scheduled' && (
-                    <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="px-6 py-2 rounded-xl bg-emerald-500 text-white font-bold hover:bg-emerald-600 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"><Play size={18} /> Iniciar</button>
-                  )}
-                  {selectedTournament.status === 'running' && (
-                    <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'paused' })} className="px-6 py-2 rounded-xl bg-amber-500 text-white font-bold hover:bg-amber-600 transition-all flex items-center gap-2 shadow-lg shadow-amber-500/20"><Pause size={18} /> Pausar</button>
-                  )}
-                  {selectedTournament.status === 'paused' && (
-                    <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="px-6 py-2 rounded-xl bg-emerald-500 text-white font-bold hover:bg-emerald-600 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"><Play size={18} /> Retomar</button>
-                  )}
-                  {['running', 'paused'].includes(selectedTournament.status) && (
-                    <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'finished' })} className="px-6 py-2 rounded-xl bg-gray-600 text-white font-bold hover:bg-gray-700 transition-all flex items-center gap-2 shadow-lg shadow-gray-500/10"><CheckCircle2 size={18} /> Finalizar</button>
-                  )}
-                  <button onClick={() => handleDeleteTournament(selectedTournament._id).then(() => setSelectedTournament(null))} className="p-3 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"><Trash2 size={20} /></button>
-                  <button onClick={() => setSelectedTournament(null)} className="hidden md:flex p-3 rounded-xl text-gray-400 hover:text-gray-600 transition-all"><X size={24} /></button>
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {selectedTournament.status === 'scheduled' && (
+                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="px-3 md:px-5 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"><Play size={14} /> <span className="hidden sm:inline">Iniciar</span></button>
+                    )}
+                    {selectedTournament.status === 'running' && (
+                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'paused' })} className="px-3 md:px-5 py-2 rounded-xl bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20"><Pause size={14} /> <span className="hidden sm:inline">Pausar</span></button>
+                    )}
+                    {selectedTournament.status === 'paused' && (
+                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="px-3 md:px-5 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"><Play size={14} /> <span className="hidden sm:inline">Retomar</span></button>
+                    )}
+                    {['running', 'paused'].includes(selectedTournament.status) && (
+                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'finished' })} className="px-3 md:px-5 py-2 rounded-xl bg-gray-600 text-white font-bold text-xs flex items-center gap-1.5"><CheckCircle2 size={14} /> <span className="hidden sm:inline">Finalizar</span></button>
+                    )}
+                    <button onClick={() => handleDeleteTournament(selectedTournament._id).then(() => setSelectedTournament(null))} className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"><Trash2 size={16} /></button>
+                  </div>
                 </div>
               </div>
+
+              {/* Scrollable content */}
+              <div className="overflow-y-auto flex-1">
 
               {activeTab === 'logistica' ? (
                 <div className="p-4 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -738,6 +748,8 @@ export default function Torneios() {
                   </div>
                 </div>
               )}
+
+              </div>{/* end scrollable */}
 
             </motion.div>
           </motion.div>
