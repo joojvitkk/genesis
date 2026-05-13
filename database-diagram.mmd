@@ -1,0 +1,164 @@
+erDiagram
+
+  User {
+    ObjectId _id PK
+    String   name "required"
+    String   email "required, unique"
+    String   password "hashed, bcrypt"
+    String   role "admin | material | salao"
+    String   created_by
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  ChipModel {
+    ObjectId _id PK
+    String   name "required"
+    Number   value "required – denomination"
+    String   color "hex color"
+    Number   total_quantity "required"
+    Number   available_quantity
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  StackModel {
+    ObjectId _id PK
+    String   name "required"
+    Number   total_value "calculated"
+    String   notes
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  StackModel_Composition {
+    ObjectId stack_model_id FK
+    ObjectId chip_id FK
+    Number   quantity "required"
+  }
+
+  ChipCase {
+    ObjectId _id PK
+    String   name "required"
+    String   status "available | allocated | maintenance"
+    String   allocated_to_tournament "Tournament _id (string)"
+    String   allocated_to_tournament_name
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  ChipCase_Chips {
+    ObjectId chip_case_id FK
+    ObjectId chip_id FK
+    Number   quantity
+  }
+
+  Tournament {
+    ObjectId _id PK
+    String   name "required"
+    Date     date "required"
+    String   start_time
+    String   status "scheduled | running | paused | finished"
+    Number   estimated_players
+    Number   actual_players
+    Number   starting_stack "derived from StackModel"
+    ObjectId stack_model_id FK "ref StackModel"
+    Number   current_level
+    String   notes
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  Tournament_BlindStructure {
+    ObjectId tournament_id FK
+    Number   level
+    Number   small_blind
+    Number   big_blind
+    Number   ante
+    Number   duration "minutes"
+  }
+
+  Tournament_AllocatedCases {
+    ObjectId tournament_id FK
+    ObjectId chip_case_id FK
+  }
+
+  Tournament_StackComposition {
+    ObjectId tournament_id FK
+    ObjectId chip_id FK
+    Number   per_player "chips per player"
+  }
+
+  TournamentEntry {
+    ObjectId _id PK
+    ObjectId tournament_id FK "required – ref Tournament"
+    String   type "buy-in | re-entry"
+    ObjectId stack_model_id FK "ref StackModel"
+    String   player_name
+    Date     timestamp
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  ChipRace {
+    ObjectId _id PK
+    ObjectId tournament_id FK "required – ref Tournament"
+    String   type "chip-race | color-up"
+    Number   active_tables "required"
+    Number   num_players
+    Number   chips_per_player
+    ObjectId from_chip FK "required – ref ChipModel"
+    Number   from_quantity "calculated: num_players x chips_per_player"
+    ObjectId to_chip FK "required – ref ChipModel"
+    Number   to_quantity "calculated"
+    Number   total_value "calculated"
+    String   status "confirmed | cancelled"
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  ActivityLog {
+    ObjectId _id PK
+    String   action "required"
+    String   category "inventory | tournament | chip_race | chip_case | system"
+    String   details
+    String   user_name
+    String   user_email
+    String   related_id
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  ChatMessage {
+    ObjectId _id PK
+    String   message "required"
+    String   sender_name
+    String   sender_email
+    String   sender_role "admin | material | salao"
+    String   channel "general | material | salao"
+    Boolean  is_urgent
+    Date     createdAt
+    Date     updatedAt
+  }
+
+  %% ── Relacionamentos ────────────────────────────────────────────
+
+  StackModel              ||--o{ StackModel_Composition      : "tem composição"
+  ChipModel               ||--o{ StackModel_Composition      : "usado em"
+
+  ChipCase                ||--o{ ChipCase_Chips              : "contém fichas"
+  ChipModel               ||--o{ ChipCase_Chips              : "presente em"
+
+  Tournament              }o--o| StackModel                  : "modelo de stack"
+  Tournament              ||--o{ Tournament_BlindStructure   : "estrutura de blinds"
+  Tournament              ||--o{ Tournament_AllocatedCases   : "maletas alocadas"
+  ChipCase                ||--o{ Tournament_AllocatedCases   : "alocada em"
+  Tournament              ||--o{ Tournament_StackComposition : "composição do stack"
+  ChipModel               ||--o{ Tournament_StackComposition : "compõe stack"
+
+  Tournament              ||--o{ TournamentEntry             : "inscrições"
+  StackModel              ||--o{ TournamentEntry             : "modelo aplicado"
+
+  Tournament              ||--o{ ChipRace                    : "chip races"
+  ChipModel               ||--o{ ChipRace                    : "from_chip"
+  ChipModel               ||--o{ ChipRace                    : "to_chip"
