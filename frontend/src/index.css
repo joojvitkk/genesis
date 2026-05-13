@@ -10,21 +10,6 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
-  :root {
-    --background: #f4f4f5;
-    --foreground: #111827;
-    --card: #ffffff;
-    --border: #e4e4e7;
-    --bottom-nav-h: 68px;
-  }
-
-  .dark {
-    --background: #0A0A0A;
-    --foreground: #f4f4f5;
-    --card: #111111;
-    --border: #27272a;
-  }
-
   * {
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
@@ -32,94 +17,44 @@
 
   html {
     scroll-behavior: smooth;
-    /* Prevent text size adjustment on orientation change */
     -webkit-text-size-adjust: 100%;
   }
 
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    @apply text-gray-900 transition-colors duration-300 antialiased;
-    background-color: var(--background);
-    color: var(--foreground);
-    /* Safe area insets for notched phones */
+    background-color: #f4f4f5;
+    color: #111827;
+    transition: background-color 0.3s, color 0.3s;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
     padding-bottom: env(safe-area-inset-bottom, 0);
   }
 
-  /* Prevent unwanted scroll bounce on iOS */
-  body {
-    overscroll-behavior: none;
+  .dark body {
+    background-color: #0A0A0A;
+    color: #f4f4f5;
   }
 }
 
 @layer components {
   /* Glass morphism */
   .glass {
-    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
   }
   .dark .glass {
-    @apply bg-black/40 backdrop-blur-md border border-white/10 shadow-2xl;
-  }
-
-  /* Card base */
-  .card {
-    @apply bg-white dark:bg-[#141414] rounded-2xl border border-gray-100 dark:border-zinc-800 shadow-sm;
-  }
-
-  /* Input base */
-  .input-base {
-    @apply w-full bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 
-           rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white 
-           focus:outline-none focus:ring-2 focus:ring-genesis-red/50 transition-all;
-  }
-
-  /* Button primary */
-  .btn-primary {
-    @apply px-5 py-3 bg-genesis-red text-white font-bold rounded-xl
-           hover:bg-red-700 active:scale-95 transition-all shadow-lg shadow-red-500/20
-           flex items-center justify-center gap-2;
-  }
-
-  /* Mobile bottom padding so content doesn't hide under bottom nav */
-  .mobile-content {
-    @apply pb-[calc(68px+env(safe-area-inset-bottom,0px))] md:pb-0;
-  }
-
-  /* Section header on mobile */
-  .page-title {
-    @apply text-2xl md:text-4xl font-black uppercase tracking-tighter text-gray-900 dark:text-white;
-  }
-
-  .page-subtitle {
-    @apply text-sm text-gray-500 font-medium;
-  }
-
-  /* Stat card */
-  .stat-card {
-    @apply card p-4 md:p-6 flex flex-col gap-1;
-  }
-
-  /* Table header */
-  .th {
-    @apply px-4 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest;
+    background: rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.1);
   }
 
   /* Scrollable X with hidden bar */
   .scroll-x {
-    @apply overflow-x-auto;
+    overflow-x: auto;
     scrollbar-width: none;
   }
   .scroll-x::-webkit-scrollbar {
     display: none;
   }
-
-  /* Badge */
-  .badge {
-    @apply px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider;
-  }
-}
-
-/* Smooth scroll for content areas */
-[data-scroll-container] {
-  -webkit-overflow-scrolling: touch;
-  overflow-y: auto;
 }
