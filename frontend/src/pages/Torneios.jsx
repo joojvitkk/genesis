@@ -239,9 +239,9 @@ export default function Torneios() {
     if (!selectedTournament) return;
     const newBlinds = [...(selectedTournament.blind_structure || [])];
     if (!newBlinds[index]) {
-      newBlinds[index] = { level: index + 1, small_blind: 0, big_blind: 0, ante: 0, duration: 20 };
+      newBlinds[index] = { row_type: 'level', level: index + 1, small_blind: 0, big_blind: 0, ante: 0, duration: 20 };
     }
-    newBlinds[index][field] = parseInt(value) || 0;
+    newBlinds[index][field] = field === 'duration' ? (parseInt(value) || 0) : (parseInt(value) || 0);
     handleUpdateTournament(selectedTournament._id, { blind_structure: newBlinds });
   };
 
@@ -253,15 +253,32 @@ export default function Torneios() {
 
   const addBlindLevel = () => {
     const current = selectedTournament.blind_structure || [];
-    const lastLevel = current.length > 0 ? current[current.length - 1] : { level: 0, small_blind: 50, big_blind: 100, ante: 0, duration: 20 };
+    const levels = current.filter(r => !r.row_type || r.row_type === 'level');
+    const lastLevel = levels.length > 0 ? levels[levels.length - 1] : { small_blind: 50, big_blind: 100, ante: 0, duration: 20 };
     const nextLevel = {
-      level: current.length + 1,
+      row_type: 'level',
+      level: levels.length + 1,
       small_blind: lastLevel.small_blind * 2,
       big_blind: lastLevel.big_blind * 2,
       ante: lastLevel.ante * 2,
       duration: lastLevel.duration
     };
     handleUpdateTournament(selectedTournament._id, { blind_structure: [...current, nextLevel] });
+  };
+
+  const addBreakRow = (durationMins) => {
+    const current = selectedTournament.blind_structure || [];
+    handleUpdateTournament(selectedTournament._id, {
+      blind_structure: [...current, { row_type: 'break', duration: durationMins, label: `Break ${durationMins} min` }]
+    });
+  };
+
+  const addSpecialRow = (row_type) => {
+    const current = selectedTournament.blind_structure || [];
+    const labels = { end_registration: 'Fim do Registro', end_day: 'Fim do Dia Classificatório' };
+    handleUpdateTournament(selectedTournament._id, {
+      blind_structure: [...current, { row_type, label: labels[row_type] }]
+    });
   };
 
   const handleDeleteTournament = async (id) => {
@@ -489,14 +506,25 @@ export default function Torneios() {
                     <div className="bg-white dark:bg-[#141414] rounded-3xl p-6 border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-bold flex items-center gap-2"><History className="text-blue-500" /> Estrutura de Blinds</h3>
-                        <button 
-                          disabled={selectedTournament.status === 'finished'}
-                          onClick={addBlindLevel} 
-                          className="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-bold hover:bg-blue-100 transition-all flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          <Plus size={14} /> Adicionar Nível
+                      </div>
+                      {/* Add-row buttons */}
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <button onClick={addBlindLevel} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 dark:bg-zinc-800 hover:bg-genesis-red hover:text-white transition-all flex items-center gap-1">
+                          <Plus size={12} /> Nível
+                        </button>
+                        {[15, 45, 60, 90].map(d => (
+                          <button key={d} onClick={() => addBreakRow(d)} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500 hover:text-white transition-all">
+                            Break {d}min
+                          </button>
+                        ))}
+                        <button onClick={() => addSpecialRow('end_registration')} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500 hover:text-white transition-all">
+                          Fim Registro
+                        </button>
+                        <button onClick={() => addSpecialRow('end_day')} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500 hover:text-white transition-all">
+                          Fim do Dia
                         </button>
                       </div>
+
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
                           <thead>
@@ -510,26 +538,56 @@ export default function Torneios() {
                             </tr>
                           </thead>
                           <tbody>
-                            {(selectedTournament.blind_structure || []).map((lvl, idx) => (
-                              <tr key={idx} className="border-b border-gray-50 dark:border-zinc-900/50 hover:bg-gray-50/50 dark:hover:bg-zinc-800/30 transition-colors group">
-                                <td className="py-2 pr-4 font-bold text-gray-400">{idx + 1}</td>
-                                <td className="py-2 px-2">
-                                  <input type="number" value={lvl.small_blind} onChange={(e) => handleUpdateBlind(idx, 'small_blind', e.target.value)} className="w-20 bg-transparent font-bold focus:text-genesis-red outline-none" />
-                                </td>
-                                <td className="py-2 px-2">
-                                  <input type="number" value={lvl.big_blind} onChange={(e) => handleUpdateBlind(idx, 'big_blind', e.target.value)} className="w-20 bg-transparent font-bold focus:text-genesis-red outline-none" />
-                                </td>
-                                <td className="py-2 px-2 text-gray-500">
-                                  <input type="number" value={lvl.ante} onChange={(e) => handleUpdateBlind(idx, 'ante', e.target.value)} className="w-16 bg-transparent focus:text-genesis-red outline-none" />
-                                </td>
-                                <td className="py-2 px-2 text-gray-500">
-                                  <input type="number" value={lvl.duration} onChange={(e) => handleUpdateBlind(idx, 'duration', e.target.value)} className="w-12 bg-transparent focus:text-genesis-red outline-none" />
-                                </td>
-                                <td className="py-2 pl-4 text-right">
-                                  <button onClick={() => removeBlindLevel(idx)} className="p-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
-                                </td>
-                              </tr>
-                            ))}
+                            {(selectedTournament.blind_structure || []).map((lvl, idx) => {
+                              const isBreak = lvl.row_type === 'break';
+                              const isSpecial = lvl.row_type === 'end_registration' || lvl.row_type === 'end_day';
+                              if (isSpecial) return (
+                                <tr key={idx} className="border-b border-gray-50 dark:border-zinc-900/50 group">
+                                  <td colSpan={5} className="py-2 pr-4">
+                                    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                      lvl.row_type === 'end_registration' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                                    }`}>
+                                      ● {lvl.label}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 pl-4 text-right">
+                                    <button onClick={() => removeBlindLevel(idx)} className="p-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
+                                  </td>
+                                </tr>
+                              );
+                              if (isBreak) return (
+                                <tr key={idx} className="border-b border-gray-50 dark:border-zinc-900/50 group bg-amber-50/30 dark:bg-amber-500/5">
+                                  <td className="py-2 pr-4">
+                                    <span className="inline-flex items-center gap-1 text-xs font-black text-amber-600 dark:text-amber-400 uppercase">☕ Break</span>
+                                  </td>
+                                  <td colSpan={3} className="py-2 px-2 text-gray-400 text-xs">—</td>
+                                  <td className="py-2 px-2">
+                                    <select
+                                      value={lvl.duration}
+                                      onChange={(e) => handleUpdateBlind(idx, 'duration', e.target.value)}
+                                      className="bg-transparent text-amber-600 dark:text-amber-400 font-bold text-xs outline-none cursor-pointer"
+                                    >
+                                      {[10, 15, 20, 30, 45, 60, 90].map(d => <option key={d} value={d}>{d} min</option>)}
+                                    </select>
+                                  </td>
+                                  <td className="py-2 pl-4 text-right">
+                                    <button onClick={() => removeBlindLevel(idx)} className="p-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
+                                  </td>
+                                </tr>
+                              );
+                              // Normal level row
+                              const levelNum = (selectedTournament.blind_structure || []).slice(0, idx + 1).filter(r => !r.row_type || r.row_type === 'level').length;
+                              return (
+                                <tr key={idx} className="border-b border-gray-50 dark:border-zinc-900/50 hover:bg-gray-50/50 dark:hover:bg-zinc-800/30 transition-colors group">
+                                  <td className="py-2 pr-4 font-bold text-gray-400">{levelNum}</td>
+                                  <td className="py-2 px-2"><input type="number" value={lvl.small_blind} onChange={(e) => handleUpdateBlind(idx, 'small_blind', e.target.value)} className="w-20 bg-transparent font-bold focus:text-genesis-red outline-none" /></td>
+                                  <td className="py-2 px-2"><input type="number" value={lvl.big_blind} onChange={(e) => handleUpdateBlind(idx, 'big_blind', e.target.value)} className="w-20 bg-transparent font-bold focus:text-genesis-red outline-none" /></td>
+                                  <td className="py-2 px-2 text-gray-500"><input type="number" value={lvl.ante} onChange={(e) => handleUpdateBlind(idx, 'ante', e.target.value)} className="w-16 bg-transparent focus:text-genesis-red outline-none" /></td>
+                                  <td className="py-2 px-2 text-gray-500"><input type="number" value={lvl.duration} onChange={(e) => handleUpdateBlind(idx, 'duration', e.target.value)} className="w-12 bg-transparent focus:text-genesis-red outline-none" /></td>
+                                  <td className="py-2 pl-4 text-right"><button onClick={() => removeBlindLevel(idx)} className="p-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button></td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>

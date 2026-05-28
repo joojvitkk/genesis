@@ -10,11 +10,13 @@ const TournamentSchema = new mongoose.Schema({
   starting_stack: { type: Number, default: 0 },
   stack_model_id: { type: mongoose.Schema.Types.ObjectId, ref: 'StackModel', default: null },
   blind_structure: [{
+    row_type: { type: String, enum: ['level', 'break', 'end_registration', 'end_day'], default: 'level' },
     level: { type: Number },
     small_blind: { type: Number },
     big_blind: { type: Number },
     ante: { type: Number },
-    duration: { type: Number }
+    duration: { type: Number },   // minutes (for levels and breaks)
+    label: { type: String }       // custom label for special rows
   }],
   allocated_cases: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ChipCase' }],
   stack_composition: [{
