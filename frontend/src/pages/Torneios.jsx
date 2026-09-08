@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { 
-  Trophy, Plus, Search, Calendar, Clock, MapPin, 
-  ChevronRight, Filter, MoreVertical, Edit2, Trash2, 
-  Play, Pause, CheckCircle2, UserPlus, Users, Coins, 
-  Settings, Info, Layout, X, Save, AlertCircle, Briefcase, PlusCircle, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, ChevronDown, Minus, History, Package
+  Trophy, Plus, Clock, 
+  ChevronRight, Trash2, 
+  Play, Pause, CheckCircle2, Users, 
+  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, Minus, History, Package
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';

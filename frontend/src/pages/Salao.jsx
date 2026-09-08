@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { 
-  MonitorPlay, Trophy, Users, Coins, Clock, ChevronRight, 
-  Search, Filter, LayoutGrid, List, Play, Pause, CheckCircle2, Calendar, Archive
+  MonitorPlay, Users, Coins, Clock, ChevronRight, 
+  Search, Play, Pause, CheckCircle2, Calendar, Archive
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiGet } from '../lib/api';

@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  History, Search, Filter, ArrowUpCircle, ArrowDownCircle, 
-  Calendar, User, ChevronLeft, ChevronRight, Hash, Info, X, Clock, ChevronDown
+import { Search, ArrowUpCircle, ArrowDownCircle, 
+  Calendar, User, ChevronLeft, ChevronRight, Hash, Info, X, Clock
 } from 'lucide-react';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet } from '../lib/api';

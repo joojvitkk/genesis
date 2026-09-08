@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('../lib/softDelete');
 
 const ChipCaseSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -18,5 +19,7 @@ const ChipCaseSchema = new mongoose.Schema({
     chip_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ChipModel' }]
   }]
 }, { timestamps: true });
+
+ChipCaseSchema.plugin(softDelete);
 
 module.exports = mongoose.model('ChipCase', ChipCaseSchema);

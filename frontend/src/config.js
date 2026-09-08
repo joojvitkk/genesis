@@ -1,6 +1,9 @@
-// URL do backend. Prioriza VITE_BACKEND_URL; senão usa o host atual na porta 3000.
+// URL do backend.
+// - VITE_BACKEND_URL definido (mesmo vazio) manda: "" = mesma origem (build de produção atrás do nginx)
+// - ausente (dev): host atual na porta 3000
+const envUrl = import.meta.env.VITE_BACKEND_URL;
 export const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL || `http://${window.location.hostname}:3000`;
+  envUrl !== undefined ? envUrl : `http://${window.location.hostname}:3000`;
 
 // Matriz de permissões — mantida em sincronia com
 // backend/middlewares/authMiddleware.js (accessControl)

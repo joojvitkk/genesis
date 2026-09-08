@@ -54,6 +54,7 @@ Pré-requisitos: Node.js 22+ e um MongoDB acessível.
 cd backend
 npm install
 cp .env.example .env      # ajuste MONGO_URI e JWT_SECRET
+npm run migrate           # aplica migrações pendentes
 npm start                 # http://localhost:3000
 
 # frontend (em outro terminal)
@@ -61,6 +62,42 @@ cd frontend
 npm install
 npm run dev               # http://localhost:5173
 ```
+
+### Produção (Docker)
+
+`docker-compose.prod.yml` builda imagens otimizadas: frontend estático servido por
+**Nginx** (que faz proxy de `/api` e `/socket.io` para o backend), backend com
+`NODE_ENV=production`, `restart: unless-stopped` e healthcheck, MongoDB sem porta exposta.
+
+```bash
+cp .env.prod.example .env         # defina JWT_SECRET (obrigatório), CORS_ORIGIN, WEB_PORT
+docker compose -f docker-compose.prod.yml up -d --build
+# aplica migrações uma vez após o primeiro deploy:
+docker compose -f docker-compose.prod.yml exec genesis-backend npm run migrate
+```
+
+App em `http://localhost:${WEB_PORT:-8080}`.
+
+### Testes e qualidade
+
+```bash
+# backend  (precisa de um MongoDB para o banco de teste)
+cd backend && MONGO_URI_TEST=mongodb://127.0.0.1:27017/genesis_test npm test
+
+# frontend
+cd frontend && npm run lint && npm test && npm run build
+```
+
+`.github/workflows/ci.yml` roda os dois em cada PR (backend com serviço MongoDB).
+
+### Migrações e backup
+
+| Comando | O quê |
+| --- | --- |
+| `npm run migrate` (em `backend/`) | Aplica migrações pendentes (`migrate-mongo`). |
+| `npm run migrate:status` | Lista o estado das migrações. |
+| `./scripts/backup.sh [dir]` | `mongodump` comprimido + retenção de 14 dias. Ideal em cron. |
+| `./scripts/restore.sh arquivo.archive.gz` | Restaura um backup (`--drop`, pede confirmação). |
 
 ---
 
@@ -196,22 +233,41 @@ Eventos: `joinChannel` / `leaveChannel` / `sendMessage` / `newMessage`,
 ```
 genesis/
 ├── backend/
-│   ├── server.js               # Express + Socket.io + seeder do admin
+│   ├── app.js                   # Express app (testável, sem listen)
+│   ├── server.js                # bootstrap: Mongo + seeder + Socket.io + listen
 │   ├── routes/index.js          # todas as rotas REST
 │   ├── middlewares/authMiddleware.js
+│   ├── lib/                     # logger (pino), paginação, plugin soft-delete
 │   ├── services/activityLogger.js
 │   ├── models/                  # schemas Mongoose
-│   └── scripts/fix_user_indexes.js  # remove índice legado username_1
+│   ├── migrations/              # migrate-mongo
+│   └── test/                    # node:test + supertest
 ├── frontend/
-│   └── src/
-│       ├── App.jsx              # rotas + auth + BACKEND_URL + socket
-│       ├── components/Sidebar.jsx
-│       ├── contexts/AlertContext.jsx  # toasts + confirm
-│       ├── pages/               # uma página por módulo
-│       └── utils/csvExport.js
-├── docker-compose.yml
+│   ├── src/
+│   │   ├── App.jsx              # rotas + RequireArea + sessão
+│   │   ├── config.js            # BACKEND_URL + PERMISSIONS
+│   │   ├── lib/                 # api (fetch central), auth, socket
+│   │   ├── components/          # Sidebar, CustomSelect
+│   │   ├── contexts/AlertContext.jsx
+│   │   ├── hooks/useModalDismiss.js
+│   │   └── pages/               # uma página por módulo
+│   ├── nginx.conf               # proxy /api + /socket.io (build de produção)
+│   └── Dockerfile.prod          # build multi-stage → nginx
+├── scripts/                     # backup.sh / restore.sh
+├── .github/workflows/ci.yml
+├── docker-compose.yml           # desenvolvimento
+├── docker-compose.prod.yml      # produção
 └── database-diagram.mmd / .png  # diagrama ER
 ```
+
+### Notas de API
+
+- **Soft-delete**: `DELETE` de torneio, ficha e fichário marca `deleted_at` — o registro
+  some das listagens mas fica no banco. Apagar um torneio remove suas entradas e arquiva
+  (`status: cancelled`) seus chip races.
+- **Paginação**: as listagens (`/tournaments`, `/chips`, `/cases`, `/chip-races`) devolvem
+  um array por padrão (teto de 500) com headers `X-Total-Count` / `X-Total-Pages`. Com
+  `?page=` / `?limit=` devolvem `{ data, pagination }`.
 
 ---
 
@@ -222,9 +278,9 @@ Use exatamente `administrador@admin.com.br`. Se o banco for novo, confira no log
 a mensagem `Default Admin user created successfully.`.
 
 **Erro de índice duplicado (`username_1`) ao subir**
-Banco vindo de uma versão antiga (schema tinha `username`). Rode:
+Banco vindo de uma versão antiga (schema tinha `username`). Rode as migrações:
 ```bash
-cd backend && node scripts/fix_user_indexes.js
+cd backend && npm run migrate
 ```
 
 **Frontend não fala com o backend via IP da rede**
@@ -269,17 +325,30 @@ automaticamente e mostra um aviso — basta logar de novo.
   agora funciona.
 - Páginas órfãs `Admin.jsx` e `LogEstoque.jsx` removidas.
 
-## ⚠️ Ainda em aberto
+## ✅ Fase P0 do roadmap — concluída
 
-- **Estoque x fichários**: criar um fichário só debita o estoque quando a linha está marcada
-  como "entrada automática"; a alocação em si não reserva fichas. Precisa de um modelo de
-  reserva/consumo coerente.
-- **`ChipCase`** ainda carrega 3 gerações de campos de alocação
-  (`allocated_to_tournament`, `allocations[]`, `Tournament.allocated_cases[]`) — escolher
-  uma fonte de verdade e migrar.
-- **Timer de blinds** é só visual; não há relógio server-side (`current_level` não avança
-  sozinho).
-- **Sem testes automatizados** e sem CI.
+- `backend/app.js` separado do `server.js` (app testável).
+- **Testes**: 16 no backend (`node:test` + supertest) cobrindo auth, permissões,
+  whitelist, chip race, estoque negativo, soft-delete e paginação; 9 no frontend
+  (`vitest`) para o cliente de API e a matriz de permissões.
+- **CI** (`.github/workflows/ci.yml`): lint + testes + build nos dois em cada PR.
+- **Build de produção**: `docker-compose.prod.yml` (Nginx + backend prod + healthchecks).
+- **Soft-delete** em torneio/ficha/fichário + cascata (entradas removidas, chip races
+  arquivadas).
+- **Paginação** opt-in em todas as listagens, com teto rígido de 500.
+- **Migrações** versionadas (`migrate-mongo`); `fix_user_indexes.js` virou a 1ª migração.
+- **Log estruturado** (`pino`) substituindo `console.*`.
+- **Backup**: `scripts/backup.sh` / `restore.sh`.
+
+## ⚠️ Ainda em aberto (roadmap P1–P6)
+
+- **P1 — Relógio de torneio**: `current_level` não avança sozinho, sem tela de projeção.
+- **P2 — Jogadores/premiação**: `TournamentEntry` ainda é contador anônimo.
+- **P3 — Estoque x fichários**: alocação não reserva fichas; `ChipCase` com 3 gerações de
+  campos de alocação para consolidar.
+- **P4 — Mesas/seating**, **P5 — segurança avançada / PWA offline**, **P6 — incrementais**.
+
+Ver o [roadmap completo](https://claude.ai/code/artifact/c98c1207-a6ec-4634-8267-1c81b25c5ac5).
 
 ---
 

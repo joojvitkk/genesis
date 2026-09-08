@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Briefcase, Plus, Trash2, Edit2, X, AlertCircle, ChevronDown, PackagePlus, Link2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Briefcase, Plus, Trash2, Edit2, X, AlertCircle, PackagePlus, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';

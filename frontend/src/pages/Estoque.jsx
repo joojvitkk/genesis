@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { PackageOpen, Plus, Edit2, Trash2, ArrowRightLeft, CheckCircle2, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { PackageOpen, Plus, Edit2, Trash2, ArrowRightLeft, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';

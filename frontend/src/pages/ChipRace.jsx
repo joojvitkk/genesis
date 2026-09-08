@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calculator, Plus, Trash2, History, ChevronRight, X, Layers, AlertCircle, CheckCircle2, ArrowRight, Edit2, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, X, Layers, CheckCircle2, ArrowRight, Edit2 } from 'lucide-react';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import CustomSelect from '../components/CustomSelect';

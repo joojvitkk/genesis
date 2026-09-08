@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('../lib/softDelete');
 
 const TournamentSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -26,5 +27,8 @@ const TournamentSchema = new mongoose.Schema({
   current_level: { type: Number, default: 0 },
   notes: { type: String }
 }, { timestamps: true });
+
+TournamentSchema.plugin(softDelete);
+TournamentSchema.index({ status: 1, date: -1 });
 
 module.exports = mongoose.model('Tournament', TournamentSchema);

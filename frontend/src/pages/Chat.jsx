@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Hash, Users, AlertTriangle, Clock, MessageSquare, ChevronRight, Bell, Shield, Package, MonitorPlay } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
+import { Send, Users, AlertTriangle, Clock, MessageSquare, Bell, Shield, Package, MonitorPlay } from 'lucide-react';
 import { socket } from '../lib/socket';
 import { apiGet } from '../lib/api';
 import { getStoredUser } from '../lib/auth';

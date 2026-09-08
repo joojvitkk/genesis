@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
 } from 'recharts';
 import { 
-  Trophy, Coins, Activity, Filter, Download, Calendar, 
-  ChevronDown, Search, ArrowUpRight, ArrowDownRight, Clock, X, ChevronLeft, ChevronRight, Info
+  Trophy, Coins, Activity, Download, Calendar, ArrowUpRight, Clock, X, ChevronLeft, ChevronRight, Info
 } from 'lucide-react';
 import { apiGet } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';

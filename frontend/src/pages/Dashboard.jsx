@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Trophy, Coins, Briefcase, Activity, PlayCircle, CheckCircle2, Clock, PlusCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { apiGet } from '../lib/api';

@@ -9,7 +9,8 @@ import { getToken, notifyUnauthorized } from './auth';
  * - lança Error com `.status` e `.data` em respostas não-ok
  */
 export async function api(path, { method = 'GET', body, params, signal } = {}) {
-  const url = new URL(`${BACKEND_URL}/api${path.replace(/^\//, '/')}`);
+  const base = BACKEND_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  const url = new URL(`${base}/api${path.startsWith('/') ? path : '/' + path}`);
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);

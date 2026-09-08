@@ -10,6 +10,7 @@ const {
 } = require('../middlewares/authMiddleware');
 const logActivity = require('../services/activityLogger');
 const { escapeRegex, toInt, pick } = require('../utils/sanitize');
+const { paginate } = require('../lib/pagination');
 const { User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage } = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -149,6 +150,7 @@ router.get('/dashboard/stats', verifyToken, async (req, res) => {
     const activeTournamentsCount = await Tournament.countDocuments({ status: 'running' });
 
     const chipsAggregate = await ChipModel.aggregate([
+      { $match: { deleted_at: null } },
       { $group: { _id: null, total: { $sum: '$total_quantity' } } }
     ]);
     const totalChipsInStock = chipsAggregate.length ? chipsAggregate[0].total : 0;
@@ -177,8 +179,7 @@ const CHIP_FIELDS = ['name', 'value', 'color', 'total_quantity', 'available_quan
 
 router.get('/chips', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
-    const chips = await ChipModel.find().sort({ value: 1 });
-    res.json(chips);
+    await paginate(res, ChipModel, {}, { sort: { value: 1 }, query: req.query });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -220,8 +221,9 @@ router.put('/chips/:id', verifyToken, requirePageAccess('estoque'), async (req, 
 
 router.delete('/chips/:id', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
-    const chip = await ChipModel.findByIdAndDelete(req.params.id);
+    const chip = await ChipModel.findById(req.params.id);
     if (!chip) return res.status(404).json({ error: 'Ficha não encontrada.' });
+    await chip.softDelete();
     await logActivity('Ficha Excluída', 'inventory', `ID: ${req.params.id} | Nome: ${chip.name}`, req.user);
     res.json({ message: 'Ficha excluída com sucesso' });
   } catch (err) {
@@ -234,8 +236,7 @@ const CASE_FIELDS = ['name', 'chips', 'status', 'allocations', 'allocated_to_tou
 
 router.get('/cases', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
   try {
-    const cases = await ChipCase.find().populate('chips.chip_id').sort({ createdAt: -1 });
-    res.json(cases);
+    await paginate(res, ChipCase, {}, { populate: 'chips.chip_id', sort: { createdAt: -1 }, query: req.query });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -268,8 +269,9 @@ router.put('/cases/:id', verifyToken, requirePageAccess('ficharios'), async (req
 
 router.delete('/cases/:id', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
   try {
-    const chipCase = await ChipCase.findByIdAndDelete(req.params.id);
+    const chipCase = await ChipCase.findById(req.params.id);
     if (!chipCase) return res.status(404).json({ error: 'Fichário não encontrado.' });
+    await chipCase.softDelete();
     await logActivity('Fichário Excluído', 'chip_case', `ID: ${req.params.id} | Nome: ${chipCase.name}`, req.user);
     res.json({ message: 'Fichário excluído com sucesso' });
   } catch (err) {
@@ -316,8 +318,7 @@ const TOURNAMENT_FIELDS = [
 
 router.get('/tournaments', verifyToken, async (req, res) => {
   try {
-    const tournaments = await Tournament.find().sort({ date: -1, createdAt: -1 });
-    res.json(tournaments);
+    await paginate(res, Tournament, {}, { sort: { date: -1, createdAt: -1 }, query: req.query });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -369,6 +370,7 @@ router.delete('/tournaments/:id', verifyToken, requirePageAccess('torneios'), as
     const tournament = await Tournament.findById(req.params.id);
     if (!tournament) return res.status(404).json({ error: 'Torneio não encontrado' });
 
+    // Libera fichários alocados
     if (tournament.allocated_cases && tournament.allocated_cases.length > 0) {
       await ChipCase.updateMany(
         { _id: { $in: tournament.allocated_cases } },
@@ -376,8 +378,18 @@ router.delete('/tournaments/:id', verifyToken, requirePageAccess('torneios'), as
       );
     }
 
-    await Tournament.findByIdAndDelete(req.params.id);
-    await logActivity('Torneio Excluído', 'tournament', `Nome: ${tournament.name}`, req.user);
+    // Cascata: entradas somem, chip races ficam arquivadas (status cancelled)
+    const [entriesRes, racesRes] = await Promise.all([
+      TournamentEntry.deleteMany({ tournament_id: tournament._id }),
+      ChipRace.updateMany({ tournament_id: tournament._id }, { $set: { status: 'cancelled' } }),
+    ]);
+
+    await tournament.softDelete();
+    await logActivity(
+      'Torneio Excluído', 'tournament',
+      `Nome: ${tournament.name} | Entradas removidas: ${entriesRes.deletedCount} | Chip races arquivadas: ${racesRes.modifiedCount}`,
+      req.user
+    );
     res.json({ message: 'Torneio excluído com sucesso' });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -540,12 +552,11 @@ function computeRace(fromChipModel, toChipModel, num_players, chips_per_player) 
 
 router.get('/chip-races', verifyToken, async (req, res) => {
   try {
-    const races = await ChipRace.find()
-      .populate('tournament_id')
-      .populate('from_chip')
-      .populate('to_chip')
-      .sort({ createdAt: -1 });
-    res.json(races);
+    await paginate(res, ChipRace, {}, {
+      populate: ['tournament_id', 'from_chip', 'to_chip'],
+      sort: { createdAt: -1 },
+      query: req.query,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
