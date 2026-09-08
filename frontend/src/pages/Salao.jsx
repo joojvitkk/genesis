@@ -5,31 +5,33 @@ import {
   Search, Filter, LayoutGrid, List, Play, Pause, CheckCircle2, Calendar, Archive
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { BACKEND_URL } from '../App';
+import { apiGet } from '../lib/api';
+import { useAlert } from '../contexts/AlertContext';
 
 export default function Salao() {
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const navigate = useNavigate();
+  const { showAlert } = useAlert();
 
   useEffect(() => {
     fetchTournaments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchTournaments = async () => {
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) setTournaments(await res.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      setTournaments(await apiGet('/tournaments'));
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar torneios', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const filtered = tournaments.filter(t => 
-    t.name.toLowerCase().includes(searchTerm.toLowerCase())
+  const filtered = tournaments.filter(t =>
+    (t.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const activeTournaments = filtered.filter(t => t.status !== 'finished');

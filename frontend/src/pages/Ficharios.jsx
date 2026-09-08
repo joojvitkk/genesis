@@ -2,53 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Briefcase, Plus, Trash2, Edit2, X, AlertCircle, ChevronDown, PackagePlus, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
-import { BACKEND_URL } from '../App';
-
-const CustomSelect = ({ options, value, onChange, placeholder, disabled }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef(null);
-  const selectedOption = options.find(o => o.value === value);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  return (
-    <div className="relative w-full flex-1" ref={containerRef}>
-      <div
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full flex justify-between items-center bg-white dark:bg-[#141414] border border-gray-300 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={16} className={`transition-transform text-gray-400 shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.15 }}
-            className="absolute z-50 w-full mt-1 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg shadow-xl max-h-48 overflow-y-auto"
-          >
-            {options.map(opt => (
-              <div
-                key={opt.value}
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className="px-3 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer text-sm text-gray-900 dark:text-white flex items-center justify-between border-b border-gray-50 dark:border-zinc-800/30 last:border-0"
-              >
-                {opt.label}
-              </div>
-            ))}
-            {options.length === 0 && <div className="px-3 py-2 text-sm text-gray-400">Nenhuma opção disponível</div>}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import CustomSelect from '../components/CustomSelect';
 
 export default function Ficharios() {
   const { showAlert, showConfirm } = useAlert();
@@ -67,18 +22,11 @@ export default function Ficharios() {
 
   const fetchInitialData = async () => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const headers = { 'Authorization': `Bearer ${token}` };
-      const [casesRes, chipsRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/cases`, { headers, cache: 'no-store' }),
-        fetch(`${BACKEND_URL}/api/chips`, { headers, cache: 'no-store' })
-      ]);
-      if (casesRes.ok && chipsRes.ok) {
-        setCases(await casesRes.json());
-        setAvailableChips(await chipsRes.json());
-      }
+      const [casesData, chipsData] = await Promise.all([apiGet('/cases'), apiGet('/chips')]);
+      setCases(casesData);
+      setAvailableChips(chipsData);
     } catch (e) {
-      console.error(e);
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar fichários', 'error');
     } finally {
       setLoading(false);
     }
@@ -89,32 +37,21 @@ export default function Ficharios() {
   // ── SAVE CASE ────────────────────────────────────────────────
   const handleSaveCase = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('genesis_token');
-    const method = editingCase ? 'PUT' : 'POST';
-    const url = editingCase ? `${BACKEND_URL}/api/cases/${editingCase._id}` : `${BACKEND_URL}/api/cases`;
-
     const cleanChips = form.chips
-      .filter(c => c.chip_id && c.quantity > 0)
-      .map(c => ({ chip_id: c.chip_id, quantity: parseInt(c.quantity) }));
+      .filter(c => c.chip_id && Number(c.quantity) > 0)
+      .map(c => ({ chip_id: c.chip_id, quantity: parseInt(c.quantity, 10) }));
+
+    if (!form.name.trim()) return showAlert('Informe o nome do fichário.', 'error');
 
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ name: form.name, chips: cleanChips })
-      });
-
-      if (!res.ok) { showAlert('Erro ao salvar fichário', 'error'); return; }
+      if (editingCase) await apiPut(`/cases/${editingCase._id}`, { name: form.name.trim(), chips: cleanChips });
+      else await apiPost('/cases', { name: form.name.trim(), chips: cleanChips });
 
       // ── Auto entry: give_entry rows ──────────────────────────
-      const entryRows = form.chips.filter(c => c.chip_id && c.quantity > 0 && c.give_entry);
+      const entryRows = form.chips.filter(c => c.chip_id && Number(c.quantity) > 0 && c.give_entry);
       if (entryRows.length > 0) {
         await Promise.all(entryRows.map(row =>
-          fetch(`${BACKEND_URL}/api/inventory/update`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ chip_id: row.chip_id, quantity_change: parseInt(row.quantity) })
-          })
+          apiPost('/inventory/update', { chip_id: row.chip_id, quantity_change: parseInt(row.quantity, 10) })
         ));
         showAlert(`Fichário salvo e entrada de estoque registrada para ${entryRows.length} modelo(s)!`, 'success');
       } else {
@@ -124,22 +61,20 @@ export default function Ficharios() {
       setIsModalOpen(false);
       await fetchInitialData();
     } catch (e) {
-      console.error(e);
-      showAlert('Erro de conexão ao salvar', 'error');
+      if (e.status !== 401) showAlert(e.message || 'Erro ao salvar fichário', 'error');
     }
   };
 
   const handleDeleteCase = async (id) => {
     const confirmed = await showConfirm('Tem certeza que deseja excluir este fichário?');
     if (!confirmed) return;
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/cases/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) await fetchInitialData();
-    } catch (e) { console.error(e); }
+      await apiDelete(`/cases/${id}`);
+      showAlert('Fichário excluído', 'success');
+      await fetchInitialData();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao excluir fichário', 'error');
+    }
   };
 
   const openCreateModal = () => {

@@ -8,4 +8,6 @@ const TournamentEntrySchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+TournamentEntrySchema.index({ tournament_id: 1, timestamp: -1 });
+
 module.exports = mongoose.model('TournamentEntry', TournamentEntrySchema);

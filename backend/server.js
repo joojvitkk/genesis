@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -5,24 +7,32 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+app.use(cors({ origin: CORS_ORIGIN }));
+app.use(express.json({ limit: '1mb' }));
 
 // Import das Rotas e Modelos
 const apiRoutes = require('./routes');
 const { User, ChatMessage } = require('./models');
+const { decodeToken } = require('./middlewares/authMiddleware');
 app.use('/api', apiRoutes);
+
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 // Conexão com MongoDB e Seeder do Admin
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/genesis';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'administrador@admin.com.br';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+
 mongoose.connect(MONGO_URI)
   .then(async () => {
     console.log('Connected to MongoDB Genesis Database');
     try {
-      const adminExists = await User.findOne({ email: 'administrador@admin.com.br' });
+      const adminExists = await User.findOne({ email: ADMIN_EMAIL });
       if (!adminExists) {
-        await User.create({ name: 'Administrador Geral', email: 'administrador@admin.com.br', password: 'admin123', role: 'admin' });
-        console.log('Default Admin user created successfully.');
+        await User.create({ name: 'Administrador Geral', email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: 'admin' });
+        console.log(`Default admin created: ${ADMIN_EMAIL}`);
       }
     } catch (e) {
       console.error('Error seeding admin user:', e);
@@ -32,54 +42,66 @@ mongoose.connect(MONGO_URI)
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  }
+  cors: { origin: CORS_ORIGIN, methods: ['GET', 'POST'] }
 });
 
 app.set('io', io);
 
-// WebSockets
-const onlineUsers = new Map();
+// ─── WebSockets ──────────────────────────────────────────────────────────────
+// Autenticação obrigatória: o cliente envia o JWT em socket.handshake.auth.token
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
+  const user = decodeToken(token);
+  if (!user) return next(new Error('unauthorized'));
+  socket.user = user; // { id, name, email, role }
+  next();
+});
+
+const onlineUsers = new Map(); // socket.id -> userId
+
+function broadcastOnlineCount() {
+  const uniqueUsers = new Set(onlineUsers.values());
+  io.emit('onlineCount', uniqueUsers.size);
+}
 
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-  onlineUsers.set(socket.id, { connectedAt: new Date() });
-  
-  // Update everyone about the new connection
-  io.emit('onlineCount', onlineUsers.size);
-  
+  onlineUsers.set(socket.id, socket.user.id || socket.id);
+  broadcastOnlineCount();
+
   socket.on('getOnlineCount', () => {
-    socket.emit('onlineCount', onlineUsers.size);
+    const uniqueUsers = new Set(onlineUsers.values());
+    socket.emit('onlineCount', uniqueUsers.size);
   });
-  
+
   socket.on('joinChannel', (channel) => {
-    socket.join(channel);
-    console.log(`User joined channel: ${channel}`);
+    if (['general', 'material', 'salao'].includes(channel)) socket.join(channel);
   });
 
-  socket.on('leaveChannel', (channel) => {
-    socket.leave(channel);
-  });
+  socket.on('leaveChannel', (channel) => socket.leave(channel));
 
-  socket.on('sendMessage', async (data) => {
+  socket.on('sendMessage', async (data = {}) => {
     try {
+      const channel = ['general', 'material', 'salao'].includes(data.channel) ? data.channel : 'general';
+      const message = String(data.message || '').trim().slice(0, 2000);
+      if (!message) return;
+
       const newMessage = new ChatMessage({
-        message: data.message,
-        sender_name: data.sender_name,
-        sender_role: data.sender_role,
-        channel: data.channel,
-        is_urgent: data.is_urgent
+        message,
+        // identidade derivada do token — o cliente não pode forjar
+        sender_name: socket.user.name,
+        sender_email: socket.user.email,
+        sender_role: socket.user.role,
+        channel,
+        is_urgent: !!data.is_urgent,
       });
       await newMessage.save();
-      io.to(data.channel).emit('newMessage', newMessage);
+      io.to(channel).emit('newMessage', newMessage);
 
-      if (data.is_urgent) {
+      if (newMessage.is_urgent) {
         socket.broadcast.emit('urgentNotification', {
-          sender_name: data.sender_name,
-          message: data.message,
-          channel: data.channel
+          sender_name: newMessage.sender_name,
+          message: newMessage.message,
+          channel,
         });
       }
     } catch (e) {
@@ -89,8 +111,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     onlineUsers.delete(socket.id);
-    io.emit('onlineCount', onlineUsers.size);
-    console.log('User disconnected:', socket.id);
+    broadcastOnlineCount();
   });
 });
 

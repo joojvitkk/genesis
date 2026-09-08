@@ -1,24 +1,45 @@
 const express = require('express');
 const router = express.Router();
-const { verifyToken, requirePageAccess } = require('../middlewares/authMiddleware');
+const {
+  verifyToken,
+  requirePageAccess,
+  loginRateLimiter,
+  registerFailedLogin,
+  clearLoginAttempts,
+  JWT_SECRET,
+} = require('../middlewares/authMiddleware');
 const logActivity = require('../services/activityLogger');
+const { escapeRegex, toInt, pick } = require('../utils/sanitize');
 const { User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage } = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// Rota de Login (Pública)
-router.post('/login', async (req, res) => {
+const MIN_PASSWORD_LENGTH = 6;
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+router.post('/login', loginRateLimiter, async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    const { password } = req.body || {};
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email || !password) return res.status(400).json({ error: 'Informe e-mail e senha.' });
+
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      registerFailedLogin(req);
+      return res.status(401).json({ error: 'Credenciais inválidas.' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: 'Senha incorreta.' });
+    if (!isMatch) {
+      registerFailedLogin(req);
+      return res.status(401).json({ error: 'Credenciais inválidas.' });
+    }
+
+    clearLoginAttempts(req);
 
     const token = jwt.sign(
-      { id: user._id, name: user.name, email: user.email, role: user.role }, 
-      process.env.JWT_SECRET || 'secret_genesis_key',
+      { id: user._id, name: user.name, email: user.email, role: user.role },
+      JWT_SECRET,
       { expiresIn: '12h' }
     );
 
@@ -28,10 +49,21 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// CRUD de Usuários (Apenas Admin)
+// Revalidação de sessão pelo frontend
+router.get('/me', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    res.json({ name: user.name, email: user.email, role: user.role, id: user._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Usuários (Apenas Admin) ─────────────────────────────────────────────────
 router.get('/users', verifyToken, requirePageAccess('usuarios'), async (req, res) => {
   try {
-    const users = await User.find().select('-password');
+    const users = await User.find().sort({ createdAt: -1 });
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -40,98 +72,109 @@ router.get('/users', verifyToken, requirePageAccess('usuarios'), async (req, res
 
 router.post('/users', verifyToken, requirePageAccess('usuarios'), async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
-    const user = new User({ 
-      name, 
-      email, 
-      password, 
-      role, 
-      created_by: req.user?.name || 'Admin' 
-    });
+    const { name, email, password, role } = req.body || {};
+    if (!name || !email || !password) return res.status(400).json({ error: 'Nome, e-mail e senha são obrigatórios.' });
+    if (String(password).length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `A senha deve ter ao menos ${MIN_PASSWORD_LENGTH} caracteres.` });
+    }
+    if (!['admin', 'material', 'salao'].includes(role)) {
+      return res.status(400).json({ error: 'Papel inválido.' });
+    }
+
+    const user = new User({ name, email, password, role, created_by: req.user?.name || 'Admin' });
     await user.save();
     await logActivity('Usuário Criado', 'system', `Nome: ${name} | Email: ${email} | Role: ${role}`, req.user);
-    res.json({ message: 'Usuário criado com sucesso' });
+    res.status(201).json({ message: 'Usuário criado com sucesso' });
   } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Já existe um usuário com este e-mail.' });
     res.status(400).json({ error: err.message });
   }
 });
 
 router.put('/users/:id', verifyToken, requirePageAccess('usuarios'), async (req, res) => {
   try {
-    const { name, email, role, password } = req.body;
-    const updates = { name, email, role };
-    if (password) {
-      const salt = await bcrypt.genSalt(10);
-      updates.password = await bcrypt.hash(password, salt);
+    const { name, email, role, password } = req.body || {};
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+    // Impede remover o papel do último admin
+    if (target.role === 'admin' && role && role !== 'admin') {
+      const adminCount = await User.countDocuments({ role: 'admin' });
+      if (adminCount <= 1) return res.status(400).json({ error: 'Não é possível rebaixar o único administrador.' });
     }
-    const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true });
-    await logActivity('Usuário Atualizado', 'system', `Nome: ${name} | Email: ${email}`, req.user);
-    res.json({ message: 'Usuário atualizado', user });
+
+    if (name) target.name = name;
+    if (email) target.email = email;
+    if (role && ['admin', 'material', 'salao'].includes(role)) target.role = role;
+    if (password) {
+      if (String(password).length < MIN_PASSWORD_LENGTH) {
+        return res.status(400).json({ error: `A senha deve ter ao menos ${MIN_PASSWORD_LENGTH} caracteres.` });
+      }
+      target.password = password; // hasheada pelo hook pre('save')
+    }
+    await target.save();
+
+    await logActivity('Usuário Atualizado', 'system', `Nome: ${target.name} | Email: ${target.email}`, req.user);
+    res.json({ message: 'Usuário atualizado', user: { name: target.name, email: target.email, role: target.role } });
   } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Já existe um usuário com este e-mail.' });
     res.status(400).json({ error: err.message });
   }
 });
 
 router.delete('/users/:id', verifyToken, requirePageAccess('usuarios'), async (req, res) => {
   try {
-    await User.findByIdAndDelete(req.params.id);
-    await logActivity('Usuário Removido', 'system', `ID: ${req.params.id}`, req.user);
+    if (req.user?.id === req.params.id) {
+      return res.status(400).json({ error: 'Você não pode excluir seu próprio usuário.' });
+    }
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+    if (target.role === 'admin') {
+      const adminCount = await User.countDocuments({ role: 'admin' });
+      if (adminCount <= 1) return res.status(400).json({ error: 'Não é possível excluir o único administrador.' });
+    }
+
+    await target.deleteOne();
+    await logActivity('Usuário Removido', 'system', `ID: ${req.params.id} | Email: ${target.email}`, req.user);
     res.json({ message: 'Usuário removido' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// Dashboard Stats (Protegida)
+// ─── Dashboard ───────────────────────────────────────────────────────────────
 router.get('/dashboard/stats', verifyToken, async (req, res) => {
   try {
     const activeTournamentsCount = await Tournament.countDocuments({ status: 'running' });
-    
+
     const chipsAggregate = await ChipModel.aggregate([
       { $group: { _id: null, total: { $sum: '$total_quantity' } } }
     ]);
     const totalChipsInStock = chipsAggregate.length ? chipsAggregate[0].total : 0;
-    
+
     const availableCases = await ChipCase.countDocuments({ status: 'available' });
-    
+
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const chipRacesToday = await ChipRace.countDocuments({ createdAt: { $gte: startOfDay } });
-    
+
     const recentTournaments = await Tournament.find().sort({ createdAt: -1 }).limit(5).select('name status start_time date');
     const recentActivities = await ActivityLog.find().sort({ createdAt: -1 }).limit(7);
-    
+
     res.json({
-      metrics: {
-        activeTournamentsCount,
-        totalChipsInStock,
-        availableCases,
-        chipRacesToday
-      },
+      metrics: { activeTournamentsCount, totalChipsInStock, availableCases, chipRacesToday },
       recentTournaments,
-      recentActivities
+      recentActivities,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Rota de criação de usuário
-router.post('/users', verifyToken, requirePageAccess('usuarios'), async (req, res) => {
-  try {
-    const { username, password, role } = req.body;
-    const user = new User({ username, password, role });
-    await user.save();
-    
-    await logActivity('Usuário Criado', 'system', `Username: ${username}, Role: ${role}`, req.user);
-    
-    res.status(201).json({ message: 'Usuário criado com sucesso' });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
+// ─── Fichas (ChipModel) ──────────────────────────────────────────────────────
+const CHIP_FIELDS = ['name', 'value', 'color', 'total_quantity', 'available_quantity'];
 
-// CRUD de Fichas (ChipModel)
 router.get('/chips', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
     const chips = await ChipModel.find().sort({ value: 1 });
@@ -143,7 +186,16 @@ router.get('/chips', verifyToken, requirePageAccess('estoque'), async (req, res)
 
 router.post('/chips', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
-    const chip = new ChipModel(req.body);
+    const data = pick(req.body, CHIP_FIELDS);
+    if (!data.name || data.value === undefined || data.total_quantity === undefined) {
+      return res.status(400).json({ error: 'Nome, valor e quantidade são obrigatórios.' });
+    }
+    data.value = Number(data.value);
+    data.total_quantity = Number(data.total_quantity);
+    if (!Number.isFinite(data.value) || data.value < 0 || !Number.isFinite(data.total_quantity) || data.total_quantity < 0) {
+      return res.status(400).json({ error: 'Valor e quantidade devem ser números não negativos.' });
+    }
+    const chip = new ChipModel(data);
     await chip.save();
     await logActivity('Ficha Criada', 'inventory', `Nome: ${chip.name} | Valor: ${chip.value}`, req.user);
     res.status(201).json(chip);
@@ -154,7 +206,11 @@ router.post('/chips', verifyToken, requirePageAccess('estoque'), async (req, res
 
 router.put('/chips/:id', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
-    const chip = await ChipModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const data = pick(req.body, CHIP_FIELDS);
+    if (data.value !== undefined) data.value = Number(data.value);
+    if (data.total_quantity !== undefined) data.total_quantity = Number(data.total_quantity);
+    const chip = await ChipModel.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true });
+    if (!chip) return res.status(404).json({ error: 'Ficha não encontrada.' });
     await logActivity('Ficha Editada', 'inventory', `ID: ${chip._id} | Novo Nome: ${chip.name}`, req.user);
     res.json(chip);
   } catch (err) {
@@ -165,14 +221,17 @@ router.put('/chips/:id', verifyToken, requirePageAccess('estoque'), async (req, 
 router.delete('/chips/:id', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
     const chip = await ChipModel.findByIdAndDelete(req.params.id);
-    await logActivity('Ficha Excluída', 'inventory', `ID: ${req.params.id} | Nome: ${chip?.name}`, req.user);
+    if (!chip) return res.status(404).json({ error: 'Ficha não encontrada.' });
+    await logActivity('Ficha Excluída', 'inventory', `ID: ${req.params.id} | Nome: ${chip.name}`, req.user);
     res.json({ message: 'Ficha excluída com sucesso' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// CRUD de Fichários (ChipCase)
+// ─── Fichários (ChipCase) ────────────────────────────────────────────────────
+const CASE_FIELDS = ['name', 'chips', 'status', 'allocations', 'allocated_to_tournament', 'allocated_to_tournament_name'];
+
 router.get('/cases', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
   try {
     const cases = await ChipCase.find().populate('chips.chip_id').sort({ createdAt: -1 });
@@ -184,7 +243,9 @@ router.get('/cases', verifyToken, requirePageAccess('ficharios'), async (req, re
 
 router.post('/cases', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
   try {
-    const chipCase = new ChipCase(req.body);
+    const data = pick(req.body, CASE_FIELDS);
+    if (!data.name) return res.status(400).json({ error: 'Nome é obrigatório.' });
+    const chipCase = new ChipCase(data);
     await chipCase.save();
     await logActivity('Fichário Criado', 'chip_case', `Nome: ${chipCase.name}`, req.user);
     res.status(201).json(chipCase);
@@ -195,7 +256,9 @@ router.post('/cases', verifyToken, requirePageAccess('ficharios'), async (req, r
 
 router.put('/cases/:id', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
   try {
-    const chipCase = await ChipCase.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const data = pick(req.body, CASE_FIELDS);
+    const chipCase = await ChipCase.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true });
+    if (!chipCase) return res.status(404).json({ error: 'Fichário não encontrado.' });
     await logActivity('Fichário Editado', 'chip_case', `ID: ${chipCase._id} | Nome: ${chipCase.name}`, req.user);
     res.json(chipCase);
   } catch (err) {
@@ -206,20 +269,31 @@ router.put('/cases/:id', verifyToken, requirePageAccess('ficharios'), async (req
 router.delete('/cases/:id', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
   try {
     const chipCase = await ChipCase.findByIdAndDelete(req.params.id);
-    await logActivity('Fichário Excluído', 'chip_case', `ID: ${req.params.id} | Nome: ${chipCase?.name}`, req.user);
+    if (!chipCase) return res.status(404).json({ error: 'Fichário não encontrado.' });
+    await logActivity('Fichário Excluído', 'chip_case', `ID: ${req.params.id} | Nome: ${chipCase.name}`, req.user);
     res.json({ message: 'Fichário excluído com sucesso' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// Atualização de estoque manual
+// ─── Movimentação de estoque ─────────────────────────────────────────────────
 router.post('/inventory/update', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
-    const { chip_id, quantity_change } = req.body; 
+    const { chip_id } = req.body || {};
+    const quantity_change = Number(req.body?.quantity_change);
+    if (!chip_id) return res.status(400).json({ error: 'Ficha não informada.' });
+    if (!Number.isFinite(quantity_change) || quantity_change === 0) {
+      return res.status(400).json({ error: 'Quantidade de movimentação inválida.' });
+    }
+
     const chip = await ChipModel.findById(chip_id);
     if (!chip) return res.status(404).json({ error: 'Ficha não encontrada' });
-    
+
+    if (chip.total_quantity + quantity_change < 0 || chip.available_quantity + quantity_change < 0) {
+      return res.status(400).json({ error: 'Movimentação deixaria o estoque negativo.' });
+    }
+
     chip.total_quantity += quantity_change;
     chip.available_quantity += quantity_change;
     await chip.save();
@@ -233,7 +307,13 @@ router.post('/inventory/update', verifyToken, requirePageAccess('estoque'), asyn
   }
 });
 
-// CRUD de Torneios
+// ─── Torneios ────────────────────────────────────────────────────────────────
+const TOURNAMENT_FIELDS = [
+  'name', 'date', 'start_time', 'status', 'estimated_players', 'actual_players',
+  'starting_stack', 'stack_model_id', 'blind_structure', 'allocated_cases',
+  'stack_composition', 'current_level', 'notes',
+];
+
 router.get('/tournaments', verifyToken, async (req, res) => {
   try {
     const tournaments = await Tournament.find().sort({ date: -1, createdAt: -1 });
@@ -258,21 +338,19 @@ router.get('/tournaments/:id', verifyToken, async (req, res) => {
 
 router.post('/tournaments', verifyToken, requirePageAccess('torneios'), async (req, res) => {
   try {
-    const body = { ...req.body };
+    const body = pick(req.body, TOURNAMENT_FIELDS);
+    if (!body.name || !body.date) return res.status(400).json({ error: 'Nome e data são obrigatórios.' });
 
-    // If a stack model was selected, derive starting_stack from it
     if (body.stack_model_id) {
       const stackModel = await StackModel.findById(body.stack_model_id).populate('composition.chip_id');
       if (stackModel) {
-        // Calculate total stack value from composition
-        const totalValue = stackModel.composition.reduce((sum, comp) => {
-          return sum + (comp.chip_id?.value || 0) * comp.quantity;
-        }, 0);
+        const totalValue = stackModel.composition.reduce(
+          (sum, comp) => sum + (comp.chip_id?.value || 0) * comp.quantity, 0
+        );
         body.starting_stack = totalValue || stackModel.total_value;
-        // Also set stack_composition from the model
         body.stack_composition = stackModel.composition.map(c => ({
           chip_id: c.chip_id?._id,
-          per_player: c.quantity
+          per_player: c.quantity,
         }));
       }
     }
@@ -309,10 +387,11 @@ router.delete('/tournaments/:id', verifyToken, requirePageAccess('torneios'), as
 router.put('/tournaments/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
   try {
     const io = req.app.get('io');
+    const updates = pick(req.body, TOURNAMENT_FIELDS);
     const oldTournament = await Tournament.findById(req.params.id);
     if (!oldTournament) return res.status(404).json({ error: 'Torneio não encontrado' });
 
-    if (req.body.status === 'running' && oldTournament.status !== 'running') {
+    if (updates.status === 'running' && oldTournament.status !== 'running') {
       if (oldTournament.allocated_cases && oldTournament.allocated_cases.length > 0) {
         await ChipCase.updateMany(
           { _id: { $in: oldTournament.allocated_cases } },
@@ -322,7 +401,7 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('torneios'), async
       }
     }
 
-    if (req.body.status === 'finished' && oldTournament.status !== 'finished') {
+    if (updates.status === 'finished' && oldTournament.status !== 'finished') {
       if (oldTournament.allocated_cases && oldTournament.allocated_cases.length > 0) {
         await ChipCase.updateMany(
           { _id: { $in: oldTournament.allocated_cases } },
@@ -332,15 +411,14 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('torneios'), async
       }
     }
 
-    const tournament = await Tournament.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const tournament = await Tournament.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
 
     if (tournament.actual_players && tournament.starting_stack) {
-      const totalChipsInPlay = tournament.actual_players * tournament.starting_stack;
       io.emit('tournamentTrackingUpdate', {
         tournament_id: tournament._id,
         actual_players: tournament.actual_players,
         starting_stack: tournament.starting_stack,
-        total_chips_in_play: totalChipsInPlay
+        total_chips_in_play: tournament.actual_players * tournament.starting_stack,
       });
     }
 
@@ -351,7 +429,9 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('torneios'), async
   }
 });
 
-// CRUD de Modelos de Stack
+// ─── Modelos de Stack ────────────────────────────────────────────────────────
+const STACK_FIELDS = ['name', 'composition', 'total_value', 'notes'];
+
 router.get('/stacks', verifyToken, async (req, res) => {
   try {
     const stacks = await StackModel.find().populate('composition.chip_id');
@@ -363,7 +443,9 @@ router.get('/stacks', verifyToken, async (req, res) => {
 
 router.post('/stacks', verifyToken, requirePageAccess('modelos_stack'), async (req, res) => {
   try {
-    const stack = new StackModel(req.body);
+    const data = pick(req.body, STACK_FIELDS);
+    if (!data.name) return res.status(400).json({ error: 'Nome é obrigatório.' });
+    const stack = new StackModel(data);
     await stack.save();
     res.status(201).json(stack);
   } catch (err) {
@@ -373,7 +455,9 @@ router.post('/stacks', verifyToken, requirePageAccess('modelos_stack'), async (r
 
 router.put('/stacks/:id', verifyToken, requirePageAccess('modelos_stack'), async (req, res) => {
   try {
-    const stack = await StackModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const data = pick(req.body, STACK_FIELDS);
+    const stack = await StackModel.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true });
+    if (!stack) return res.status(404).json({ error: 'Modelo de stack não encontrado.' });
     res.json(stack);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -389,7 +473,7 @@ router.delete('/stacks/:id', verifyToken, requirePageAccess('modelos_stack'), as
   }
 });
 
-// Rotas de Entradas de Torneio
+// ─── Entradas de Torneio ─────────────────────────────────────────────────────
 router.get('/tournaments/:id/entries', verifyToken, async (req, res) => {
   try {
     const entries = await TournamentEntry.find({ tournament_id: req.params.id })
@@ -403,8 +487,10 @@ router.get('/tournaments/:id/entries', verifyToken, async (req, res) => {
 
 router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('torneios'), async (req, res) => {
   try {
-    const { type, stack_model_id } = req.body;
-    const entry = new TournamentEntry({ tournament_id: req.params.id, type, stack_model_id });
+    const { type, stack_model_id } = req.body || {};
+    if (!['buy-in', 're-entry'].includes(type)) return res.status(400).json({ error: 'Tipo de entrada inválido.' });
+
+    const entry = new TournamentEntry({ tournament_id: req.params.id, type, stack_model_id: stack_model_id || undefined });
     await entry.save();
 
     if (type === 'buy-in') {
@@ -444,7 +530,14 @@ router.get('/tournaments/:id/consolidated-chips', verifyToken, async (req, res) 
   }
 });
 
-// CRUD de Chip Race / Color Up
+// ─── Chip Race / Color Up ────────────────────────────────────────────────────
+function computeRace(fromChipModel, toChipModel, num_players, chips_per_player) {
+  const from_quantity = Number(num_players) * Number(chips_per_player);
+  const total_value = from_quantity * fromChipModel.value;
+  const to_quantity = toChipModel.value ? total_value / toChipModel.value : 0;
+  return { from_quantity, total_value, to_quantity };
+}
+
 router.get('/chip-races', verifyToken, async (req, res) => {
   try {
     const races = await ChipRace.find()
@@ -460,37 +553,22 @@ router.get('/chip-races', verifyToken, async (req, res) => {
 
 router.post('/chip-races', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
   try {
-    const { tournament_id, type, active_tables, num_players, chips_per_player, from_chip, to_chip } = req.body;
-    
+    const { tournament_id, type, active_tables, num_players, chips_per_player, from_chip, to_chip } = req.body || {};
+
     const fromChipModel = await ChipModel.findById(from_chip);
     const toChipModel = await ChipModel.findById(to_chip);
-    
-    if (!fromChipModel || !toChipModel) {
-      return res.status(400).json({ error: 'Modelos de ficha inválidos.' });
-    }
+    if (!fromChipModel || !toChipModel) return res.status(400).json({ error: 'Modelos de ficha inválidos.' });
 
-    const from_quantity = num_players * chips_per_player;
-    const total_value = from_quantity * fromChipModel.value;
-    const to_quantity = total_value / toChipModel.value;
-    
+    const { from_quantity, total_value, to_quantity } = computeRace(fromChipModel, toChipModel, num_players, chips_per_player);
+
     const race = new ChipRace({
-      tournament_id,
-      type,
-      active_tables,
-      num_players,
-      chips_per_player,
-      from_chip,
-      from_quantity,
-      to_chip,
-      to_quantity,
-      total_value
+      tournament_id, type, active_tables,
+      num_players, chips_per_player,
+      from_chip, from_quantity, to_chip, to_quantity, total_value,
     });
-
     await race.save();
-    
-    const io = req.app.get('io');
-    io.emit('chipRaceUpdated', race);
 
+    req.app.get('io').emit('chipRaceUpdated', race);
     await logActivity('Cálculo de Chip Race Salvo', 'chip_race', `Torneio: ${tournament_id}`, req.user);
     res.status(201).json(race);
   } catch (err) {
@@ -500,31 +578,20 @@ router.post('/chip-races', verifyToken, requirePageAccess('chip_race'), async (r
 
 router.put('/chip-races/:id', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
   try {
-    const { tournament_id, type, active_tables, num_players, chips_per_player, from_chip, to_chip } = req.body;
-    
+    const { tournament_id, type, active_tables, num_players, chips_per_player, from_chip, to_chip } = req.body || {};
+
     const fromChipModel = await ChipModel.findById(from_chip);
     const toChipModel = await ChipModel.findById(to_chip);
-    
-    if (!fromChipModel || !toChipModel) {
-      return res.status(400).json({ error: 'Modelos de ficha inválidos.' });
-    }
+    if (!fromChipModel || !toChipModel) return res.status(400).json({ error: 'Modelos de ficha inválidos.' });
 
-    const from_quantity = num_players * chips_per_player;
-    const total_value = from_quantity * fromChipModel.value;
-    const to_quantity = total_value / toChipModel.value;
+    const { from_quantity, total_value, to_quantity } = computeRace(fromChipModel, toChipModel, num_players, chips_per_player);
 
     const race = await ChipRace.findByIdAndUpdate(req.params.id, {
-      tournament_id,
-      type,
-      active_tables,
-      num_players,
-      chips_per_player,
-      from_chip,
-      from_quantity,
-      to_chip,
-      to_quantity,
-      total_value
+      tournament_id, type, active_tables,
+      num_players, chips_per_player,
+      from_chip, from_quantity, to_chip, to_quantity, total_value,
     }, { new: true });
+    if (!race) return res.status(404).json({ error: 'Registro não encontrado.' });
 
     await logActivity('Cálculo de Chip Race Editado', 'chip_race', `ID: ${race._id}`, req.user);
     res.json(race);
@@ -535,7 +602,7 @@ router.put('/chip-races/:id', verifyToken, requirePageAccess('chip_race'), async
 
 router.delete('/chip-races/:id', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
   try {
-    const race = await ChipRace.findByIdAndDelete(req.params.id);
+    await ChipRace.findByIdAndDelete(req.params.id);
     await logActivity('Cálculo de Chip Race Excluído', 'chip_race', `ID: ${req.params.id}`, req.user);
     res.json({ message: 'Registro excluído' });
   } catch (err) {
@@ -543,83 +610,57 @@ router.delete('/chip-races/:id', verifyToken, requirePageAccess('chip_race'), as
   }
 });
 
-// Log de Auditoria do Estoque
+// ─── Log de Auditoria do Estoque ─────────────────────────────────────────────
 router.get('/inventory/logs', verifyToken, requirePageAccess('relatorios'), async (req, res) => {
   try {
-    const { search, type, page = 1, limit = 50 } = req.query;
+    const { search, type } = req.query;
+    const page = toInt(req.query.page, { min: 1, fallback: 1 });
+    const limit = toInt(req.query.limit, { min: 1, max: 100, fallback: 50 });
     const filter = { category: 'inventory' };
 
     if (search) {
-      filter.$or = [
-        { details: { $regex: search, $options: 'i' } },
-        { user_name: { $regex: search, $options: 'i' } },
-        { action: { $regex: search, $options: 'i' } }
-      ];
+      const rx = new RegExp(escapeRegex(search), 'i');
+      filter.$or = [{ details: rx }, { user_name: rx }, { action: rx }];
     }
 
     if (type && type !== 'all') {
-      filter.action = { $regex: type === 'entry' ? 'Entrada' : 'Saída', $options: 'i' };
+      filter.action = new RegExp(type === 'entry' ? 'Entrada' : 'Saída', 'i');
     }
 
     const total = await ActivityLog.countDocuments(filter);
     const logs = await ActivityLog.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(limit);
 
-    res.json({
-      logs,
-      pagination: {
-        total,
-        page: parseInt(page),
-        pages: Math.ceil(total / limit)
-      }
-    });
+    res.json({ logs, pagination: { total, page, pages: Math.ceil(total / limit) } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Relatórios e Auditoria
+// ─── Relatórios ──────────────────────────────────────────────────────────────
 router.get('/reports/data', verifyToken, requirePageAccess('relatorios'), async (req, res) => {
   try {
     const totalTournaments = await Tournament.countDocuments();
     const finishedTournaments = await Tournament.countDocuments({ status: 'finished' });
     const totalChipRaces = await ChipRace.countDocuments();
-    
-    // Distribuição de Fichas (Pizza)
+
     const chipDistribution = await ChipModel.find({}, 'value total_quantity color');
-    
-    // Chip Races por Torneio (Torre)
+
     const racesByTournament = await ChipRace.aggregate([
-      {
-        $group: {
-          _id: '$tournament_id',
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $lookup: {
-          from: 'tournaments',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'tournament'
-        }
-      },
+      { $group: { _id: '$tournament_id', count: { $sum: 1 } } },
+      { $lookup: { from: 'tournaments', localField: '_id', foreignField: '_id', as: 'tournament' } },
       { $unwind: '$tournament' },
-      {
-        $project: {
-          name: '$tournament.name',
-          count: 1
-        }
-      },
-      { $limit: 10 }
+      { $project: { name: '$tournament.name', count: 1 } },
+      { $limit: 10 },
     ]);
 
-    // Logs de Atividade (Filtro e Paginação)
-    const { category, startDate, endDate, page = 1, limit = 50 } = req.query;
+    const { category, startDate, endDate } = req.query;
+    const page = toInt(req.query.page, { min: 1, fallback: 1 });
+    const limit = toInt(req.query.limit, { min: 1, max: 100, fallback: 50 });
     const filter = category && category !== 'all' ? { category } : {};
-    
+
     if (startDate || endDate) {
       filter.createdAt = {};
       if (startDate) filter.createdAt.$gte = new Date(startDate);
@@ -634,32 +675,28 @@ router.get('/reports/data', verifyToken, requirePageAccess('relatorios'), async 
     const logs = await ActivityLog.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(limit);
 
     res.json({
       stats: {
         totalTournaments,
         finishedTournaments,
         totalChipRaces,
-        totalChips: chipDistribution.reduce((acc, c) => acc + c.total_quantity, 0)
+        totalChips: chipDistribution.reduce((acc, c) => acc + c.total_quantity, 0),
       },
       charts: {
         chipDistribution: chipDistribution.map(c => ({ name: `Ficha ${c.value}`, value: c.total_quantity, color: c.color })),
-        racesByTournament
+        racesByTournament,
       },
       logs,
-      pagination: {
-        total: totalLogs,
-        page: parseInt(page),
-        pages: Math.ceil(totalLogs / limit)
-      }
+      pagination: { total: totalLogs, page, pages: Math.ceil(totalLogs / limit) },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Chat Intersetorial
+// ─── Chat ────────────────────────────────────────────────────────────────────
 router.get('/chat/:channel', verifyToken, async (req, res) => {
   try {
     const messages = await ChatMessage.find({ channel: req.params.channel })

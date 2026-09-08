@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Hash, Users, AlertTriangle, Clock, MessageSquare, ChevronRight, Bell, Shield, Package, MonitorPlay } from 'lucide-react';
-import { socket, BACKEND_URL } from '../App';
+import { socket } from '../lib/socket';
+import { apiGet } from '../lib/api';
+import { getStoredUser } from '../lib/auth';
 
 const CHANNELS = [
   { id: 'general', label: 'Geral', icon: <MessageSquare size={16}/>, color: 'bg-blue-500' },
@@ -20,8 +22,7 @@ export default function Chat() {
   const [onlineCount, setOnlineCount] = useState(0);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('genesis_user');
-    if (savedUser) setUser(JSON.parse(savedUser));
+    setUser(getStoredUser());
 
     socket.on('onlineCount', (count) => setOnlineCount(count));
     socket.emit('getOnlineCount');
@@ -33,13 +34,11 @@ export default function Chat() {
 
     // Fetch history
     const fetchHistory = async () => {
-      const token = localStorage.getItem('genesis_token');
       try {
-        const res = await fetch(`${BACKEND_URL}/api/chat/${activeChannel}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.ok) setMessages(await res.json());
-      } catch (e) { console.error(e); }
+        setMessages(await apiGet(`/chat/${activeChannel}`));
+      } catch (e) {
+        if (e.status !== 401) console.error(e);
+      }
     };
 
     fetchHistory();

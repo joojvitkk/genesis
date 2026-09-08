@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { LogIn, Eye, EyeOff, Sun, Moon } from 'lucide-react';
-import { BACKEND_URL } from '../App';
+import { apiPost } from '../lib/api';
 
 export default function Login({ onLogin, theme, onToggleTheme }) {
   const [email, setEmail] = useState('');
@@ -15,18 +15,10 @@ export default function Login({ onLogin, theme, onToggleTheme }) {
     setLoading(true);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json();
-      
-      if (!res.ok) throw new Error(data.error || 'Erro no login');
-      
+      const data = await apiPost('/login', { email: email.trim(), password });
       onLogin(data.token, data.user);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Erro no login');
     } finally {
       setLoading(false);
     }

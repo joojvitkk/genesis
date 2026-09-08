@@ -6,19 +6,21 @@ import {
   MessageSquare, Layers, BarChart, MonitorPlay, ClipboardList,
   Users, X, LogOut, Sun, Moon, ChevronRight
 } from 'lucide-react';
+import { can } from '../config';
 
+// `area` refere-se à matriz de permissões em config.js (PERMISSIONS)
 const NAV_ITEMS = [
-  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard',       roles: ['admin'] },
-  { to: '/salao',        icon: MonitorPlay,      label: 'Salão',           roles: ['admin', 'salao', 'material'] },
-  { to: '/torneios',     icon: Trophy,           label: 'Torneios',        roles: ['admin', 'salao'] },
-  { to: '/chip-race',    icon: Coins,            label: 'Chip Race',       roles: ['admin', 'salao', 'material'] },
-  { to: '/estoque',      icon: Package,          label: 'Estoque',         roles: ['admin', 'material'] },
-  { to: '/ficharios',    icon: Briefcase,        label: 'Fichários',       roles: ['admin', 'material'] },
-  { to: '/chat',         icon: MessageSquare,    label: 'Chat',            roles: ['admin', 'salao', 'material'] },
-  { to: '/modelos-stack',icon: Layers,           label: 'Stacks',          roles: ['admin', 'salao'] },
-  { to: '/relatorios',   icon: BarChart,         label: 'Relatórios',      roles: ['admin'] },
-  { to: '/auditoria',    icon: ClipboardList,    label: 'Auditoria',       roles: ['admin'] },
-  { to: '/usuarios',     icon: Users,            label: 'Usuários',        roles: ['admin'] },
+  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard',  area: 'dashboard' },
+  { to: '/salao',        icon: MonitorPlay,     label: 'Salão',      area: 'torneios' },
+  { to: '/torneios',     icon: Trophy,          label: 'Torneios',   area: 'torneios' },
+  { to: '/chip-race',    icon: Coins,           label: 'Chip Race',  area: 'chip_race' },
+  { to: '/estoque',      icon: Package,         label: 'Estoque',    area: 'estoque' },
+  { to: '/ficharios',    icon: Briefcase,       label: 'Fichários',  area: 'ficharios' },
+  { to: '/chat',         icon: MessageSquare,   label: 'Chat',       area: 'chat' },
+  { to: '/modelos-stack',icon: Layers,          label: 'Stacks',     area: 'modelos_stack' },
+  { to: '/relatorios',   icon: BarChart,        label: 'Relatórios', area: 'relatorios' },
+  { to: '/auditoria',    icon: ClipboardList,   label: 'Auditoria',  area: 'relatorios' },
+  { to: '/usuarios',     icon: Users,           label: 'Usuários',   area: 'usuarios' },
 ];
 
 // Items that show in the bottom tab bar (most used, max 5)
@@ -26,7 +28,7 @@ const BOTTOM_PRIORITY = ['/salao', '/torneios', '/chip-race', '/chat', '/estoque
 
 export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme, onToggleTheme }) {
   const location = useLocation();
-  const filtered = NAV_ITEMS.filter(i => i.roles.includes(user?.role));
+  const filtered = NAV_ITEMS.filter(i => can(user?.role, i.area));
 
   // Bottom nav items: priority items user has access to, up to 4, plus "Menu" 
   const bottomItems = filtered.filter(i => BOTTOM_PRIORITY.includes(i.to)).slice(0, 4);

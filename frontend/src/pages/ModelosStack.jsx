@@ -2,54 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, Plus, Trash2, X, Save, AlertCircle, Coins, ChevronRight, Info, PlusCircle, ChevronDown } from 'lucide-react';
 import { useAlert } from '../contexts/AlertContext';
-import { BACKEND_URL } from '../App';
-
-const CustomSelect = ({ options, value, onChange, placeholder }) => {
-  const [isOpen, setIsOpen] = React.useState(false);
-  const containerRef = React.useRef(null);
-  const selectedOption = options.find(o => o.value === value);
-
-  React.useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex justify-between items-center bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm cursor-pointer text-gray-900 dark:text-white font-bold"
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={16} className={`transition-transform text-gray-400 shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-            className="absolute z-50 w-full mt-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-48 overflow-y-auto"
-          >
-            {options.map(opt => (
-              <div 
-                key={opt.value} 
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className="px-4 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer text-sm text-gray-900 dark:text-white border-b border-gray-50 dark:border-zinc-800/30 last:border-0 font-bold"
-              >
-                {opt.label}
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import CustomSelect from '../components/CustomSelect';
 
 export default function ModelosStack() {
-  const { showAlert } = useAlert();
+  const { showAlert, showConfirm } = useAlert();
   const [stacks, setStacks] = useState([]);
   const [chipModels, setChipModels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -69,17 +26,15 @@ export default function ModelosStack() {
   }, []);
 
   const fetchData = async () => {
-    const token = localStorage.getItem('genesis_token');
-    const headers = { 'Authorization': `Bearer ${token}` };
     try {
-      const [stacksRes, chipsRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/stacks`, { headers }),
-        fetch(`${BACKEND_URL}/api/chips`, { headers })
-      ]);
-      if (stacksRes.ok) setStacks(await stacksRes.json());
-      if (chipsRes.ok) setChipModels(await chipsRes.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      const [stacksData, chipsData] = await Promise.all([apiGet('/stacks'), apiGet('/chips')]);
+      setStacks(stacksData);
+      setChipModels(chipsData);
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar dados', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleEdit = (stack) => {
@@ -133,38 +88,39 @@ export default function ModelosStack() {
     e.preventDefault();
     if (form.composition.length === 0) return showAlert('Adicione ao menos uma ficha', 'error');
 
-    const token = localStorage.getItem('genesis_token');
-    const url = editingStack ? `${BACKEND_URL}/api/stacks/${editingStack._id}` : `${BACKEND_URL}/api/stacks`;
-    const method = editingStack ? 'PUT' : 'POST';
+    const payload = {
+      name: form.name.trim(),
+      notes: form.notes,
+      composition: form.composition.map(c => ({
+        chip_id: c.chip_id?._id || c.chip_id,
+        quantity: Number(c.quantity),
+      })),
+      total_value: calculateTotal(form.composition),
+    };
 
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ ...form, total_value: calculateTotal(form.composition) })
-      });
-      if (res.ok) {
-        showAlert(editingStack ? 'Modelo atualizado!' : 'Modelo de stack salvo!', 'success');
-        setIsModalOpen(false);
-        setEditingStack(null);
-        setForm({ name: '', composition: [], notes: '' });
-        fetchData();
-      }
-    } catch (e) { console.error(e); }
+      if (editingStack) await apiPut(`/stacks/${editingStack._id}`, payload);
+      else await apiPost('/stacks', payload);
+      showAlert(editingStack ? 'Modelo atualizado!' : 'Modelo de stack salvo!', 'success');
+      setIsModalOpen(false);
+      setEditingStack(null);
+      setForm({ name: '', composition: [], notes: '' });
+      fetchData();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao salvar modelo', 'error');
+    }
   };
 
   const handleDelete = async (id) => {
-    const token = localStorage.getItem('genesis_token');
+    const confirmed = await showConfirm('Remover este modelo de stack?');
+    if (!confirmed) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/stacks/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showAlert('Modelo removido', 'success');
-        fetchData();
-      }
-    } catch (e) { console.error(e); }
+      await apiDelete(`/stacks/${id}`);
+      showAlert('Modelo removido', 'success');
+      fetchData();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao remover modelo', 'error');
+    }
   };
 
   return (

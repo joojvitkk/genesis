@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Trophy, Coins, Briefcase, Activity, PlayCircle, CheckCircle2, Clock, PlusCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { BACKEND_URL } from '../App';
+import { apiGet } from '../lib/api';
 
 function formatTimeAgo(dateString) {
   const diff = Date.now() - new Date(dateString).getTime();
@@ -70,14 +70,9 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem('genesis_token');
-        const res = await fetch(`${BACKEND_URL}/api/dashboard/stats`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const result = await res.json();
-        if (res.ok) setData(result);
+        setData(await apiGet('/dashboard/stats'));
       } catch (e) {
-        console.error('Error fetching dashboard data:', e);
+        if (e.status !== 401) console.error('Error fetching dashboard data:', e);
       } finally {
         setLoading(false);
       }

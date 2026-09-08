@@ -9,4 +9,6 @@ const ChatMessageSchema = new mongoose.Schema({
   is_urgent: { type: Boolean, default: false }
 }, { timestamps: true });
 
+ChatMessageSchema.index({ channel: 1, createdAt: -1 });
+
 module.exports = mongoose.model('ChatMessage', ChatMessageSchema);

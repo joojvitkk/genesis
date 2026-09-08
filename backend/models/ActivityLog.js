@@ -9,4 +9,7 @@ const ActivityLogSchema = new mongoose.Schema({
   related_id: { type: String }
 }, { timestamps: true });
 
+ActivityLogSchema.index({ category: 1, createdAt: -1 });
+ActivityLogSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('ActivityLog', ActivityLogSchema);

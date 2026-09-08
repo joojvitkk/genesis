@@ -5,7 +5,8 @@ import {
   Search, Filter, ChevronRight, Key, AlertCircle, Calendar, UserCheck, Eye, EyeOff
 } from 'lucide-react';
 import { useAlert } from '../contexts/AlertContext';
-import { BACKEND_URL } from '../App';
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import { getStoredUser } from '../lib/auth';
 
 export default function Usuarios() {
   const { showAlert, showConfirm } = useAlert();
@@ -17,7 +18,7 @@ export default function Usuarios() {
   const [showPassword, setShowPassword] = useState(false);
 
   // Current logged-in user (to block self-delete)
-  const currentUser = JSON.parse(localStorage.getItem('genesis_user') || '{}');
+  const currentUser = getStoredUser() || {};
 
   const [form, setForm] = useState({
     name: '',
@@ -32,14 +33,13 @@ export default function Usuarios() {
   }, []);
 
   const fetchUsers = async () => {
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/users`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) setUsers(await res.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      setUsers(await apiGet('/users'));
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar usuários', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -47,26 +47,26 @@ export default function Usuarios() {
     if (!editingUser && form.password !== form.confirmPassword) {
       return showAlert('As senhas não coincidem', 'error');
     }
+    if (editingUser && form.password && form.password !== form.confirmPassword) {
+      return showAlert('As senhas não coincidem', 'error');
+    }
 
-    const token = localStorage.getItem('genesis_token');
-    const url = editingUser ? `${BACKEND_URL}/api/users/${editingUser._id}` : `${BACKEND_URL}/api/users`;
-    const method = editingUser ? 'PUT' : 'POST';
+    const payload = { name: form.name, email: form.email, role: form.role };
+    if (form.password) payload.password = form.password;
 
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(form)
-      });
-      if (res.ok) {
-        showAlert(editingUser ? 'Usuário atualizado!' : 'Usuário criado!', 'success');
-        setIsModalOpen(false);
-        fetchUsers();
+      if (editingUser) {
+        await apiPut(`/users/${editingUser._id}`, payload);
+        showAlert('Usuário atualizado!', 'success');
       } else {
-        const data = await res.json();
-        showAlert(data.error || 'Erro ao processar', 'error');
+        await apiPost('/users', payload);
+        showAlert('Usuário criado!', 'success');
       }
-    } catch (e) { console.error(e); }
+      setIsModalOpen(false);
+      fetchUsers();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao processar', 'error');
+    }
   };
 
   const handleEdit = (user) => {
@@ -91,17 +91,13 @@ export default function Usuarios() {
     const confirmed = await showConfirm('Excluir este usuário permanentemente?');
     if (!confirmed) return;
 
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/users/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showAlert('Usuário removido', 'success');
-        fetchUsers();
-      }
-    } catch (e) { console.error(e); }
+      await apiDelete(`/users/${id}`);
+      showAlert('Usuário removido', 'success');
+      fetchUsers();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao remover usuário', 'error');
+    }
   };
 
   const filteredUsers = users.filter(u => 

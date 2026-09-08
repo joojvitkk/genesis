@@ -8,9 +8,12 @@ import {
   Trophy, Coins, Activity, Filter, Download, Calendar, 
   ChevronDown, Search, ArrowUpRight, ArrowDownRight, Clock, X, ChevronLeft, ChevronRight, Info
 } from 'lucide-react';
-import { BACKEND_URL } from '../App';
+import { apiGet } from '../lib/api';
+import { useAlert } from '../contexts/AlertContext';
+import { exportToCSV } from '../utils/csvExport';
 
 export default function Relatorios() {
+  const { showAlert } = useAlert();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -33,18 +36,31 @@ export default function Relatorios() {
   }, [categoryFilter, page, dateRange]);
 
   const fetchData = async () => {
-    const token = localStorage.getItem('genesis_token');
-    let url = `${BACKEND_URL}/api/reports/data?category=${categoryFilter}&page=${page}&limit=50`;
-    if (dateRange.start) url += `&startDate=${dateRange.start}`;
-    if (dateRange.end) url += `&endDate=${dateRange.end}`;
-
     try {
-      const res = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) setData(await res.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      setData(await apiGet('/reports/data', {
+        category: categoryFilter,
+        page,
+        limit: 50,
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+      }));
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar relatório', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExport = () => {
+    const rows = (data?.logs || []).map(l => ({
+      data: new Date(l.createdAt).toLocaleString('pt-BR'),
+      categoria: l.category,
+      acao: l.action,
+      detalhes: l.details,
+      usuario: l.user_name || 'Sistema',
+    }));
+    if (rows.length === 0) return showAlert('Nada para exportar.', 'info');
+    exportToCSV(rows, `genesis-relatorio-${new Date().toISOString().slice(0, 10)}`);
   };
 
   if (loading || !data) {
@@ -97,8 +113,8 @@ export default function Relatorios() {
             )}
           </AnimatePresence>
 
-          <button className="px-4 py-2 bg-genesis-red text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all shadow-lg shadow-red-500/20">
-            <Download size={16}/> PDF
+          <button onClick={handleExport} className="px-4 py-2 bg-genesis-red text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all shadow-lg shadow-red-500/20">
+            <Download size={16}/> CSV
           </button>
         </div>
       </header>

@@ -2,58 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { PackageOpen, Plus, Edit2, Trash2, ArrowRightLeft, CheckCircle2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
-import { BACKEND_URL } from '../App';
-
-const CustomSelect = ({ options, value, onChange, placeholder }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = React.useRef(null);
-  
-  const selectedOption = options.find(o => o.value === value);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex justify-between items-center bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm cursor-pointer text-gray-900 dark:text-white"
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform text-gray-400 shrink-0 ${isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.15 }}
-            className="absolute z-50 w-full mt-1 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-48 overflow-y-auto"
-          >
-            {options.map(opt => (
-              <div 
-                key={opt.value} 
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer text-sm text-gray-900 dark:text-white flex items-center justify-between border-b border-gray-50 dark:border-zinc-800/30 last:border-0"
-              >
-                {opt.label}
-              </div>
-            ))}
-            {options.length === 0 && <div className="px-4 py-3 text-sm text-gray-400">Nenhuma opção disponível</div>}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import CustomSelect from '../components/CustomSelect';
 
 export default function Estoque() {
   const { showAlert, showConfirm } = useAlert();
@@ -71,14 +21,9 @@ export default function Estoque() {
 
   const fetchChips = async () => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const res = await fetch(`${BACKEND_URL}/api/chips`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        setChips(data);
-      }
+      setChips(await apiGet('/chips'));
     } catch (e) {
-      console.error(e);
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar fichas', 'error');
     } finally {
       setLoading(false);
     }
@@ -90,70 +35,55 @@ export default function Estoque() {
 
   const handleSaveChip = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('genesis_token');
-    const method = editingChip ? 'PUT' : 'POST';
-    const url = editingChip ? `${BACKEND_URL}/api/chips/${editingChip._id}` : `${BACKEND_URL}/api/chips`;
-    
+    const payload = {
+      name: chipForm.name.trim(),
+      value: Number(chipForm.value),
+      color: chipForm.color,
+    };
+    if (!editingChip) payload.total_quantity = Number(chipForm.total_quantity);
+
+    if (!payload.name || !Number.isFinite(payload.value) || payload.value < 0) {
+      return showAlert('Preencha nome e um valor válido.', 'error');
+    }
+
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(chipForm)
-      });
-      if (res.ok) {
-        setIsChipModalOpen(false);
-        showAlert('Ficha salva com sucesso!', 'success');
-        await fetchChips();
-      } else {
-        showAlert('Erro ao salvar ficha', 'error');
-      }
+      if (editingChip) await apiPut(`/chips/${editingChip._id}`, payload);
+      else await apiPost('/chips', payload);
+      setIsChipModalOpen(false);
+      showAlert('Ficha salva com sucesso!', 'success');
+      await fetchChips();
     } catch (e) {
-      console.error(e);
-      showAlert('Erro de conexão ao salvar ficha', 'error');
+      if (e.status !== 401) showAlert(e.message || 'Erro ao salvar ficha', 'error');
     }
   };
 
   const handleDeleteChip = async (id) => {
     const confirmed = await showConfirm('Tem certeza que deseja excluir esta ficha?');
     if (!confirmed) return;
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/chips/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showAlert('Ficha excluída!', 'success');
-        await fetchChips();
-      }
+      await apiDelete(`/chips/${id}`);
+      showAlert('Ficha excluída!', 'success');
+      await fetchChips();
     } catch (e) {
-      console.error(e);
-      showAlert('Erro ao excluir ficha', 'error');
+      if (e.status !== 401) showAlert(e.message || 'Erro ao excluir ficha', 'error');
     }
   };
 
   const handleMoveStock = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('genesis_token');
-    const quantity_change = moveForm.type === 'entrada' ? parseInt(moveForm.quantity) : -parseInt(moveForm.quantity);
-    
+    const qty = parseInt(moveForm.quantity, 10);
+    if (!moveForm.chip_id) return showAlert('Selecione uma ficha.', 'error');
+    if (!Number.isFinite(qty) || qty <= 0) return showAlert('Informe uma quantidade positiva.', 'error');
+    const quantity_change = moveForm.type === 'entrada' ? qty : -qty;
+
     try {
-      const res = await fetch(`${BACKEND_URL}/api/inventory/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ chip_id: moveForm.chip_id, quantity_change })
-      });
-      if (res.ok) {
-        setIsMoveModalOpen(false);
-        setMoveForm({ chip_id: '', type: 'entrada', quantity: '' });
-        showAlert(`Movimentação de ${moveForm.type} concluída!`, 'success');
-        await fetchChips();
-      } else {
-        showAlert('Erro ao movimentar estoque', 'error');
-      }
+      await apiPost('/inventory/update', { chip_id: moveForm.chip_id, quantity_change });
+      setIsMoveModalOpen(false);
+      setMoveForm({ chip_id: '', type: 'entrada', quantity: '' });
+      showAlert(`Movimentação de ${moveForm.type} concluída!`, 'success');
+      await fetchChips();
     } catch (e) {
-      console.error(e);
-      showAlert('Erro de conexão ao movimentar estoque', 'error');
+      if (e.status !== 401) showAlert(e.message || 'Erro ao movimentar estoque', 'error');
     }
   };
 

@@ -8,9 +8,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
-import { socket, BACKEND_URL } from '../App';
-
-// ... (BACKEND_URL and StatusBadge components stay the same) ...
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import CustomSelect from '../components/CustomSelect';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -29,50 +28,6 @@ const StatusBadge = ({ status }) => {
     <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${styles[status]}`}>
       {labels[status]}
     </span>
-  );
-};
-
-const CustomSelect = ({ options, value, onChange, placeholder }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = React.useRef(null);
-  const selectedOption = options.find(o => o.value === value);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex justify-between items-center bg-white dark:bg-[#0F0F0F] border border-gray-200 dark:border-zinc-800 rounded-xl px-4 py-2 text-sm cursor-pointer text-gray-900 dark:text-white"
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={16} className={`transition-transform text-gray-400 shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-            className="absolute z-50 w-full mt-1 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-48 overflow-y-auto"
-          >
-            {options.map(opt => (
-              <div
-                key={opt.value}
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className="px-4 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer text-sm text-gray-900 dark:text-white border-b border-gray-50 dark:border-zinc-800/30 last:border-0"
-              >
-                {opt.label}
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
   );
 };
 
@@ -109,65 +64,57 @@ export default function Torneios() {
 
   const fetchTournaments = useCallback(async () => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const res = await fetch(`${BACKEND_URL}/api/tournaments`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-store' }
-      });
-      if (res.ok) setTournaments(await res.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      setTournaments(await apiGet('/tournaments'));
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar torneios', 'error');
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchTournamentDetails = async (id) => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const res = await fetch(`${BACKEND_URL}/api/tournaments/${id}`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-store' }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedTournament(data);
-        fetchFloorData(id);
-      }
-    } catch (e) { console.error(e); }
+      const data = await apiGet(`/tournaments/${id}`);
+      setSelectedTournament(data);
+      fetchFloorData(id);
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao abrir torneio', 'error');
+    }
   };
 
   const fetchFloorData = async (id) => {
-    const token = localStorage.getItem('genesis_token');
-    const headers = { 'Authorization': `Bearer ${token}` };
     try {
-      const [entriesRes, consolidatedRes, stacksRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/tournaments/${id}/entries`, { headers }),
-        fetch(`${BACKEND_URL}/api/tournaments/${id}/consolidated-chips`, { headers }),
-        fetch(`${BACKEND_URL}/api/stacks`, { headers })
+      const [entriesData, consolidatedData, stacksData] = await Promise.all([
+        apiGet(`/tournaments/${id}/entries`),
+        apiGet(`/tournaments/${id}/consolidated-chips`),
+        apiGet('/stacks'),
       ]);
-      if (entriesRes.ok) setEntries(await entriesRes.json());
-      if (consolidatedRes.ok) setConsolidatedChips(await consolidatedRes.json());
-      if (stacksRes.ok) setStackModels(await stacksRes.json());
-    } catch (e) { console.error(e); }
+      setEntries(entriesData);
+      setConsolidatedChips(consolidatedData);
+      setStackModels(stacksData);
+    } catch (e) {
+      if (e.status !== 401) console.error(e);
+    }
   };
 
   const fetchCasesAndChips = async () => {
-    try {
-      const token = localStorage.getItem('genesis_token');
-      const headers = { 'Authorization': `Bearer ${token}` };
-      const [casesRes, chipsRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/cases`, { headers }),
-        fetch(`${BACKEND_URL}/api/chips`, { headers })
-      ]);
-      if (casesRes.ok) setAvailableCases((await casesRes.json()).filter(c => c.status === 'available' || (selectedTournament && c.allocated_to_tournament === selectedTournament._id)));
-      if (chipsRes.ok) setChipModels(await chipsRes.json());
-    } catch (e) { console.error(e); }
+    // /cases exige acesso a "ficharios" (indisponível para o papel salão) — resiliente a 403
+    const [casesRes, chipsRes] = await Promise.allSettled([apiGet('/cases'), apiGet('/chips')]);
+    if (casesRes.status === 'fulfilled') {
+      setAvailableCases(casesRes.value.filter(c =>
+        c.status === 'available' || (selectedTournament && c.allocated_to_tournament === selectedTournament._id)
+      ));
+    }
+    if (chipsRes.status === 'fulfilled') setChipModels(chipsRes.value);
   };
 
   const fetchStackModels = async () => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const res = await fetch(`${BACKEND_URL}/api/stacks`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) setStackModels(await res.json());
-    } catch (e) { console.error(e); }
+      setStackModels(await apiGet('/stacks'));
+    } catch (e) {
+      if (e.status !== 401) console.error(e);
+    }
   };
 
   useEffect(() => {
@@ -176,73 +123,67 @@ export default function Torneios() {
     fetchStackModels();
   }, [fetchTournaments]);
 
+  // Timer para persistência com debounce (edição de blinds / composição de stack)
+  const saveTimer = React.useRef(null);
+  const debouncedSave = useCallback((id, updates) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      apiPut(`/tournaments/${id}`, updates)
+        .then(() => fetchTournaments())
+        .catch(err => { if (err.status !== 401) showAlert(err.message || 'Erro ao salvar', 'error'); });
+    }, 600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleRegisterEntry = async (type, stack_model_id) => {
     if (!stack_model_id) return showAlert('Selecione um modelo de stack', 'error');
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments/${selectedTournament._id}/entries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type, stack_model_id })
-      });
-      if (res.ok) {
-        showAlert('Entrada registrada!', 'success');
-        fetchFloorData(selectedTournament._id);
-        fetchTournaments();
-        // Update local actual_players too for instant feedback
-        if (type === 'buy-in') {
-          setSelectedTournament(prev => ({ ...prev, actual_players: prev.actual_players + 1 }));
-        }
+      await apiPost(`/tournaments/${selectedTournament._id}/entries`, { type, stack_model_id });
+      showAlert('Entrada registrada!', 'success');
+      fetchFloorData(selectedTournament._id);
+      fetchTournaments();
+      if (type === 'buy-in') {
+        setSelectedTournament(prev => ({ ...prev, actual_players: (prev.actual_players || 0) + 1 }));
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao registrar entrada', 'error');
+    }
   };
 
   const handleCreateTournament = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(form)
-      });
-      if (res.ok) {
-        showAlert('Torneio criado!', 'success');
-        setIsCreateModalOpen(false);
-        fetchTournaments();
-      } else {
-        showAlert('Erro ao criar torneio', 'error');
-      }
-    } catch (e) { console.error(e); }
+      await apiPost('/tournaments', form);
+      showAlert('Torneio criado!', 'success');
+      setIsCreateModalOpen(false);
+      fetchTournaments();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao criar torneio', 'error');
+    }
   };
 
   const handleUpdateTournament = async (id, updates) => {
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(updates)
-      });
-      if (res.ok) {
-        if (selectedTournament && selectedTournament._id === id) {
-          fetchTournamentDetails(id);
-        }
-        fetchTournaments();
-        return true;
-      }
-    } catch (e) { console.error(e); }
-    return false;
+      await apiPut(`/tournaments/${id}`, updates);
+      if (selectedTournament && selectedTournament._id === id) fetchTournamentDetails(id);
+      fetchTournaments();
+      return true;
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao atualizar torneio', 'error');
+      return false;
+    }
   };
 
+  // Atualiza o estado local imediatamente e persiste com debounce (evita 1 request por tecla)
   const handleUpdateBlind = (index, field, value) => {
     if (!selectedTournament) return;
     const newBlinds = [...(selectedTournament.blind_structure || [])];
     if (!newBlinds[index]) {
       newBlinds[index] = { row_type: 'level', level: index + 1, small_blind: 0, big_blind: 0, ante: 0, duration: 20 };
     }
-    newBlinds[index][field] = field === 'duration' ? (parseInt(value) || 0) : (parseInt(value) || 0);
-    handleUpdateTournament(selectedTournament._id, { blind_structure: newBlinds });
+    newBlinds[index] = { ...newBlinds[index], [field]: parseInt(value, 10) || 0 };
+    setSelectedTournament(prev => ({ ...prev, blind_structure: newBlinds }));
+    debouncedSave(selectedTournament._id, { blind_structure: newBlinds });
   };
 
   const removeBlindLevel = (index) => {
@@ -284,31 +225,26 @@ export default function Torneios() {
   const handleDeleteTournament = async (id) => {
     const confirmed = await showConfirm('Excluir este torneio? Fichários alocados serão liberados.');
     if (!confirmed) return;
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showAlert('Torneio removido', 'success');
-        fetchTournaments();
-      }
-    } catch (e) { console.error(e); }
+      await apiDelete(`/tournaments/${id}`);
+      showAlert('Torneio removido', 'success');
+      fetchTournaments();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao remover torneio', 'error');
+    }
   };
 
   const handleUpdatePerPlayer = (chipId, value) => {
     if (!selectedTournament) return;
-    const currentComp = [...(selectedTournament.stack_composition || [])];
+    const currentComp = (selectedTournament.stack_composition || []).map(c => ({ ...c }));
     const index = currentComp.findIndex(c => c.chip_id === chipId);
-    const newVal = parseInt(value) || 0;
+    const newVal = parseInt(value, 10) || 0;
 
-    if (index > -1) {
-      currentComp[index].per_player = newVal;
-    } else {
-      currentComp.push({ chip_id: chipId, per_player: newVal });
-    }
-    handleUpdateTournament(selectedTournament._id, { stack_composition: currentComp });
+    if (index > -1) currentComp[index].per_player = newVal;
+    else currentComp.push({ chip_id: chipId, per_player: newVal });
+
+    setSelectedTournament(prev => ({ ...prev, stack_composition: currentComp }));
+    debouncedSave(selectedTournament._id, { stack_composition: currentComp });
   };
 
   // Tracking Calculations

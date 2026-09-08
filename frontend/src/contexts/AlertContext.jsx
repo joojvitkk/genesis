@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertTriangle, CheckCircle, Info, X } from 'lucide-react';
 
@@ -10,26 +10,36 @@ export const AlertProvider = ({ children }) => {
   const [toast, setToast] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
-  const showAlert = (message, type = 'info') => {
+  const showAlert = useCallback((message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
-  };
+  }, []);
 
-  const showConfirm = (message) => {
+  const showConfirm = useCallback((message) => {
     return new Promise((resolve) => {
       setConfirmDialog({
         message,
-        onConfirm: () => {
-          setConfirmDialog(null);
-          resolve(true);
-        },
-        onCancel: () => {
-          setConfirmDialog(null);
-          resolve(false);
-        }
+        onConfirm: () => { setConfirmDialog(null); resolve(true); },
+        onCancel: () => { setConfirmDialog(null); resolve(false); },
       });
     });
-  };
+  }, []);
+
+  // Esc cancela o confirm; trava o scroll enquanto aberto
+  useEffect(() => {
+    if (!confirmDialog) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') confirmDialog.onCancel();
+      if (e.key === 'Enter') confirmDialog.onConfirm();
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [confirmDialog]);
 
   return (
     <AlertContext.Provider value={{ showAlert, showConfirm }}>
@@ -43,6 +53,8 @@ export const AlertProvider = ({ children }) => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.9 }}
             transition={{ type: 'spring', bounce: 0.4 }}
+            role="status"
+            aria-live="polite"
             className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border ${
               toast.type === 'error' ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20 text-red-700 dark:text-red-400' :
               toast.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400' :
@@ -65,6 +77,7 @@ export const AlertProvider = ({ children }) => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            onClick={confirmDialog.onCancel}
             className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
           >
             <motion.div
@@ -72,6 +85,9 @@ export const AlertProvider = ({ children }) => {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               transition={{ type: 'spring', bounce: 0.3 }}
+              role="alertdialog"
+              aria-modal="true"
+              onClick={(e) => e.stopPropagation()}
               className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm shadow-2xl p-6 relative overflow-hidden"
             >
               <div className="absolute top-0 left-0 w-full h-1 bg-amber-500"></div>
