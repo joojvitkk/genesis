@@ -10,7 +10,9 @@ const DEFAULT_LIMIT = 50;
  * `paginated` é true quando o cliente pediu ?page ou ?limit explicitamente.
  */
 function readPageParams(query = {}) {
-  const paginated = query.page !== undefined || query.limit !== undefined;
+  // Só devolve o envelope { data, pagination } quando o cliente pede ?page.
+  // ?limit sozinho apenas limita o array (útil para autocomplete).
+  const paginated = query.page !== undefined;
   const page = toInt(query.page, { min: 1, fallback: 1 });
   const limit = toInt(query.limit, { min: 1, max: HARD_CAP, fallback: paginated ? DEFAULT_LIMIT : HARD_CAP });
   return { page, limit, skip: (page - 1) * limit, paginated };

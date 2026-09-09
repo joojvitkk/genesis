@@ -13,9 +13,10 @@ const { escapeRegex, toInt, pick } = require('../utils/sanitize');
 const { paginate } = require('../lib/pagination');
 const { applyAction, clockPayload } = require('../lib/tournamentClock');
 const { entryContribution, summarize, payoutTable, validateTemplate } = require('../lib/tournamentFinance');
+const { recordEntry, recordMany } = require('../lib/inventoryLedger');
 const {
   User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage,
-  Player, PayoutTemplate, Elimination,
+  Player, PayoutTemplate, Elimination, InventoryLedger,
 } = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -180,7 +181,8 @@ router.get('/dashboard/stats', verifyToken, async (req, res) => {
 });
 
 // ─── Fichas (ChipModel) ──────────────────────────────────────────────────────
-const CHIP_FIELDS = ['name', 'value', 'color', 'total_quantity', 'available_quantity'];
+// total/reserved/available são DERIVADOS do InventoryLedger — não entram na whitelist.
+const CHIP_FIELDS = ['name', 'value', 'color'];
 
 router.get('/chips', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
@@ -193,18 +195,23 @@ router.get('/chips', verifyToken, requirePageAccess('estoque'), async (req, res)
 router.post('/chips', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
     const data = pick(req.body, CHIP_FIELDS);
-    if (!data.name || data.value === undefined || data.total_quantity === undefined) {
-      return res.status(400).json({ error: 'Nome, valor e quantidade são obrigatórios.' });
+    const initial = Number(req.body?.total_quantity ?? req.body?.initial_quantity ?? 0);
+    if (!data.name || data.value === undefined) {
+      return res.status(400).json({ error: 'Nome e valor são obrigatórios.' });
     }
     data.value = Number(data.value);
-    data.total_quantity = Number(data.total_quantity);
-    if (!Number.isFinite(data.value) || data.value < 0 || !Number.isFinite(data.total_quantity) || data.total_quantity < 0) {
-      return res.status(400).json({ error: 'Valor e quantidade devem ser números não negativos.' });
+    if (!Number.isFinite(data.value) || data.value < 0 || !Number.isFinite(initial) || initial < 0) {
+      return res.status(400).json({ error: 'Valor e quantidade inicial devem ser números não negativos.' });
     }
-    const chip = new ChipModel(data);
-    await chip.save();
-    await logActivity('Ficha Criada', 'inventory', `Nome: ${chip.name} | Valor: ${chip.value}`, req.user);
-    res.status(201).json(chip);
+    const chip = await ChipModel.create({ ...data, total_quantity: 0, available_quantity: 0 });
+    if (initial > 0) {
+      await recordEntry({
+        chip_id: chip._id, type: 'saldo_inicial', quantity: initial,
+        ref: { kind: 'manual', id: null, label: 'Cadastro da ficha' }, user: req.user,
+      });
+    }
+    await logActivity('Ficha Criada', 'inventory', `Nome: ${chip.name} | Valor: ${chip.value} | Inicial: ${initial}`, req.user);
+    res.status(201).json(await ChipModel.findById(chip._id));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -214,10 +221,9 @@ router.put('/chips/:id', verifyToken, requirePageAccess('estoque'), async (req, 
   try {
     const data = pick(req.body, CHIP_FIELDS);
     if (data.value !== undefined) data.value = Number(data.value);
-    if (data.total_quantity !== undefined) data.total_quantity = Number(data.total_quantity);
     const chip = await ChipModel.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true });
     if (!chip) return res.status(404).json({ error: 'Ficha não encontrada.' });
-    await logActivity('Ficha Editada', 'inventory', `ID: ${chip._id} | Novo Nome: ${chip.name}`, req.user);
+    await logActivity('Ficha Editada', 'inventory', `ID: ${chip._id} | Nome: ${chip.name}`, req.user);
     res.json(chip);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -284,10 +290,43 @@ router.delete('/cases/:id', verifyToken, requirePageAccess('ficharios'), async (
   }
 });
 
-// ─── Movimentação de estoque ─────────────────────────────────────────────────
+// Conferência física de um fichário: informa o que foi contado, o sistema
+// ajusta o conteúdo e lança a diferença no livro-razão.
+router.post('/cases/:id/count', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
+  try {
+    const chipCase = await ChipCase.findById(req.params.id);
+    if (!chipCase) return res.status(404).json({ error: 'Fichário não encontrado.' });
+    const counts = Array.isArray(req.body?.counts) ? req.body.counts : [];
+
+    const diffs = [];
+    for (const c of counts) {
+      const line = chipCase.chips.find((x) => String(x.chip_id) === String(c.chip_id));
+      if (!line) continue;
+      const counted = Math.max(0, Number(c.counted) || 0);
+      const diff = counted - (line.quantity || 0);
+      if (diff !== 0) {
+        await recordEntry({
+          chip_id: c.chip_id, type: 'contagem', quantity: diff,
+          ref: { kind: 'case', id: chipCase._id, label: chipCase.name },
+          note: `Conferência "${chipCase.name}": esperado ${line.quantity}, contado ${counted}`,
+          user: req.user,
+        });
+        diffs.push({ chip_id: c.chip_id, expected: line.quantity, counted, diff });
+      }
+      line.quantity = counted;
+    }
+    await chipCase.save();
+    await logActivity('Conferência de Fichário', 'chip_case', `${chipCase.name} | ${diffs.length} diferença(s)`, req.user);
+    res.json({ message: 'Conferência registrada', diffs, case: await ChipCase.findById(chipCase._id).populate('chips.chip_id') });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Movimentação de estoque (P3: via livro-razão) ───────────────────────────
 router.post('/inventory/update', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
-    const { chip_id } = req.body || {};
+    const { chip_id, note } = req.body || {};
     const quantity_change = Number(req.body?.quantity_change);
     if (!chip_id) return res.status(400).json({ error: 'Ficha não informada.' });
     if (!Number.isFinite(quantity_change) || quantity_change === 0) {
@@ -296,21 +335,56 @@ router.post('/inventory/update', verifyToken, requirePageAccess('estoque'), asyn
 
     const chip = await ChipModel.findById(chip_id);
     if (!chip) return res.status(404).json({ error: 'Ficha não encontrada' });
-
-    if (chip.total_quantity + quantity_change < 0 || chip.available_quantity + quantity_change < 0) {
+    if (chip.total_quantity + quantity_change < 0) {
       return res.status(400).json({ error: 'Movimentação deixaria o estoque negativo.' });
     }
 
-    chip.total_quantity += quantity_change;
-    chip.available_quantity += quantity_change;
-    await chip.save();
+    await recordEntry({
+      chip_id, type: quantity_change > 0 ? 'entrada' : 'saida',
+      quantity: quantity_change, note, user: req.user,
+    });
 
-    const actionType = quantity_change > 0 ? 'Entrada de Ficha no Estoque' : 'Saída de Ficha do Estoque';
-    await logActivity(actionType, 'inventory', `Ficha: ${chip.name} | Alteração: ${quantity_change}`, req.user);
-
-    res.json({ message: 'Estoque atualizado', chip });
+    const action = quantity_change > 0 ? 'Entrada de Ficha no Estoque' : 'Saída de Ficha do Estoque';
+    await logActivity(action, 'inventory', `Ficha: ${chip.name} | Alteração: ${quantity_change}${note ? ` | ${note}` : ''}`, req.user);
+    res.json({ message: 'Estoque atualizado', chip: await ChipModel.findById(chip_id) });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Quebra / perda de fichas
+router.post('/inventory/breakage', verifyToken, requirePageAccess('estoque'), async (req, res) => {
+  try {
+    const { chip_id, note } = req.body || {};
+    const quantity = Math.abs(Number(req.body?.quantity));
+    if (!chip_id || !Number.isFinite(quantity) || quantity <= 0) {
+      return res.status(400).json({ error: 'Ficha e quantidade são obrigatórias.' });
+    }
+    const chip = await ChipModel.findById(chip_id);
+    if (!chip) return res.status(404).json({ error: 'Ficha não encontrada.' });
+    if (chip.total_quantity - quantity < 0) return res.status(400).json({ error: 'Quantidade maior que o estoque.' });
+
+    await recordEntry({ chip_id, type: 'quebra', quantity: -quantity, note, user: req.user });
+    await logActivity('Quebra/Perda de Fichas', 'inventory', `Ficha: ${chip.name} | -${quantity}${note ? ` | ${note}` : ''}`, req.user);
+    res.json({ message: 'Registrado', chip: await ChipModel.findById(chip_id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Livro-razão (paginado)
+router.get('/inventory/ledger', verifyToken, requirePageAccess('estoque'), async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.chip_id) filter.chip_id = req.query.chip_id;
+    if (req.query.type && req.query.type !== 'all') filter.type = req.query.type;
+    await paginate(res, InventoryLedger, filter, {
+      populate: { path: 'chip_id', select: 'name value color' },
+      sort: { createdAt: -1 },
+      query: req.query,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -381,12 +455,15 @@ router.delete('/tournaments/:id', verifyToken, requirePageAccess('torneios'), as
     const tournament = await Tournament.findById(req.params.id);
     if (!tournament) return res.status(404).json({ error: 'Torneio não encontrado' });
 
-    // Libera fichários alocados
+    // Libera fichários alocados (e devolve a reserva de fichas se estava em andamento)
     if (tournament.allocated_cases && tournament.allocated_cases.length > 0) {
       await ChipCase.updateMany(
         { _id: { $in: tournament.allocated_cases } },
         { $set: { status: 'available', allocated_to_tournament: null, allocated_to_tournament_name: null } }
       );
+      if (['running', 'paused'].includes(tournament.status)) {
+        await releaseCases(tournament, req.user);
+      }
     }
 
     // Cascata: entradas e eliminações somem, chip races ficam arquivadas
@@ -408,6 +485,54 @@ router.delete('/tournaments/:id', verifyToken, requirePageAccess('torneios'), as
   }
 });
 
+// Reserva (+1) as fichas dos fichários no livro-razão.
+async function reserveCases(caseIds, tournament, user) {
+  if (!caseIds?.length) return;
+  const cases = await ChipCase.find({ _id: { $in: caseIds } });
+  const entries = [];
+  for (const c of cases) {
+    for (const line of c.chips || []) {
+      if (!line.chip_id || !(line.quantity > 0)) continue;
+      entries.push({
+        chip_id: line.chip_id, type: 'alocacao', quantity: line.quantity,
+        ref: { kind: 'tournament', id: tournament._id, label: tournament.name },
+        note: `Alocado — fichário "${c.name}"`, user,
+      });
+    }
+  }
+  await recordMany(entries);
+}
+
+// Devolve (-1) EXATAMENTE o que foi reservado para este torneio, somando os
+// lançamentos 'alocacao' do ledger (imune a mudanças no conteúdo da maleta).
+async function releaseCases(tournament, user) {
+  const allocs = await InventoryLedger.aggregate([
+    { $match: { type: 'alocacao', 'ref.id': tournament._id } },
+    { $group: { _id: '$chip_id', total: { $sum: '$quantity' } } },
+  ]);
+  const returned = await InventoryLedger.aggregate([
+    { $match: { type: 'retorno', 'ref.id': tournament._id } },
+    { $group: { _id: '$chip_id', total: { $sum: '$quantity' } } },
+  ]);
+  const returnedMap = new Map(returned.map((r) => [String(r._id), -r.total]));
+
+  const entries = [];
+  for (const a of allocs) {
+    const outstanding = a.total - (returnedMap.get(String(a._id)) || 0);
+    if (outstanding > 0) {
+      entries.push({
+        chip_id: a._id, type: 'retorno', quantity: -outstanding,
+        ref: { kind: 'tournament', id: tournament._id, label: tournament.name },
+        note: 'Fichas devolvidas ao estoque', user,
+      });
+    }
+  }
+  await recordMany(entries);
+}
+
+const RUNNING_STATES = ['running', 'paused'];
+const CLOSED_STATES = ['finished', 'finalized'];
+
 router.put('/tournaments/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
   try {
     const io = req.app.get('io');
@@ -415,24 +540,26 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('torneios'), async
     const oldTournament = await Tournament.findById(req.params.id);
     if (!oldTournament) return res.status(404).json({ error: 'Torneio não encontrado' });
 
-    if (updates.status === 'running' && oldTournament.status !== 'running') {
-      if (oldTournament.allocated_cases && oldTournament.allocated_cases.length > 0) {
-        await ChipCase.updateMany(
-          { _id: { $in: oldTournament.allocated_cases } },
-          { $set: { status: 'allocated', allocated_to_tournament: oldTournament._id, allocated_to_tournament_name: oldTournament.name } }
-        );
-        io.emit('chipCasesAllocated', { tournament_id: oldTournament._id, cases: oldTournament.allocated_cases });
-      }
+    const wasRunning = RUNNING_STATES.includes(oldTournament.status);
+    const willRun = RUNNING_STATES.includes(updates.status);
+    const willClose = CLOSED_STATES.includes(updates.status);
+
+    if (willRun && !wasRunning && oldTournament.allocated_cases?.length) {
+      await ChipCase.updateMany(
+        { _id: { $in: oldTournament.allocated_cases } },
+        { $set: { status: 'allocated', allocated_to_tournament: oldTournament._id, allocated_to_tournament_name: oldTournament.name } }
+      );
+      await reserveCases(oldTournament.allocated_cases, oldTournament, req.user);
+      io.emit('chipCasesAllocated', { tournament_id: oldTournament._id, cases: oldTournament.allocated_cases });
     }
 
-    if (updates.status === 'finished' && oldTournament.status !== 'finished') {
-      if (oldTournament.allocated_cases && oldTournament.allocated_cases.length > 0) {
-        await ChipCase.updateMany(
-          { _id: { $in: oldTournament.allocated_cases } },
-          { $set: { status: 'available', allocated_to_tournament: null, allocated_to_tournament_name: null } }
-        );
-        io.emit('chipCasesReleased', { tournament_id: oldTournament._id, cases: oldTournament.allocated_cases });
-      }
+    if (willClose && !CLOSED_STATES.includes(oldTournament.status) && oldTournament.allocated_cases?.length) {
+      await ChipCase.updateMany(
+        { _id: { $in: oldTournament.allocated_cases } },
+        { $set: { status: 'available', allocated_to_tournament: null, allocated_to_tournament_name: null } }
+      );
+      if (wasRunning) await releaseCases(oldTournament, req.user);
+      io.emit('chipCasesReleased', { tournament_id: oldTournament._id, cases: oldTournament.allocated_cases });
     }
 
     const tournament = await Tournament.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });

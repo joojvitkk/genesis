@@ -26,12 +26,13 @@ test('inventory/update rejeita movimentação que deixaria estoque negativo', as
 
 test('inventory/update aplica entrada e saída válidas', async () => {
   const { token } = await makeUser('material');
-  const chip = await ChipModel.create({ name: 'F25', value: 25, total_quantity: 100, available_quantity: 100 });
+  const H = { Authorization: `Bearer ${token}` };
+  // fichas criadas via API para semear o livro-razão (P3)
+  const { body: chip } = await request(app).post('/api/chips').set(H)
+    .send({ name: 'F25', value: 25, total_quantity: 100 });
 
-  await request(app).post('/api/inventory/update').set('Authorization', `Bearer ${token}`)
-    .send({ chip_id: chip._id, quantity_change: 50 });
-  await request(app).post('/api/inventory/update').set('Authorization', `Bearer ${token}`)
-    .send({ chip_id: chip._id, quantity_change: -30 });
+  await request(app).post('/api/inventory/update').set(H).send({ chip_id: chip._id, quantity_change: 50 });
+  await request(app).post('/api/inventory/update').set(H).send({ chip_id: chip._id, quantity_change: -30 });
 
   const fresh = await ChipModel.findById(chip._id);
   assert.equal(fresh.total_quantity, 120);

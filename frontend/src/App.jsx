@@ -23,6 +23,7 @@ import Salao from './pages/Salao';
 import Auditoria from './pages/Auditoria';
 import Usuarios from './pages/Usuarios';
 import Jogadores from './pages/Jogadores';
+import LivroEstoque from './pages/LivroEstoque';
 import Telao from './pages/Telao';
 
 // Re-exports para compatibilidade com imports antigos
@@ -183,6 +184,7 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
                 '/chip-race': <ChipRace />,
                 '/chat': <Chat />,
                 '/estoque': <Estoque />,
+                '/livro-estoque': <LivroEstoque />,
                 '/ficharios': <Ficharios />,
                 '/modelos-stack': <ModelosStack />,
                 '/dashboard': <Dashboard />,

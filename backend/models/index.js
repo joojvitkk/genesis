@@ -11,4 +11,5 @@ module.exports = {
   Player: require('./Player'),
   PayoutTemplate: require('./PayoutTemplate'),
   Elimination: require('./Elimination'),
+  InventoryLedger: require('./InventoryLedger'),
 };

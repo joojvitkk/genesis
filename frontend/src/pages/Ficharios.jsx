@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, Plus, Trash2, Edit2, X, AlertCircle, PackagePlus, Link2 } from 'lucide-react';
+import { Briefcase, Plus, Trash2, Edit2, X, AlertCircle, PackagePlus, Link2, PackageCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
@@ -19,6 +19,31 @@ export default function Ficharios() {
   // Multi-allocation modal state
   const [isAllocModalOpen, setIsAllocModalOpen] = useState(false);
   const [allocatingCase, setAllocatingCase] = useState(null);
+
+  // Conferência física
+  const [countCase, setCountCase] = useState(null);
+  const [countValues, setCountValues] = useState({});
+
+  useEffect(() => {
+    if (countCase) {
+      const init = {};
+      countCase.chips.forEach((c) => { if (c.chip_id) init[c.chip_id._id || c.chip_id] = c.quantity; });
+      setCountValues(init);
+    }
+  }, [countCase]);
+
+  const submitCount = async () => {
+    const counts = Object.entries(countValues).map(([chip_id, counted]) => ({ chip_id, counted: Number(counted) || 0 }));
+    try {
+      const res = await apiPost(`/cases/${countCase._id}/count`, { counts });
+      const nDiff = res.diffs.length;
+      showAlert(nDiff === 0 ? 'Conferência OK — sem diferenças.' : `Conferência registrada: ${nDiff} diferença(s) ajustada(s).`, nDiff === 0 ? 'success' : 'info');
+      setCountCase(null);
+      await fetchInitialData();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao registrar conferência', 'error');
+    }
+  };
 
   const fetchInitialData = async () => {
     try {
@@ -202,6 +227,9 @@ export default function Ficharios() {
                     )}
                   </div>
                   <div className="flex gap-2 shrink-0">
+                    {c.chips.length > 0 && (
+                      <button onClick={() => setCountCase(c)} title="Conferência física" className="p-2 text-gray-400 hover:text-genesis-red bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><PackageCheck size={16} /></button>
+                    )}
                     <button onClick={() => openEditModal(c)} className="p-2 text-gray-400 hover:text-blue-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Edit2 size={16} /></button>
                     {c.status !== 'allocated' && allocs.length === 0 && (
                       <button onClick={() => handleDeleteCase(c._id)} className="p-2 text-gray-400 hover:text-red-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Trash2 size={16} /></button>
@@ -376,6 +404,56 @@ export default function Ficharios() {
               </motion.div>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Conferência física */}
+      <AnimatePresence>
+        {countCase && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCountCase(null)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-md rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]"
+            >
+              <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
+                <h2 className="flex items-center gap-2 text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">
+                  <PackageCheck size={20} className="text-genesis-red" /> Conferir "{countCase.name}"
+                </h2>
+                <button type="button" onClick={() => setCountCase(null)} className="text-gray-400 hover:text-gray-600"><X /></button>
+              </div>
+              <div className="space-y-3 p-6">
+                <p className="text-xs font-medium text-gray-500">Informe quantas fichas de cada modelo você contou. A diferença vira um lançamento de ajuste no livro-razão.</p>
+                {countCase.chips.filter((c) => c.chip_id).map((c) => {
+                  const id = c.chip_id._id || c.chip_id;
+                  const counted = countValues[id];
+                  const diff = (Number(counted) || 0) - c.quantity;
+                  return (
+                    <div key={id} className="flex items-center gap-3">
+                      <div className="flex flex-1 items-center gap-2">
+                        <span className="h-4 w-4 rounded-full" style={{ backgroundColor: c.chip_id.color }} />
+                        <span className="text-sm font-bold text-gray-800 dark:text-gray-100">Ficha {c.chip_id.value}</span>
+                        <span className="text-xs text-gray-400">esperado {c.quantity}</span>
+                      </div>
+                      <input
+                        type="number" min="0"
+                        value={counted ?? ''}
+                        onChange={(e) => setCountValues((v) => ({ ...v, [id]: e.target.value }))}
+                        className="w-24 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-right text-sm font-bold outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-700 dark:bg-zinc-900"
+                      />
+                      <span className={`w-12 text-right text-xs font-black tabular-nums ${diff === 0 ? 'text-gray-300' : diff < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                        {diff > 0 ? '+' : ''}{diff || ''}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-3 border-t border-gray-100 p-4 dark:border-zinc-800">
+                <button onClick={() => setCountCase(null)} className="flex-1 rounded-xl bg-gray-100 py-3 text-xs font-black uppercase text-gray-600 dark:bg-zinc-800 dark:text-gray-300">Cancelar</button>
+                <button onClick={submitCount} className="flex-1 rounded-xl bg-genesis-red py-3 text-xs font-black uppercase text-white hover:bg-red-700">Registrar conferência</button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

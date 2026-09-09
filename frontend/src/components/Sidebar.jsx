@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Package, Briefcase, Trophy, Coins,
   MessageSquare, Layers, BarChart, MonitorPlay, ClipboardList,
-  Users, UserCheck, X, LogOut, Sun, Moon, ChevronRight
+  Users, UserCheck, BookOpen, X, LogOut, Sun, Moon, ChevronRight
 } from 'lucide-react';
 import { can } from '../config';
 
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { to: '/jogadores',    icon: UserCheck,       label: 'Jogadores',  area: 'torneios' },
   { to: '/chip-race',    icon: Coins,           label: 'Chip Race',  area: 'chip_race' },
   { to: '/estoque',      icon: Package,         label: 'Estoque',    area: 'estoque' },
+  { to: '/livro-estoque',icon: BookOpen,        label: 'Livro-razão',area: 'estoque' },
   { to: '/ficharios',    icon: Briefcase,       label: 'Fichários',  area: 'ficharios' },
   { to: '/chat',         icon: MessageSquare,   label: 'Chat',       area: 'chat' },
   { to: '/modelos-stack',icon: Layers,          label: 'Stacks',     area: 'modelos_stack' },

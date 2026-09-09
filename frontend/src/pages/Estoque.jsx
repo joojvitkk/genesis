@@ -17,7 +17,7 @@ export default function Estoque() {
   
   // Forms states
   const [chipForm, setChipForm] = useState({ name: '', value: '', color: '', total_quantity: '' });
-  const [moveForm, setMoveForm] = useState({ chip_id: '', type: 'entrada', quantity: '' });
+  const [moveForm, setMoveForm] = useState({ chip_id: '', type: 'entrada', quantity: '', note: '' });
 
   const fetchChips = async () => {
     try {
@@ -74,13 +74,20 @@ export default function Estoque() {
     const qty = parseInt(moveForm.quantity, 10);
     if (!moveForm.chip_id) return showAlert('Selecione uma ficha.', 'error');
     if (!Number.isFinite(qty) || qty <= 0) return showAlert('Informe uma quantidade positiva.', 'error');
-    const quantity_change = moveForm.type === 'entrada' ? qty : -qty;
 
     try {
-      await apiPost('/inventory/update', { chip_id: moveForm.chip_id, quantity_change });
+      if (moveForm.type === 'quebra') {
+        await apiPost('/inventory/breakage', { chip_id: moveForm.chip_id, quantity: qty, note: moveForm.note });
+      } else {
+        await apiPost('/inventory/update', {
+          chip_id: moveForm.chip_id,
+          quantity_change: moveForm.type === 'entrada' ? qty : -qty,
+          note: moveForm.note,
+        });
+      }
       setIsMoveModalOpen(false);
-      setMoveForm({ chip_id: '', type: 'entrada', quantity: '' });
-      showAlert(`Movimentação de ${moveForm.type} concluída!`, 'success');
+      setMoveForm({ chip_id: '', type: 'entrada', quantity: '', note: '' });
+      showAlert('Movimentação registrada!', 'success');
       await fetchChips();
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao movimentar estoque', 'error');
@@ -131,6 +138,7 @@ export default function Estoque() {
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50">Valor</th>
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50">Cor</th>
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Total</th>
+                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Alocado</th>
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Disponível</th>
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Ações</th>
                 </tr>
@@ -157,6 +165,7 @@ export default function Estoque() {
                         </div>
                       </td>
                       <td className="p-5 text-right font-bold text-gray-900 dark:text-white">{chip.total_quantity.toLocaleString()}</td>
+                      <td className="p-5 text-right font-bold text-amber-600 dark:text-amber-500">{(chip.reserved_quantity || 0).toLocaleString()}</td>
                       <td className="p-5 text-right font-black text-emerald-600 dark:text-emerald-500">{chip.available_quantity.toLocaleString()}</td>
                       <td className="p-5 text-right space-x-2">
                         <button onClick={() => openEditModal(chip)} className="p-2 text-gray-400 hover:text-blue-500 bg-transparent hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Edit2 size={18} /></button>
@@ -167,7 +176,7 @@ export default function Estoque() {
                 </AnimatePresence>
                 {chips.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="p-12 text-center text-gray-400 dark:text-gray-500 text-lg">Nenhum modelo de ficha cadastrado.</td>
+                    <td colSpan="7" className="p-12 text-center text-gray-400 dark:text-gray-500 text-lg">Nenhum modelo de ficha cadastrado.</td>
                   </tr>
                 )}
               </tbody>
@@ -257,15 +266,17 @@ export default function Estoque() {
               <form onSubmit={handleMoveStock} className="p-6 space-y-5">
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Tipo de Movimentação</label>
-                  <div className="flex gap-4">
-                    <label className={`flex-1 p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-center gap-2 font-bold ${moveForm.type === 'entrada' ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500' : 'border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-gray-400'}`}>
-                      <input type="radio" name="type" value="entrada" checked={moveForm.type === 'entrada'} onChange={() => setMoveForm({...moveForm, type: 'entrada'})} className="hidden" />
-                      Entrada
-                    </label>
-                    <label className={`flex-1 p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-center gap-2 font-bold ${moveForm.type === 'saida' ? 'border-red-500 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-500' : 'border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-gray-400'}`}>
-                      <input type="radio" name="type" value="saida" checked={moveForm.type === 'saida'} onChange={() => setMoveForm({...moveForm, type: 'saida'})} className="hidden" />
-                      Saída
-                    </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { v: 'entrada', label: 'Entrada', cls: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500' },
+                      { v: 'saida', label: 'Saída', cls: 'border-red-500 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-500' },
+                      { v: 'quebra', label: 'Quebra/Perda', cls: 'border-amber-500 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-500' },
+                    ].map(o => (
+                      <label key={o.v} className={`p-3 rounded-xl border cursor-pointer transition-all text-center text-xs font-bold ${moveForm.type === o.v ? o.cls : 'border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-gray-400'}`}>
+                        <input type="radio" name="type" value={o.v} checked={moveForm.type === o.v} onChange={() => setMoveForm({ ...moveForm, type: o.v })} className="hidden" />
+                        {o.label}
+                      </label>
+                    ))}
                   </div>
                 </div>
                 <div>
@@ -281,10 +292,14 @@ export default function Estoque() {
                   <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Quantidade (Apenas o número)</label>
                   <input type="number" min="1" value={moveForm.quantity} onChange={e => setMoveForm({...moveForm, quantity: e.target.value})} className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white" required placeholder="Ex: 1500" />
                 </div>
-                
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Observação (opcional)</label>
+                  <input type="text" value={moveForm.note} onChange={e => setMoveForm({...moveForm, note: e.target.value})} className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white" placeholder="Ex: compra fornecedor X / ficha danificada" />
+                </div>
+
               <div className="p-6 border-t border-gray-100 dark:border-zinc-800/50 bg-gray-50 dark:bg-[#111111] shrink-0 rounded-b-3xl">
-                <button type="submit" className={`w-full py-4 rounded-xl font-bold text-white active:scale-95 transition-all shadow-lg ${moveForm.type === 'entrada' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30' : 'bg-red-500 hover:bg-red-600 shadow-red-500/30'}`}>
-                  Confirmar {moveForm.type === 'entrada' ? 'Entrada' : 'Saída'}
+                <button type="submit" className={`w-full py-4 rounded-xl font-bold text-white active:scale-95 transition-all shadow-lg ${moveForm.type === 'entrada' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30' : moveForm.type === 'quebra' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' : 'bg-red-500 hover:bg-red-600 shadow-red-500/30'}`}>
+                  Confirmar {moveForm.type === 'entrada' ? 'Entrada' : moveForm.type === 'quebra' ? 'Quebra/Perda' : 'Saída'}
                 </button>
               </div>
               </form>

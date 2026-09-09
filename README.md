@@ -14,8 +14,9 @@ auditoria de operações.
 | **Torneios** | Criação, estrutura de blinds, **relógio server-side + tela de projeção**, alocação de fichários, tracking de fichas, entradas (buy-in / re-entry / add-on). |
 | **Financeiro do torneio** | Buy-in, rake fixo, bounty, add-on → prize pool calculado. Templates de premiação em % com faixas por nº de inscritos. Eliminações → classificação final com prêmio e bounty por jogador. |
 | **Jogadores** | Cadastro (nome, documento, contato) + histórico de participações e colocações. |
-| **Estoque** | Modelos de ficha (nome, valor, cor, quantidade). Movimentações de entrada/saída com log. |
-| **Fichários** | Kits de fichas com opção de "entrada automática" (debita o estoque ao criar). |
+| **Estoque** | Modelos de ficha; saldos (total / alocado / disponível) **derivados do livro-razão**. Entradas, saídas, quebra/perda. |
+| **Livro-razão de fichas** | Todo movimento de estoque em ordem (`/livro-estoque`) — fonte da verdade dos saldos. |
+| **Fichários** | Kits de fichas; alocar a um torneio **reserva** as fichas (voltam ao finalizar). Conferência física por maleta gera lançamento de ajuste. |
 | **Modelos de Stack** | Composições reutilizáveis de fichas por jogador. |
 | **Chip Race / Color Up** | Calculadora e histórico de trocas de fichas de menor valor. |
 | **Chat** | Canais `geral`, `material`, `salao` via WebSocket + alertas urgentes globais. |
@@ -182,7 +183,10 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 | POST | `/chips` |
 | PUT | `/chips/:id` |
 | DELETE | `/chips/:id` |
-| POST | `/inventory/update` — `{ chip_id, quantity_change }` |
+| POST | `/inventory/update` — `{ chip_id, quantity_change, note? }` (registra no livro-razão) |
+| POST | `/inventory/breakage` — `{ chip_id, quantity, note? }` — quebra/perda |
+| GET | `/inventory/ledger` — livro-razão paginado (`chip_id`, `type`) |
+| POST | `/cases/:id/count` — `{ counts: [{ chip_id, counted }] }` — conferência física |
 | GET | `/inventory/logs` — *relatorios* (paginado, `search`, `type`) |
 
 ### Fichários — *ficharios*
@@ -397,11 +401,26 @@ automaticamente e mostra um aviso — basta logar de novo.
   rake, jogadores restantes), premiação calculada, painel de eliminações e resultado.
 - +11 testes (finance puro + fluxo completo de eliminação); verificado ponta a ponta.
 
-## ⚠️ Ainda em aberto (roadmap P3–P6)
+## ✅ Fase P3 — Livro-razão de inventário — concluída
 
-- **P3 — Estoque x fichários**: alocação não reserva fichas; `ChipCase` com 3 gerações de
-  campos de alocação para consolidar; livro-razão de inventário.
-- **P4 — Mesas/seating**, **P5 — segurança avançada / PWA offline**, **P6 — incrementais**.
+- **`InventoryLedger`** (coleção nova, append-only): `entrada` / `saida` / `quebra` /
+  `contagem` / `ajuste` / `saldo_inicial` / `alocacao` / `retorno`. `quantity` com sinal.
+- **`ChipModel.total_quantity` / `reserved_quantity` / `available_quantity` são cache
+  derivado** — `lib/inventoryLedger.recalcChip` recalcula a partir do ledger após cada
+  lançamento; não se edita mais direto.
+- Alocar um fichário a um torneio em andamento gera `alocacao` (reserva); finalizar/excluir
+  gera `retorno` **do valor exato reservado** (imune a mudanças no conteúdo da maleta).
+- Conferência física por maleta (`POST /cases/:id/count`): ajusta o conteúdo e lança a
+  diferença como `contagem`.
+- Migração `20260911` semeia o ledger a partir do estado atual (preserva os números).
+- Frontend: página `/livro-estoque`, coluna "Alocado" no estoque, ação Quebra/Perda,
+  botão "Conferir" nos fichários.
+- +9 testes; verificado ponta a ponta.
+
+## ⚠️ Ainda em aberto (roadmap P4–P6)
+
+- **P4 — Mesas/seating** + templates de blind reutilizáveis
+- **P5 — segurança avançada / PWA offline** · **P6 — incrementais**
 
 Ver o [roadmap completo](https://claude.ai/code/artifact/c98c1207-a6ec-4634-8267-1c81b25c5ac5).
 

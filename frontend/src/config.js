@@ -25,6 +25,7 @@ export const ROUTE_AREA = {
   '/jogadores': 'torneios',
   '/chip-race': 'chip_race',
   '/estoque': 'estoque',
+  '/livro-estoque': 'estoque',
   '/ficharios': 'ficharios',
   '/chat': 'chat',
   '/modelos-stack': 'modelos_stack',
