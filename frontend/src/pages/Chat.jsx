@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Users, AlertTriangle, Clock, MessageSquare, Bell, Shield, Package, MonitorPlay } from 'lucide-react';
+import { Send, Users, AlertTriangle, Clock, MessageSquare, Bell, Shield, Package, MonitorPlay, ImagePlus, X, Check } from 'lucide-react';
 import { socket } from '../lib/socket';
-import { apiGet } from '../lib/api';
+import { apiGet, apiPost } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
+import { useAlert } from '../contexts/AlertContext';
+import { fileToCompressedDataURL } from '../lib/image';
 
 const CHANNELS = [
   { id: 'general', label: 'Geral', icon: <MessageSquare size={16}/>, color: 'bg-blue-500' },
@@ -18,8 +20,12 @@ export default function Chat() {
   const [isUrgent, setIsUrgent] = useState(false);
   const [user, setUser] = useState(null);
   const [unread, setUnread] = useState({});
+  const [pendingImage, setPendingImage] = useState(null);
+  const [urgentAlerts, setUrgentAlerts] = useState([]);
+  const [showAlerts, setShowAlerts] = useState(false);
   const activeRef = useRef(activeChannel);
   const scrollRef = useRef(null);
+  const { showAlert } = useAlert();
 
   const [onlineCount, setOnlineCount] = useState(0);
 
@@ -43,12 +49,22 @@ export default function Chat() {
       } else {
         setUnread((u) => ({ ...u, [msg.channel]: true }));
       }
+      if (msg.is_urgent) setUrgentAlerts((list) => [msg, ...list].slice(0, 30));
+    };
+    const onAck = ({ message_id, user_name }) => {
+      setUrgentAlerts((list) => list.map((m) => (
+        m._id === message_id && !m.acks?.some((a) => a.user_name === user_name)
+          ? { ...m, acks: [...(m.acks || []), { user_name }] } : m
+      )));
     };
     socket.on('newMessage', onNew);
+    socket.on('urgentAck', onAck);
+    apiGet('/chat/urgent').then(setUrgentAlerts).catch(() => {});
 
     return () => {
       socket.off('onlineCount');
       socket.off('newMessage', onNew);
+      socket.off('urgentAck', onAck);
       CHANNELS.forEach((c) => socket.emit('leaveChannel', c.id));
     };
   }, []);
@@ -68,19 +84,35 @@ export default function Chat() {
 
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user) return;
+    if ((!newMessage.trim() && !pendingImage) || !user) return;
 
-    const data = {
+    socket.emit('sendMessage', {
       message: newMessage,
-      sender_name: user.name,
-      sender_role: user.role,
+      image: pendingImage || undefined,
       channel: activeChannel,
-      is_urgent: isUrgent
-    };
-
-    socket.emit('sendMessage', data);
+      is_urgent: isUrgent,
+    });
     setNewMessage('');
+    setPendingImage(null);
     setIsUrgent(false);
+  };
+
+  const pickImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      setPendingImage(await fileToCompressedDataURL(file));
+    } catch (err) {
+      showAlert(err.message || 'Não foi possível anexar a imagem.', 'error');
+    }
+  };
+
+  const ackUrgent = async (id) => {
+    try {
+      const updated = await apiPost(`/chat/${id}/ack`, {});
+      setUrgentAlerts((list) => list.map((m) => (m._id === id ? updated : m)));
+    } catch { /* ignore */ }
   };
 
   return (
@@ -139,11 +171,42 @@ export default function Chat() {
               <p className="text-xs text-gray-500 font-medium">Comunicação oficial do setor</p>
             </div>
           </div>
-          <div className="hidden md:flex items-center gap-4">
-            <button className="p-2 text-gray-400 hover:text-gray-600"><Bell size={20}/></button>
-            <button className="p-2 text-gray-400 hover:text-gray-600"><Shield size={20}/></button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowAlerts((v) => !v)} className={`relative p-2 rounded-xl transition-all ${showAlerts ? 'bg-genesis-red text-white' : 'text-gray-400 hover:text-gray-600'}`} title="Alertas urgentes">
+              <Bell size={20}/>
+              {urgentAlerts.length > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-genesis-red px-1 text-[9px] font-black text-white">{urgentAlerts.length}</span>
+              )}
+            </button>
+            <button className="hidden md:block p-2 text-gray-400 hover:text-gray-600"><Shield size={20}/></button>
           </div>
         </div>
+
+        {/* Painel de alertas urgentes */}
+        {showAlerts && (
+          <div className="border-b border-gray-200 bg-red-50 p-4 dark:border-zinc-800 dark:bg-red-500/5 max-h-64 overflow-y-auto">
+            <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-genesis-red">Alertas urgentes</p>
+            {urgentAlerts.length === 0 && <p className="text-sm text-gray-400">Nenhum alerta.</p>}
+            {urgentAlerts.map((a) => {
+              const mine = a.acks?.some((x) => x.user_name === user?.name);
+              return (
+                <div key={a._id} className="mb-2 rounded-xl border border-red-200 bg-white p-3 text-sm dark:border-red-500/20 dark:bg-zinc-900">
+                  <p className="font-bold text-gray-900 dark:text-white">{a.message || '(imagem)'}</p>
+                  <p className="text-[11px] text-gray-400">{a.sender_name} · #{a.channel} · {new Date(a.createdAt).toLocaleString('pt-BR')}</p>
+                  <div className="mt-1.5 flex items-center justify-between">
+                    <span className="text-[11px] text-gray-500">{(a.acks || []).length} confirmação(ões){a.acks?.length ? `: ${a.acks.map((x) => x.user_name).join(', ')}` : ''}</span>
+                    {!mine && (
+                      <button onClick={() => ackUrgent(a._id)} className="inline-flex items-center gap-1 rounded-lg bg-genesis-red px-2.5 py-1 text-[10px] font-black uppercase text-white hover:bg-red-700">
+                        <Check size={12}/> Confirmar leitura
+                      </button>
+                    )}
+                    {mine && <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-emerald-500"><Check size={12}/> Você confirmou</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Messages */}
         <div 
@@ -166,7 +229,12 @@ export default function Chat() {
                 </div>
                 <div className={`max-w-[85%] md:max-w-[70%] p-4 rounded-3xl shadow-sm relative ${msg.is_urgent ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : isMe ? 'bg-genesis-red text-white' : 'bg-white dark:bg-[#141414] text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-zinc-800'}`}>
                   {msg.is_urgent && <AlertTriangle size={14} className="absolute -top-2 -right-2 bg-white text-red-500 rounded-full p-0.5 shadow-md"/>}
-                  <p className="text-sm font-medium leading-relaxed">{msg.message}</p>
+                  {msg.image && (
+                    <a href={msg.image} target="_blank" rel="noopener" className="block mb-1.5">
+                      <img src={msg.image} alt="anexo" className="max-h-60 rounded-lg" />
+                    </a>
+                  )}
+                  {msg.message && <p className="text-sm font-medium leading-relaxed">{msg.message}</p>}
                   <div className={`text-[9px] mt-2 opacity-50 font-bold flex items-center gap-1 ${isMe ? 'justify-end' : ''}`}>
                     <Clock size={8}/> {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
@@ -185,7 +253,7 @@ export default function Chat() {
         {/* Input Area */}
         <div className="p-4 md:p-8 bg-white dark:bg-[#111111] border-t border-gray-200 dark:border-zinc-800">
           <form onSubmit={handleSendMessage} className="space-y-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setIsUrgent(!isUrgent)}
@@ -193,6 +261,16 @@ export default function Chat() {
               >
                 <AlertTriangle size={14}/> Urgente
               </button>
+              <label className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-tight border bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-400 hover:text-genesis-red cursor-pointer">
+                <ImagePlus size={14}/> Imagem
+                <input type="file" accept="image/*" onChange={pickImage} className="hidden" />
+              </label>
+              {pendingImage && (
+                <div className="relative">
+                  <img src={pendingImage} alt="prévia" className="h-10 w-10 rounded-lg object-cover" />
+                  <button type="button" onClick={() => setPendingImage(null)} className="absolute -right-1.5 -top-1.5 rounded-full bg-gray-900 p-0.5 text-white"><X size={11}/></button>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-3 bg-gray-50 dark:bg-[#0F0F0F] p-2 pr-2 md:p-3 md:pr-3 rounded-3xl border border-gray-200 dark:border-zinc-800 focus-within:border-genesis-red transition-all">
               <input

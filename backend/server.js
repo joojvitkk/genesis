@@ -82,10 +82,18 @@ io.on('connection', (socket) => {
       }
       const channel = CHANNELS.includes(data.channel) ? data.channel : 'general';
       const message = String(data.message || '').trim().slice(0, 2000);
-      if (!message) return;
+
+      // anexo de imagem: só data URL de imagem, no máx ~280KB
+      let image;
+      if (typeof data.image === 'string' && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(data.image)) {
+        if (data.image.length <= 380_000) image = data.image;
+        else { socket.emit('chatError', 'Imagem muito grande (máx ~280KB).'); return; }
+      }
+      if (!message && !image) return;
 
       const newMessage = new ChatMessage({
         message,
+        image,
         sender_name: socket.user.name,
         sender_email: socket.user.email,
         sender_role: socket.user.role,
@@ -97,8 +105,9 @@ io.on('connection', (socket) => {
 
       if (newMessage.is_urgent) {
         socket.broadcast.emit('urgentNotification', {
+          _id: String(newMessage._id),
           sender_name: newMessage.sender_name,
-          message: newMessage.message,
+          message: newMessage.message || '(imagem)',
           channel,
         });
       }

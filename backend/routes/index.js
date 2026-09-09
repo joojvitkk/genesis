@@ -1552,6 +1552,31 @@ router.get('/reports/comparison', verifyToken, requirePageAccess('relatorios'), 
 });
 
 // ─── Chat ────────────────────────────────────────────────────────────────────
+// Alertas urgentes recentes + confirmações de leitura (P6)
+router.get('/chat/urgent', verifyToken, async (req, res) => {
+  try {
+    const msgs = await ChatMessage.find({ is_urgent: true }).sort({ createdAt: -1 }).limit(30);
+    res.json(msgs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/chat/:id/ack', verifyToken, async (req, res) => {
+  try {
+    const msg = await ChatMessage.findById(req.params.id);
+    if (!msg) return res.status(404).json({ error: 'Mensagem não encontrada.' });
+    if (!msg.acks.some((a) => a.user_email === req.user.email)) {
+      msg.acks.push({ user_name: req.user.name, user_email: req.user.email });
+      await msg.save();
+      req.app.get('io').emit('urgentAck', { message_id: String(msg._id), user_name: req.user.name });
+    }
+    res.json(msg);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/chat/:channel', verifyToken, async (req, res) => {
   try {
     const messages = await ChatMessage.find({ channel: req.params.channel })
