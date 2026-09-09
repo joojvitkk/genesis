@@ -9,12 +9,17 @@ const TEST_URI = process.env.MONGO_URI_TEST || 'mongodb://127.0.0.1:27017/genesi
 
 async function connect() {
   if (mongoose.connection.readyState === 0) {
-    await mongoose.connect(TEST_URI, { serverSelectionTimeoutMS: 5000 });
+    await mongoose.connect(TEST_URI, {
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 20000,
+      maxPoolSize: 5,
+    });
   }
 }
 
 async function clearDb() {
-  await mongoose.connection.dropDatabase();
+  const cols = await mongoose.connection.db.collections();
+  await Promise.all(cols.map((c) => c.deleteMany({})));
 }
 
 async function disconnect() {

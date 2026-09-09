@@ -1,10 +1,13 @@
 const mongoose = require('mongoose');
 const softDelete = require('../lib/softDelete');
+const { computeStartsAt, DEFAULT_TZ } = require('../lib/datetime');
 
 const TournamentSchema = new mongoose.Schema({
   name: { type: String, required: true },
   date: { type: Date, required: true },
   start_time: { type: String },
+  timezone: { type: String, default: DEFAULT_TZ },       // P6 — fuso do salão
+  starts_at: { type: Date, default: null },               // instante derivado (date+start_time@tz)
   status: { type: String, enum: ['scheduled', 'running', 'paused', 'finished', 'finalized'], default: 'scheduled' },
   estimated_players: { type: Number, default: 0 },
   actual_players: { type: Number, default: 0 },
@@ -27,6 +30,7 @@ const TournamentSchema = new mongoose.Schema({
   current_level: { type: Number, default: 0 },
   notes: { type: String },
   seats_per_table: { type: Number, default: 9 }, // P4
+  blind_version: { type: Number, default: 0 },   // P6 — trava otimista da estrutura de blinds
 
   // ─── Financeiro (P2) ─────────────────────────────────────────────────────
   buy_in: { type: Number, default: 0 },        // valor total da entrada
@@ -45,8 +49,15 @@ const TournamentSchema = new mongoose.Schema({
   clock_adjust_seconds: { type: Number, default: 0 },  // ajuste manual acumulado no nível
 }, { timestamps: true });
 
+// mantém starts_at derivado sempre que date/start_time/timezone mudam
+TournamentSchema.pre('save', function () {
+  if (this.isModified('date') || this.isModified('start_time') || this.isModified('timezone') || this.starts_at == null) {
+    this.starts_at = computeStartsAt(this.date, this.start_time, this.timezone);
+  }
+});
+
 TournamentSchema.plugin(softDelete);
-TournamentSchema.index({ status: 1, date: -1 });
+TournamentSchema.index({ status: 1, starts_at: -1 });
 TournamentSchema.index({ clock_status: 1 });
 
 module.exports = mongoose.model('Tournament', TournamentSchema);

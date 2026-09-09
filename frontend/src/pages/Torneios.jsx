@@ -16,6 +16,7 @@ import PlayerSelect from '../components/PlayerSelect';
 import SeatingMap from '../components/SeatingMap';
 import BlindTemplatesModal from '../components/BlindTemplatesModal';
 import { enqueue } from '../lib/offlineQueue';
+import { tournamentWhen } from '../lib/format';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -66,6 +67,7 @@ export default function Torneios() {
     start_time: '20:00',
     estimated_players: 50,
     seats_per_table: 9,
+    timezone: 'America/Sao_Paulo',
     stack_model_id: '',
     notes: ''
   });
@@ -136,12 +138,28 @@ export default function Torneios() {
   const debouncedSave = useCallback((id, updates) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      apiPut(`/tournaments/${id}`, updates)
-        .then(() => fetchTournaments())
-        .catch(err => { if (err.status !== 401) showAlert(err.message || 'Erro ao salvar', 'error'); });
+      // trava otimista: envia a versão de blinds que está na tela
+      const body = updates.blind_structure !== undefined
+        ? { ...updates, blind_version: selectedTournament?.blind_version ?? 0 }
+        : updates;
+      apiPut(`/tournaments/${id}`, body)
+        .then((r) => {
+          if (r?.tournament?.blind_version !== undefined) {
+            setSelectedTournament((prev) => (prev ? { ...prev, blind_version: r.tournament.blind_version } : prev));
+          }
+          fetchTournaments();
+        })
+        .catch(err => {
+          if (err.status === 409) {
+            showAlert('A estrutura foi alterada em outro dispositivo. Recarregando…', 'error');
+            fetchTournamentDetails(id);
+          } else if (err.status !== 401) {
+            showAlert(err.message || 'Erro ao salvar', 'error');
+          }
+        });
     }, 600);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedTournament?.blind_version]);
 
   const handleRegisterEntry = async (type, stack_model_id) => {
     if (type !== 'add-on' && !stack_model_id) return showAlert('Selecione um modelo de stack', 'error');
@@ -334,7 +352,7 @@ export default function Torneios() {
                   <div>
                     <h3 className="font-bold text-lg text-gray-900 dark:text-white">{t.name}</h3>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-                      <span className="flex items-center gap-1"><Clock size={14} /> {new Date(t.date).toLocaleDateString('pt-BR')} às {t.start_time}</span>
+                      <span className="flex items-center gap-1"><Clock size={14} /> {tournamentWhen(t)}</span>
                       <span className="flex items-center gap-1"><Users size={14} /> {t.actual_players || 0} / {t.estimated_players} jog.</span>
                       <span className="flex items-center gap-1"><Layers size={14} /> Stack: {t.starting_stack.toLocaleString()}</span>
                     </div>
@@ -377,7 +395,7 @@ export default function Torneios() {
                         <h2 className="text-lg md:text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight leading-tight">{selectedTournament.name}</h2>
                         <StatusBadge status={selectedTournament.status} />
                       </div>
-                      <p className="text-xs text-gray-500 font-medium mt-0.5">{new Date(selectedTournament.date).toLocaleDateString()} às {selectedTournament.start_time}</p>
+                      <p className="text-xs text-gray-500 font-medium mt-0.5">{tournamentWhen(selectedTournament)}</p>
                     </div>
                   </div>
                   <button onClick={() => setSelectedTournament(null)} className="hidden md:flex p-2 rounded-xl text-gray-400 hover:text-gray-600 transition-all shrink-0"><X size={22} /></button>
@@ -925,6 +943,14 @@ export default function Torneios() {
                     <label className="block text-sm font-bold mb-1">Lugares por mesa</label>
                     <input required type="number" min="2" max="10" value={form.seats_per_table} onChange={e => setForm({ ...form, seats_per_table: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-1">Fuso horário</label>
+                  <select value={form.timezone} onChange={e => setForm({ ...form, timezone: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none">
+                    {['America/Sao_Paulo', 'America/Manaus', 'America/Cuiaba', 'America/Bahia', 'America/Recife', 'America/Belem', 'America/Fortaleza', 'America/Rio_Branco'].map(tz => (
+                      <option key={tz} value={tz}>{tz.split('/')[1].replace('_', ' ')}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-bold mb-1">Modelo de Stack</label>

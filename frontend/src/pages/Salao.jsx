@@ -7,6 +7,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { apiGet } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
+import { tournamentWhen } from '../lib/format';
 
 export default function Salao() {
   const [tournaments, setTournaments] = useState([]);
@@ -120,7 +121,7 @@ function TournamentCard({ tournament, onOpen }) {
             {tournament.name}
           </h3>
           <div className="flex items-center gap-2 text-xs font-bold text-gray-400">
-            <Calendar size={14}/> {new Date(tournament.date).toLocaleDateString()}
+            <Calendar size={14}/> {tournamentWhen(tournament)}
           </div>
         </div>
 

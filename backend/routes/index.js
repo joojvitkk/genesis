@@ -17,6 +17,7 @@ const { applyAction, clockPayload } = require('../lib/tournamentClock');
 const { entryContribution, summarize, payoutTable, validateTemplate } = require('../lib/tournamentFinance');
 const { recordEntry, recordMany } = require('../lib/inventoryLedger');
 const seating = require('../lib/seating');
+const { computeStartsAt } = require('../lib/datetime');
 const {
   User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage,
   Player, PayoutTemplate, Elimination, InventoryLedger, Seat, BlindStructureTemplate,
@@ -495,7 +496,7 @@ router.get('/inventory/ledger', verifyToken, requirePageAccess('estoque'), async
 // `current_level` e os campos de relógio NÃO entram aqui — são controlados
 // exclusivamente por POST /tournaments/:id/clock.
 const TOURNAMENT_FIELDS = [
-  'name', 'date', 'start_time', 'status', 'estimated_players', 'actual_players',
+  'name', 'date', 'start_time', 'timezone', 'status', 'estimated_players', 'actual_players',
   'starting_stack', 'stack_model_id', 'blind_structure', 'allocated_cases',
   'stack_composition', 'notes', 'seats_per_table',
   // financeiro (P2)
@@ -687,6 +688,27 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('torneios'), async
     const updates = pick(req.body, TOURNAMENT_FIELDS);
     const oldTournament = await Tournament.findById(req.params.id);
     if (!oldTournament) return res.status(404).json({ error: 'Torneio não encontrado' });
+
+    // trava otimista da estrutura de blinds (P6)
+    if (updates.blind_structure !== undefined) {
+      const sent = req.body?.blind_version;
+      if (sent !== undefined && Number(sent) !== (oldTournament.blind_version || 0)) {
+        return res.status(409).json({
+          error: 'A estrutura de blinds foi alterada em outro dispositivo. Recarregue e tente de novo.',
+          blind_version: oldTournament.blind_version || 0,
+        });
+      }
+      updates.blind_version = (oldTournament.blind_version || 0) + 1;
+    }
+
+    // recomputa starts_at se data/horário/fuso mudaram (findByIdAndUpdate pula o hook)
+    if (updates.date !== undefined || updates.start_time !== undefined || updates.timezone !== undefined) {
+      updates.starts_at = computeStartsAt(
+        updates.date ?? oldTournament.date,
+        updates.start_time ?? oldTournament.start_time,
+        updates.timezone ?? oldTournament.timezone,
+      );
+    }
 
     const wasRunning = RUNNING_STATES.includes(oldTournament.status);
     const willRun = RUNNING_STATES.includes(updates.status);
