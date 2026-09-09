@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Mail, Trash2, Edit2, X, Save, 
-  Search, Eye, EyeOff
+import { UserPlus, Mail, Trash2, Edit2, X, Save,
+  Search, Eye, EyeOff, KeyRound, ShieldOff
 } from 'lucide-react';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
@@ -99,8 +99,28 @@ export default function Usuarios() {
     }
   };
 
-  const filteredUsers = users.filter(u => 
-    u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const handleResetPassword = async (user) => {
+    if (!(await showConfirm(`Gerar uma senha temporária para ${user.name}? A senha atual deixa de funcionar.`))) return;
+    try {
+      const { temporary_password } = await apiPost(`/users/${user._id}/reset-password`);
+      await showConfirm(`Senha temporária de ${user.name}:\n\n${temporary_password}\n\nAnote agora — não será mostrada de novo. O usuário terá que trocá-la no próximo login.`);
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao resetar senha', 'error');
+    }
+  };
+
+  const handleRevokeSessions = async (user) => {
+    if (!(await showConfirm(`Encerrar todas as sessões de ${user.name}?`))) return;
+    try {
+      await apiPost(`/users/${user._id}/revoke-sessions`);
+      showAlert('Sessões encerradas.', 'success');
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro', 'error');
+    }
+  };
+
+  const filteredUsers = users.filter(u =>
+    u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -154,6 +174,8 @@ export default function Usuarios() {
                   </span>
                   {/* Action buttons — z-10 to stay above decorative elements */}
                   <div className="flex items-center gap-1 relative z-10">
+                    <button onClick={() => handleResetPassword(user)} title="Resetar senha" className="p-2 text-gray-400 hover:text-amber-500 transition-all rounded-xl hover:bg-amber-50 dark:hover:bg-amber-500/10"><KeyRound size={16}/></button>
+                    <button onClick={() => handleRevokeSessions(user)} title="Encerrar sessões" className="p-2 text-gray-400 hover:text-purple-500 transition-all rounded-xl hover:bg-purple-50 dark:hover:bg-purple-500/10"><ShieldOff size={16}/></button>
                     <button onClick={() => handleEdit(user)} className="p-2 text-gray-400 hover:text-blue-500 transition-all rounded-xl hover:bg-blue-50 dark:hover:bg-blue-500/10"><Edit2 size={16}/></button>
                     {user.email !== currentUser?.email ? (
                       <button onClick={() => handleDelete(user._id)} className="p-2 text-gray-400 hover:text-red-500 transition-all rounded-xl hover:bg-red-50 dark:hover:bg-red-500/10"><Trash2 size={16}/></button>

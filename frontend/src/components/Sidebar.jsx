@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Package, Briefcase, Trophy, Coins,
   MessageSquare, Layers, BarChart, MonitorPlay, ClipboardList,
-  Users, UserCheck, BookOpen, X, LogOut, Sun, Moon, ChevronRight
+  Users, UserCheck, BookOpen, X, LogOut, KeyRound, ShieldOff, Sun, Moon, ChevronRight
 } from 'lucide-react';
 import { can } from '../config';
+import { useAlert } from '../contexts/AlertContext';
 
 // `area` refere-se à matriz de permissões em config.js (PERMISSIONS)
 const NAV_ITEMS = [
@@ -27,9 +28,14 @@ const NAV_ITEMS = [
 // Items that show in the bottom tab bar (most used, max 5)
 const BOTTOM_PRIORITY = ['/salao', '/torneios', '/chip-race', '/chat', '/estoque'];
 
-export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme, onToggleTheme }) {
+export default function Sidebar({ isOpen, onOpen, onClose, onLogout, onChangePassword, onLogoutAll, user, theme, onToggleTheme }) {
   const location = useLocation();
+  const { showConfirm } = useAlert();
   const filtered = NAV_ITEMS.filter(i => can(user?.role, i.area));
+
+  const askLogoutAll = async () => {
+    if (await showConfirm('Encerrar TODAS as suas sessões (inclusive em outros aparelhos)?')) onLogoutAll?.();
+  };
 
   // Bottom nav items: priority items user has access to, up to 4, plus "Menu" 
   const bottomItems = filtered.filter(i => BOTTOM_PRIORITY.includes(i.to)).slice(0, 4);
@@ -85,8 +91,14 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme
           })}
         </nav>
 
-        {/* Logout */}
-        <div className="p-3 border-t border-gray-100 dark:border-white/5 shrink-0">
+        {/* Conta */}
+        <div className="p-3 border-t border-gray-100 dark:border-white/5 shrink-0 space-y-0.5">
+          <button onClick={onChangePassword} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl font-semibold text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-all">
+            <KeyRound size={16} /> <span>Trocar senha</span>
+          </button>
+          <button onClick={askLogoutAll} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl font-semibold text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-all">
+            <ShieldOff size={16} /> <span>Encerrar todas as sessões</span>
+          </button>
           <button
             onClick={onLogout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold text-sm text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 transition-all"

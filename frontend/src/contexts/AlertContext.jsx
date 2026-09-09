@@ -95,7 +95,7 @@ export const AlertProvider = ({ children }) => {
                 <AlertTriangle size={28} />
                 <h3 className="text-xl font-black text-gray-900 dark:text-white">Atenção!</h3>
               </div>
-              <p className="text-gray-600 dark:text-gray-400 mb-8 font-medium">{confirmDialog.message}</p>
+              <p className="text-gray-600 dark:text-gray-400 mb-8 font-medium whitespace-pre-line">{confirmDialog.message}</p>
               <div className="flex gap-3">
                 <button onClick={confirmDialog.onCancel} className="flex-1 py-3 rounded-xl font-bold bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-all">Cancelar</button>
                 <button onClick={confirmDialog.onConfirm} className="flex-1 py-3 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 shadow-lg shadow-red-500/20 transition-all">Confirmar</button>

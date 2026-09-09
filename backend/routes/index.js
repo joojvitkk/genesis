@@ -6,9 +6,11 @@ const {
   loginRateLimiter,
   registerFailedLogin,
   clearLoginAttempts,
+  bumpSessionVersion,
   JWT_SECRET,
 } = require('../middlewares/authMiddleware');
 const logActivity = require('../services/activityLogger');
+const { diffFields } = require('../services/activityLogger');
 const { escapeRegex, toInt, pick } = require('../utils/sanitize');
 const { paginate } = require('../lib/pagination');
 const { applyAction, clockPayload } = require('../lib/tournamentClock');
@@ -19,10 +21,24 @@ const {
   User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage,
   Player, PayoutTemplate, Elimination, InventoryLedger, Seat, BlindStructureTemplate,
 } = require('../models');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const MIN_PASSWORD_LENGTH = 6;
+
+function signToken(user) {
+  return jwt.sign(
+    { id: user._id, name: user.name, email: user.email, role: user.role, sv: user.session_version || 1 },
+    JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+}
+
+function randomPassword(len = 10) {
+  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from(crypto.randomBytes(len)).map((b) => chars[b % chars.length]).join('');
+}
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 router.post('/login', loginRateLimiter, async (req, res) => {
@@ -45,13 +61,14 @@ router.post('/login', loginRateLimiter, async (req, res) => {
 
     clearLoginAttempts(req);
 
-    const token = jwt.sign(
-      { id: user._id, name: user.name, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '12h' }
-    );
-
-    res.json({ message: 'Login realizado', token, user: { name: user.name, email: user.email, role: user.role } });
+    res.json({
+      message: 'Login realizado',
+      token: signToken(user),
+      user: {
+        name: user.name, email: user.email, role: user.role,
+        must_change_password: !!user.must_change_password,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -62,9 +79,51 @@ router.get('/me', verifyToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    res.json({ name: user.name, email: user.email, role: user.role, id: user._id });
+    res.json({
+      id: user._id, name: user.name, email: user.email, role: user.role,
+      must_change_password: !!user.must_change_password,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Troca de senha do próprio usuário (também usada no fluxo "senha temporária")
+router.post('/me/password', verifyToken, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body || {};
+    if (!new_password || String(new_password).length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `A nova senha deve ter ao menos ${MIN_PASSWORD_LENGTH} caracteres.` });
+    }
+    const user = await User.findById(req.user.id).select('+password');
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    if (!(await bcrypt.compare(current_password || '', user.password))) {
+      return res.status(401).json({ error: 'Senha atual incorreta.' });
+    }
+    user.password = new_password;
+    user.must_change_password = false;
+    user.session_version = (user.session_version || 1) + 1; // derruba as outras sessões
+    await user.save();
+    bumpSessionVersion(user._id);
+    await logActivity('Senha Alterada', 'system', user.email, req.user);
+    res.json({ message: 'Senha alterada', token: signToken(user) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Encerra todas as sessões do próprio usuário
+router.post('/me/logout-all', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    user.session_version = (user.session_version || 1) + 1;
+    await user.save();
+    bumpSessionVersion(user._id);
+    await logActivity('Sessões Encerradas', 'system', user.email, req.user);
+    res.json({ message: 'Todas as sessões foram encerradas.' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -89,7 +148,8 @@ router.post('/users', verifyToken, requirePageAccess('usuarios'), async (req, re
       return res.status(400).json({ error: 'Papel inválido.' });
     }
 
-    const user = new User({ name, email, password, role, created_by: req.user?.name || 'Admin' });
+    // usuário criado por um admin já entra tendo que trocar a senha
+    const user = new User({ name, email, password, role, created_by: req.user?.name || 'Admin', must_change_password: true });
     await user.save();
     await logActivity('Usuário Criado', 'system', `Nome: ${name} | Email: ${email} | Role: ${role}`, req.user);
     res.status(201).json({ message: 'Usuário criado com sucesso' });
@@ -111,6 +171,7 @@ router.put('/users/:id', verifyToken, requirePageAccess('usuarios'), async (req,
       if (adminCount <= 1) return res.status(400).json({ error: 'Não é possível rebaixar o único administrador.' });
     }
 
+    const before = { name: target.name, email: target.email, role: target.role };
     if (name) target.name = name;
     if (email) target.email = email;
     if (role && ['admin', 'material', 'salao'].includes(role)) target.role = role;
@@ -119,10 +180,13 @@ router.put('/users/:id', verifyToken, requirePageAccess('usuarios'), async (req,
         return res.status(400).json({ error: `A senha deve ter ao menos ${MIN_PASSWORD_LENGTH} caracteres.` });
       }
       target.password = password; // hasheada pelo hook pre('save')
+      target.session_version = (target.session_version || 1) + 1;
+      bumpSessionVersion(target._id);
     }
     await target.save();
 
-    await logActivity('Usuário Atualizado', 'system', `Nome: ${target.name} | Email: ${target.email}`, req.user);
+    const changes = diffFields(before, { name: target.name, email: target.email, role: target.role }, ['name', 'email', 'role']);
+    await logActivity('Usuário Atualizado', 'system', `Email: ${target.email}`, req.user, changes);
     res.json({ message: 'Usuário atualizado', user: { name: target.name, email: target.email, role: target.role } });
   } catch (err) {
     if (err.code === 11000) return res.status(400).json({ error: 'Já existe um usuário com este e-mail.' });
@@ -146,6 +210,39 @@ router.delete('/users/:id', verifyToken, requirePageAccess('usuarios'), async (r
     await target.deleteOne();
     await logActivity('Usuário Removido', 'system', `ID: ${req.params.id} | Email: ${target.email}`, req.user);
     res.json({ message: 'Usuário removido' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin gera uma senha temporária (mostrada uma vez); usuário troca no próximo login
+router.post('/users/:id/reset-password', verifyToken, requirePageAccess('usuarios'), async (req, res) => {
+  try {
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    const temp = randomPassword(10);
+    target.password = temp;
+    target.must_change_password = true;
+    target.session_version = (target.session_version || 1) + 1;
+    await target.save();
+    bumpSessionVersion(target._id);
+    await logActivity('Senha Redefinida pelo Admin', 'system', target.email, req.user);
+    res.json({ message: 'Senha temporária gerada', temporary_password: temp });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin encerra todas as sessões de um usuário
+router.post('/users/:id/revoke-sessions', verifyToken, requirePageAccess('usuarios'), async (req, res) => {
+  try {
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    target.session_version = (target.session_version || 1) + 1;
+    await target.save();
+    bumpSessionVersion(target._id);
+    await logActivity('Sessões Revogadas pelo Admin', 'system', target.email, req.user);
+    res.json({ message: 'Sessões revogadas.' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

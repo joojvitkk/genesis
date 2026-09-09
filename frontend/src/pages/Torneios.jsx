@@ -15,6 +15,7 @@ import TournamentFinance from '../components/TournamentFinance';
 import PlayerSelect from '../components/PlayerSelect';
 import SeatingMap from '../components/SeatingMap';
 import BlindTemplatesModal from '../components/BlindTemplatesModal';
+import { enqueue } from '../lib/offlineQueue';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -145,13 +146,15 @@ export default function Torneios() {
   const handleRegisterEntry = async (type, stack_model_id) => {
     if (type !== 'add-on' && !stack_model_id) return showAlert('Selecione um modelo de stack', 'error');
     const player = form.entry_player;
+    const path = `/tournaments/${selectedTournament._id}/entries`;
+    const body = {
+      type,
+      stack_model_id: stack_model_id || undefined,
+      player_id: player?._id || undefined,
+      player_name: player?.name || undefined,
+    };
     try {
-      await apiPost(`/tournaments/${selectedTournament._id}/entries`, {
-        type,
-        stack_model_id: stack_model_id || undefined,
-        player_id: player?._id || undefined,
-        player_name: player?.name || undefined,
-      });
+      await apiPost(path, body);
       showAlert('Entrada registrada!', 'success');
       setForm(f => ({ ...f, entry_player: null }));
       fetchFloorData(selectedTournament._id);
@@ -160,7 +163,13 @@ export default function Torneios() {
         setSelectedTournament(prev => ({ ...prev, actual_players: (prev.actual_players || 0) + 1 }));
       }
     } catch (e) {
-      if (e.status !== 401) showAlert(e.message || 'Erro ao registrar entrada', 'error');
+      if (e.status === 0) {
+        enqueue(path, body);
+        setForm(f => ({ ...f, entry_player: null }));
+        showAlert('Sem conexão — entrada salva offline. Sincroniza quando a rede voltar.', 'info');
+      } else if (e.status !== 401) {
+        showAlert(e.message || 'Erro ao registrar entrada', 'error');
+      }
     }
   };
 

@@ -48,6 +48,15 @@ io.on('connection', (socket) => {
   onlineUsers.set(socket.id, socket.user.id || socket.id);
   broadcastOnlineCount();
 
+  // limite de mensagens: 10 a cada 10s por conexão
+  let msgTimes = [];
+  const overMessageLimit = () => {
+    const now = Date.now();
+    msgTimes = msgTimes.filter((t) => now - t < 10_000);
+    msgTimes.push(now);
+    return msgTimes.length > 10;
+  };
+
   socket.on('getOnlineCount', () => socket.emit('onlineCount', new Set(onlineUsers.values()).size));
   socket.on('joinChannel', (channel) => { if (CHANNELS.includes(channel)) socket.join(channel); });
   socket.on('leaveChannel', (channel) => socket.leave(channel));
@@ -67,6 +76,10 @@ io.on('connection', (socket) => {
 
   socket.on('sendMessage', async (data = {}) => {
     try {
+      if (overMessageLimit()) {
+        socket.emit('chatError', 'Muitas mensagens. Aguarde um momento.');
+        return;
+      }
       const channel = CHANNELS.includes(data.channel) ? data.channel : 'general';
       const message = String(data.message || '').trim().slice(0, 2000);
       if (!message) return;

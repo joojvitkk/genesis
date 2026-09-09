@@ -1,13 +1,20 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const pinoHttp = require('pino-http');
 const logger = require('./lib/logger');
+const rateLimit = require('./lib/rateLimit');
 
 const apiRoutes = require('./routes');
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 const app = express();
+app.set('trust proxy', 1); // atrás do nginx — para req.ip correto
+
+// API só devolve JSON; CSP não se aplica. Mantém HSTS, noSniff, frameguard etc.
+app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: false }));
+app.use(rateLimit({ windowMs: 60_000, max: Number(process.env.RATE_LIMIT_MAX) || 300 }));
 
 app.use(pinoHttp({
   logger,

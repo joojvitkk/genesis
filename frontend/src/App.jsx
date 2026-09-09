@@ -7,7 +7,7 @@ import { Menu, Moon, Sun } from 'lucide-react';
 import { can, homeRoute, ROUTE_AREA } from './config';
 import { socket, connectSocket, disconnectSocket } from './lib/socket';
 import { getToken, getStoredUser, saveSession, clearSession, setUnauthorizedHandler } from './lib/auth';
-import { apiGet } from './lib/api';
+import { apiGet, apiPost } from './lib/api';
 import { useAlert } from './contexts/AlertContext';
 
 // Pages
@@ -25,6 +25,8 @@ import Usuarios from './pages/Usuarios';
 import Jogadores from './pages/Jogadores';
 import LivroEstoque from './pages/LivroEstoque';
 import Telao from './pages/Telao';
+import ChangePassword from './pages/ChangePassword';
+import { flushOfflineQueue } from './lib/offlineQueue';
 
 // Re-exports para compatibilidade com imports antigos
 export { BACKEND_URL } from './config';
@@ -111,8 +113,18 @@ function App() {
     connectSocket();
   };
 
+  const handlePasswordChanged = (token) => {
+    const user = { ...auth.user, must_change_password: false };
+    saveSession(token, user);
+    setAuth({ token, user });
+  };
+
   if (!auth) {
     return <Login onLogin={handleLogin} theme={theme} onToggleTheme={toggleTheme} />;
+  }
+
+  if (auth.user.must_change_password) {
+    return <ChangePassword forced onDone={handlePasswordChanged} />;
   }
 
   const role = auth.user.role;
@@ -123,15 +135,38 @@ function App() {
         {/* Tela de projeção — sem sidebar/chrome, ainda exige sessão */}
         <Route path="/torneios/:id/telao" element={<Telao />} />
         <Route path="*" element={<Shell role={role} auth={auth} theme={theme} toggleTheme={toggleTheme}
-          sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} handleLogout={handleLogout} />} />
+          sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} handleLogout={handleLogout}
+          onPasswordChanged={handlePasswordChanged} onLoggedOut={() => setAuth(null)} />} />
       </Routes>
     </Router>
   );
 }
 
-function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, handleLogout }) {
+function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, handleLogout, onPasswordChanged, onLoggedOut }) {
+  const { showAlert } = useAlert();
+  const [pwOpen, setPwOpen] = useState(false);
+
+  useEffect(() => {
+    flushOfflineQueue();
+    const onOnline = () => flushOfflineQueue().then((n) => { if (n) showAlert(`${n} ação(ões) offline sincronizada(s).`, 'success'); });
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [showAlert]);
+
+  const logoutAll = async () => {
+    try { await apiPost('/me/logout-all'); } catch { /* ignore */ }
+    clearSession();
+    disconnectSocket();
+    onLoggedOut();
+  };
+
   return (
       <div className="min-h-screen flex bg-gray-50 dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 transition-colors duration-300">
+        {pwOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <ChangePassword onDone={(t) => { onPasswordChanged(t); setPwOpen(false); showAlert('Senha alterada.', 'success'); }} onCancel={() => setPwOpen(false)} />
+          </div>
+        )}
         <header className="md:hidden fixed top-0 left-0 right-0 h-14 bg-white dark:bg-[#111111] border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between px-4 z-50 shadow-sm"
                 style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
           <button
@@ -156,6 +191,8 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
           onOpen={() => setSidebarOpen(true)}
           onClose={() => setSidebarOpen(false)}
           onLogout={handleLogout}
+          onChangePassword={() => setPwOpen(true)}
+          onLogoutAll={logoutAll}
           user={auth.user}
           theme={theme}
           onToggleTheme={toggleTheme}

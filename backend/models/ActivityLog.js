@@ -6,7 +6,8 @@ const ActivityLogSchema = new mongoose.Schema({
   details: { type: String },
   user_name: { type: String },
   user_email: { type: String },
-  related_id: { type: String }
+  related_id: { type: String },
+  changes: [{ field: String, from: mongoose.Schema.Types.Mixed, to: mongoose.Schema.Types.Mixed }], // P5 — diff
 }, { timestamps: true });
 
 ActivityLogSchema.index({ category: 1, createdAt: -1 });

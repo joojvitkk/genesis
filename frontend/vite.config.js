@@ -9,6 +9,22 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'masked-icon.svg'],
+      workbox: {
+        navigateFallbackDenylist: [/^\/api/, /^\/socket\.io/],
+        runtimeCaching: [
+          {
+            // GET da API: rede primeiro, cai no cache quando offline (app abre sem rede)
+            urlPattern: ({ url, request }) => request.method === 'GET' && url.pathname.startsWith('/api/'),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'genesis-api',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+      },
       manifest: {
         name: 'GENESIS - Gestão de Torneios',
         short_name: 'GENESIS',

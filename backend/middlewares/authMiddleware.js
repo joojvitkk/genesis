@@ -19,14 +19,46 @@ function decodeToken(rawHeader) {
   }
 }
 
-const verifyToken = (req, res, next) => {
+// ─── Revogação de sessão (P5) ────────────────────────────────────────────────
+// O token carrega `sv` (session_version). Se não bater com o do usuário no banco,
+// o token está revogado. Cache curto para não bater no banco a cada request.
+const svCache = new Map(); // userId -> { sv, at }
+const SV_TTL = 30_000;
+
+async function currentSessionVersion(userId) {
+  const hit = svCache.get(userId);
+  if (hit && Date.now() - hit.at < SV_TTL) return hit.sv;
+  const { User } = require('../models');
+  const u = await User.findById(userId).select('session_version');
+  const sv = u ? (u.session_version || 1) : null;
+  svCache.set(userId, { sv, at: Date.now() });
+  return sv;
+}
+
+function bumpSessionVersion(userId) {
+  svCache.delete(String(userId));
+}
+
+const verifyToken = async (req, res, next) => {
   const header = req.headers['authorization'];
   if (!header) return res.status(401).json({ error: 'Nenhum token fornecido.' });
 
   const decoded = decodeToken(header);
   if (!decoded) return res.status(401).json({ error: 'Falha ao autenticar token.' });
 
-  req.user = decoded; // { id, name, email, role }
+  // token sem `sv` (emitido antes do P5) é aceito; com `sv` precisa bater
+  if (decoded.sv !== undefined && decoded.id) {
+    try {
+      const sv = await currentSessionVersion(String(decoded.id));
+      if (sv === null || sv !== decoded.sv) {
+        return res.status(401).json({ error: 'Sessão revogada. Faça login novamente.' });
+      }
+    } catch {
+      return res.status(500).json({ error: 'Falha ao validar a sessão.' });
+    }
+  }
+
+  req.user = decoded;
   next();
 };
 
@@ -39,9 +71,8 @@ const requirePageAccess = (page) => (req, res, next) => {
   return res.status(403).json({ error: `Acesso negado para a área: ${page}` });
 };
 
-// Rate limiter simples em memória para o /login (sem dependência externa).
-// Conta apenas TENTATIVAS FALHAS — login correto ou retry bem-sucedido não gastam a cota.
-const loginFailures = new Map(); // key -> { count, first }
+// ─── Rate limiter do /login (só conta falhas) ───────────────────────────────
+const loginFailures = new Map();
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_FAILURES = 20;
 
@@ -67,9 +98,7 @@ const registerFailedLogin = (req) => {
   else entry.count += 1;
 };
 
-const clearLoginAttempts = (req) => {
-  loginFailures.delete(keyFor(req));
-};
+const clearLoginAttempts = (req) => loginFailures.delete(keyFor(req));
 
 module.exports = {
   verifyToken,
@@ -79,5 +108,6 @@ module.exports = {
   loginRateLimiter,
   registerFailedLogin,
   clearLoginAttempts,
+  bumpSessionVersion,
   JWT_SECRET,
 };

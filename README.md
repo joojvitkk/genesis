@@ -165,8 +165,12 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 ### Auth
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| POST | `/login` | Autentica por `{ email, password }`, retorna `{ token, user }`. Rate-limited. |
-| GET | `/me` | Dados do usuário do token — usado pelo frontend para revalidar a sessão. |
+| POST | `/login` | Autentica por `{ email, password }`, retorna `{ token, user }` (com `must_change_password`). Rate-limited. |
+| GET | `/me` | Dados do usuário do token — revalida a sessão. |
+| POST | `/me/password` | `{ current_password, new_password }` — troca a senha, revoga as outras sessões, retorna novo token. |
+| POST | `/me/logout-all` | Encerra todas as sessões do próprio usuário. |
+| POST | `/users/:id/reset-password` | *admin* — gera senha temporária (mostrada 1×), força troca no próximo login. |
+| POST | `/users/:id/revoke-sessions` | *admin* — encerra as sessões de um usuário. |
 
 ### Usuários — *admin*
 | Método | Rota |
@@ -437,10 +441,27 @@ automaticamente e mostra um aviso — basta logar de novo.
   "aplicar", quebrar mesa, redistribuir), campo "lugares por mesa" no cadastro.
 - +10 testes; verificado ponta a ponta.
 
-## ⚠️ Ainda em aberto (roadmap P5–P6)
+## ✅ Fase P5 — Segurança, observabilidade e PWA offline — concluída
 
-- **P5 — segurança avançada / observabilidade / PWA offline**
-- **P6 — incrementais** (chat, relatórios ricos, a11y, i18n, timezone, concorrência)
+- **Revogação de sessão**: token carrega `sv` (session_version); trocar senha, "encerrar
+  todas as sessões" ou reset pelo admin incrementam `session_version` e invalidam os
+  tokens antigos (cache de 30 s + limpeza imediata no bump).
+- **Senha temporária**: admin gera senha aleatória (mostrada 1×); usuário criado por admin
+  ou com senha resetada é obrigado a trocar no próximo login (tela de barreira).
+- **`helmet`** (HSTS, noSniff, frameguard) + **rate limit geral** da API (300 req/min/IP,
+  configurável) + limite de 10 mensagens/10 s por conexão de socket.
+- **Auditoria com diff**: `ActivityLog.changes` grava `{ field, from, to }` (usuários).
+- **Log estruturado** já vinha do P0 (`pino`); logs de request enxutos.
+- Nginx: headers de segurança + HSTS.
+- **PWA offline**: service worker com `NetworkFirst` na API GET (app abre offline);
+  **fila offline** para registro de entradas e eliminações (`lib/offlineQueue`), que
+  sincroniza no evento `online`.
+- +4 testes; verificado ponta a ponta.
+
+## ⚠️ Ainda em aberto (roadmap P6)
+
+- **P6 — incrementais** (chat: não lidas/anexos; relatórios ricos + export PDF; a11y;
+  i18n; timezone unificado; trava de edição concorrente de blinds)
 
 Ver o [roadmap completo](https://claude.ai/code/artifact/c98c1207-a6ec-4634-8267-1c81b25c5ac5).
 

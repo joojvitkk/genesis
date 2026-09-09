@@ -4,6 +4,7 @@ import { apiGet, apiPut, apiPost, apiDelete } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
 import PlayerSelect from './PlayerSelect';
 import PayoutTemplatesModal from './PayoutTemplatesModal';
+import { enqueue } from '../lib/offlineQueue';
 
 const brl = (n) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -89,11 +90,10 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
 
   const doEliminate = async () => {
     if (!elimTarget) return;
+    const path = `/tournaments/${tid}/eliminations`;
+    const body = { player_id: elimTarget._id, eliminated_by: elimBy?._id || null };
     try {
-      const fin = await apiPost(`/tournaments/${tid}/eliminations`, {
-        player_id: elimTarget._id,
-        eliminated_by: elimBy?._id || null,
-      });
+      const fin = await apiPost(path, body);
       setFinance(fin);
       setElimTarget(null); setElimBy(null);
       await refresh();
@@ -102,7 +102,13 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
         onTournamentChange?.({ ...tournament, status: 'finalized' });
       }
     } catch (e) {
-      if (e.status !== 401) showAlert(e.message || 'Erro ao registrar eliminação', 'error');
+      if (e.status === 0) {
+        enqueue(path, body);
+        setElimTarget(null); setElimBy(null);
+        showAlert('Sem conexão — eliminação salva offline.', 'info');
+      } else if (e.status !== 401) {
+        showAlert(e.message || 'Erro ao registrar eliminação', 'error');
+      }
     }
   };
 
