@@ -8,7 +8,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 
 export default function Usuarios() {
-  const { showAlert, showConfirm } = useAlert();
+  const { showAlert, showConfirm, showModal } = useAlert();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -100,10 +100,23 @@ export default function Usuarios() {
   };
 
   const handleResetPassword = async (user) => {
-    if (!(await showConfirm(`Gerar uma senha temporária para ${user.name}? A senha atual deixa de funcionar.`))) return;
+    const ok = await showConfirm(`Gerar uma senha temporária para ${user.name}? A senha atual deixa de funcionar.`, {
+      title: 'Resetar senha', confirmLabel: 'Gerar', tone: 'danger',
+    });
+    if (!ok) return;
     try {
       const { temporary_password } = await apiPost(`/users/${user._id}/reset-password`);
-      await showConfirm(`Senha temporária de ${user.name}:\n\n${temporary_password}\n\nAnote agora — não será mostrada de novo. O usuário terá que trocá-la no próximo login.`);
+      await showModal(
+        <div className="space-y-3">
+          <p className="select-all rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center font-mono text-lg font-black tracking-wider text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+            {temporary_password}
+          </p>
+          <p className="text-sm font-medium text-gray-500">
+            Anote agora — não será mostrada de novo. {user.name} terá que trocá-la no próximo login.
+          </p>
+        </div>,
+        { title: `Senha temporária de ${user.name}`, tone: 'success', confirmLabel: 'Copiei / anotei' },
+      );
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao resetar senha', 'error');
     }

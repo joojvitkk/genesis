@@ -18,7 +18,7 @@ const writePresets = (p) => { try { localStorage.setItem(PRESETS_KEY, JSON.strin
 const brl = (n) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export default function Relatorios() {
-  const { showAlert } = useAlert();
+  const { showAlert, showPrompt } = useAlert();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -31,11 +31,14 @@ export default function Relatorios() {
   const [presets, setPresets] = useState(readPresets());
 
   const applyPreset = (p) => { setCategoryFilter(p.category); setDateRange(p.dateRange); setPage(1); };
-  const savePreset = () => {
-    const name = window.prompt('Nome da predefinição:');
+  const savePreset = async () => {
+    const name = await showPrompt('Como quer chamar esta predefinição de filtro?', {
+      title: 'Salvar predefinição', placeholder: 'Ex: Estoque — último mês',
+    });
     if (!name) return;
     const next = [...presets.filter((p) => p.name !== name), { name, category: categoryFilter, dateRange }];
     setPresets(next); writePresets(next);
+    showAlert('Predefinição salva.', 'success');
   };
   const deletePreset = (name) => { const next = presets.filter((p) => p.name !== name); setPresets(next); writePresets(next); };
 
