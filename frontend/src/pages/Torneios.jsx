@@ -1,16 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { 
-  Trophy, Plus, Search, Calendar, Clock, MapPin, 
-  ChevronRight, Filter, MoreVertical, Edit2, Trash2, 
-  Play, Pause, CheckCircle2, UserPlus, Users, Coins, 
-  Settings, Info, Layout, X, Save, AlertCircle, Briefcase, PlusCircle, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, ChevronDown, Minus, History, Package
+import { useSearchParams, Link } from 'react-router-dom';
+import {
+  Trophy, Plus, Clock, DollarSign,
+  ChevronRight, Trash2,
+  Play, Pause, CheckCircle2, Users,
+  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, Minus, History, Package
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
-import { socket, BACKEND_URL } from '../App';
-
-// ... (BACKEND_URL and StatusBadge components stay the same) ...
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import CustomSelect from '../components/CustomSelect';
+import TournamentClock from '../components/TournamentClock';
+import TournamentFinance from '../components/TournamentFinance';
+import PlayerSelect from '../components/PlayerSelect';
+import SeatingMap from '../components/SeatingMap';
+import BlindTemplatesModal from '../components/BlindTemplatesModal';
+import { enqueue } from '../lib/offlineQueue';
+import { tournamentWhen } from '../lib/format';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -32,50 +38,6 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-const CustomSelect = ({ options, value, onChange, placeholder }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = React.useRef(null);
-  const selectedOption = options.find(o => o.value === value);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex justify-between items-center bg-white dark:bg-[#0F0F0F] border border-gray-200 dark:border-zinc-800 rounded-xl px-4 py-2 text-sm cursor-pointer text-gray-900 dark:text-white"
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={16} className={`transition-transform text-gray-400 shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-            className="absolute z-50 w-full mt-1 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-48 overflow-y-auto"
-          >
-            {options.map(opt => (
-              <div
-                key={opt.value}
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className="px-4 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer text-sm text-gray-900 dark:text-white border-b border-gray-50 dark:border-zinc-800/30 last:border-0"
-              >
-                {opt.label}
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
 export default function Torneios() {
   const { showAlert, showConfirm } = useAlert();
   const [searchParams] = useSearchParams();
@@ -89,6 +51,7 @@ export default function Torneios() {
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'logistica');
+  const [blindTplOpen, setBlindTplOpen] = useState(false);
 
   useEffect(() => {
     const tournamentId = searchParams.get('id');
@@ -103,71 +66,65 @@ export default function Torneios() {
     date: new Date().toISOString().split('T')[0],
     start_time: '20:00',
     estimated_players: 50,
+    seats_per_table: 9,
+    timezone: 'America/Sao_Paulo',
     stack_model_id: '',
     notes: ''
   });
 
   const fetchTournaments = useCallback(async () => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const res = await fetch(`${BACKEND_URL}/api/tournaments`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-store' }
-      });
-      if (res.ok) setTournaments(await res.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      setTournaments(await apiGet('/tournaments'));
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar torneios', 'error');
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchTournamentDetails = async (id) => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const res = await fetch(`${BACKEND_URL}/api/tournaments/${id}`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-store' }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedTournament(data);
-        fetchFloorData(id);
-      }
-    } catch (e) { console.error(e); }
+      const data = await apiGet(`/tournaments/${id}`);
+      setSelectedTournament(data);
+      fetchFloorData(id);
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao abrir torneio', 'error');
+    }
   };
 
   const fetchFloorData = async (id) => {
-    const token = localStorage.getItem('genesis_token');
-    const headers = { 'Authorization': `Bearer ${token}` };
     try {
-      const [entriesRes, consolidatedRes, stacksRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/tournaments/${id}/entries`, { headers }),
-        fetch(`${BACKEND_URL}/api/tournaments/${id}/consolidated-chips`, { headers }),
-        fetch(`${BACKEND_URL}/api/stacks`, { headers })
+      const [entriesData, consolidatedData, stacksData] = await Promise.all([
+        apiGet(`/tournaments/${id}/entries`),
+        apiGet(`/tournaments/${id}/consolidated-chips`),
+        apiGet('/stacks'),
       ]);
-      if (entriesRes.ok) setEntries(await entriesRes.json());
-      if (consolidatedRes.ok) setConsolidatedChips(await consolidatedRes.json());
-      if (stacksRes.ok) setStackModels(await stacksRes.json());
-    } catch (e) { console.error(e); }
+      setEntries(entriesData);
+      setConsolidatedChips(consolidatedData);
+      setStackModels(stacksData);
+    } catch (e) {
+      if (e.status !== 401) console.error(e);
+    }
   };
 
   const fetchCasesAndChips = async () => {
-    try {
-      const token = localStorage.getItem('genesis_token');
-      const headers = { 'Authorization': `Bearer ${token}` };
-      const [casesRes, chipsRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/cases`, { headers }),
-        fetch(`${BACKEND_URL}/api/chips`, { headers })
-      ]);
-      if (casesRes.ok) setAvailableCases((await casesRes.json()).filter(c => c.status === 'available' || (selectedTournament && c.allocated_to_tournament === selectedTournament._id)));
-      if (chipsRes.ok) setChipModels(await chipsRes.json());
-    } catch (e) { console.error(e); }
+    // /cases exige acesso a "ficharios" (indisponível para o papel salão) — resiliente a 403
+    const [casesRes, chipsRes] = await Promise.allSettled([apiGet('/cases'), apiGet('/chips')]);
+    if (casesRes.status === 'fulfilled') {
+      setAvailableCases(casesRes.value.filter(c =>
+        c.status === 'available' || (selectedTournament && c.allocated_to_tournament === selectedTournament._id)
+      ));
+    }
+    if (chipsRes.status === 'fulfilled') setChipModels(chipsRes.value);
   };
 
   const fetchStackModels = async () => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const res = await fetch(`${BACKEND_URL}/api/stacks`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) setStackModels(await res.json());
-    } catch (e) { console.error(e); }
+      setStackModels(await apiGet('/stacks'));
+    } catch (e) {
+      if (e.status !== 401) console.error(e);
+    }
   };
 
   useEffect(() => {
@@ -176,73 +133,98 @@ export default function Torneios() {
     fetchStackModels();
   }, [fetchTournaments]);
 
+  // Timer para persistência com debounce (edição de blinds / composição de stack)
+  const saveTimer = React.useRef(null);
+  const debouncedSave = useCallback((id, updates) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      // trava otimista: envia a versão de blinds que está na tela
+      const body = updates.blind_structure !== undefined
+        ? { ...updates, blind_version: selectedTournament?.blind_version ?? 0 }
+        : updates;
+      apiPut(`/tournaments/${id}`, body)
+        .then((r) => {
+          if (r?.tournament?.blind_version !== undefined) {
+            setSelectedTournament((prev) => (prev ? { ...prev, blind_version: r.tournament.blind_version } : prev));
+          }
+          fetchTournaments();
+        })
+        .catch(err => {
+          if (err.status === 409) {
+            showAlert('A estrutura foi alterada em outro dispositivo. Recarregando…', 'error');
+            fetchTournamentDetails(id);
+          } else if (err.status !== 401) {
+            showAlert(err.message || 'Erro ao salvar', 'error');
+          }
+        });
+    }, 600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTournament?.blind_version]);
+
   const handleRegisterEntry = async (type, stack_model_id) => {
-    if (!stack_model_id) return showAlert('Selecione um modelo de stack', 'error');
-    const token = localStorage.getItem('genesis_token');
+    if (type !== 'add-on' && !stack_model_id) return showAlert('Selecione um modelo de stack', 'error');
+    const player = form.entry_player;
+    const path = `/tournaments/${selectedTournament._id}/entries`;
+    const body = {
+      type,
+      stack_model_id: stack_model_id || undefined,
+      player_id: player?._id || undefined,
+      player_name: player?.name || undefined,
+    };
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments/${selectedTournament._id}/entries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type, stack_model_id })
-      });
-      if (res.ok) {
-        showAlert('Entrada registrada!', 'success');
-        fetchFloorData(selectedTournament._id);
-        fetchTournaments();
-        // Update local actual_players too for instant feedback
-        if (type === 'buy-in') {
-          setSelectedTournament(prev => ({ ...prev, actual_players: prev.actual_players + 1 }));
-        }
+      await apiPost(path, body);
+      showAlert('Entrada registrada!', 'success');
+      setForm(f => ({ ...f, entry_player: null }));
+      fetchFloorData(selectedTournament._id);
+      fetchTournaments();
+      if (type === 'buy-in') {
+        setSelectedTournament(prev => ({ ...prev, actual_players: (prev.actual_players || 0) + 1 }));
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      if (e.status === 0) {
+        enqueue(path, body);
+        setForm(f => ({ ...f, entry_player: null }));
+        showAlert('Sem conexão — entrada salva offline. Sincroniza quando a rede voltar.', 'info');
+      } else if (e.status !== 401) {
+        showAlert(e.message || 'Erro ao registrar entrada', 'error');
+      }
+    }
   };
 
   const handleCreateTournament = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(form)
-      });
-      if (res.ok) {
-        showAlert('Torneio criado!', 'success');
-        setIsCreateModalOpen(false);
-        fetchTournaments();
-      } else {
-        showAlert('Erro ao criar torneio', 'error');
-      }
-    } catch (e) { console.error(e); }
+      await apiPost('/tournaments', form);
+      showAlert('Torneio criado!', 'success');
+      setIsCreateModalOpen(false);
+      fetchTournaments();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao criar torneio', 'error');
+    }
   };
 
   const handleUpdateTournament = async (id, updates) => {
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(updates)
-      });
-      if (res.ok) {
-        if (selectedTournament && selectedTournament._id === id) {
-          fetchTournamentDetails(id);
-        }
-        fetchTournaments();
-        return true;
-      }
-    } catch (e) { console.error(e); }
-    return false;
+      await apiPut(`/tournaments/${id}`, updates);
+      if (selectedTournament && selectedTournament._id === id) fetchTournamentDetails(id);
+      fetchTournaments();
+      return true;
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao atualizar torneio', 'error');
+      return false;
+    }
   };
 
+  // Atualiza o estado local imediatamente e persiste com debounce (evita 1 request por tecla)
   const handleUpdateBlind = (index, field, value) => {
     if (!selectedTournament) return;
     const newBlinds = [...(selectedTournament.blind_structure || [])];
     if (!newBlinds[index]) {
       newBlinds[index] = { row_type: 'level', level: index + 1, small_blind: 0, big_blind: 0, ante: 0, duration: 20 };
     }
-    newBlinds[index][field] = field === 'duration' ? (parseInt(value) || 0) : (parseInt(value) || 0);
-    handleUpdateTournament(selectedTournament._id, { blind_structure: newBlinds });
+    newBlinds[index] = { ...newBlinds[index], [field]: parseInt(value, 10) || 0 };
+    setSelectedTournament(prev => ({ ...prev, blind_structure: newBlinds }));
+    debouncedSave(selectedTournament._id, { blind_structure: newBlinds });
   };
 
   const removeBlindLevel = (index) => {
@@ -284,31 +266,26 @@ export default function Torneios() {
   const handleDeleteTournament = async (id) => {
     const confirmed = await showConfirm('Excluir este torneio? Fichários alocados serão liberados.');
     if (!confirmed) return;
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/tournaments/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showAlert('Torneio removido', 'success');
-        fetchTournaments();
-      }
-    } catch (e) { console.error(e); }
+      await apiDelete(`/tournaments/${id}`);
+      showAlert('Torneio removido', 'success');
+      fetchTournaments();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao remover torneio', 'error');
+    }
   };
 
   const handleUpdatePerPlayer = (chipId, value) => {
     if (!selectedTournament) return;
-    const currentComp = [...(selectedTournament.stack_composition || [])];
+    const currentComp = (selectedTournament.stack_composition || []).map(c => ({ ...c }));
     const index = currentComp.findIndex(c => c.chip_id === chipId);
-    const newVal = parseInt(value) || 0;
+    const newVal = parseInt(value, 10) || 0;
 
-    if (index > -1) {
-      currentComp[index].per_player = newVal;
-    } else {
-      currentComp.push({ chip_id: chipId, per_player: newVal });
-    }
-    handleUpdateTournament(selectedTournament._id, { stack_composition: currentComp });
+    if (index > -1) currentComp[index].per_player = newVal;
+    else currentComp.push({ chip_id: chipId, per_player: newVal });
+
+    setSelectedTournament(prev => ({ ...prev, stack_composition: currentComp }));
+    debouncedSave(selectedTournament._id, { stack_composition: currentComp });
   };
 
   // Tracking Calculations
@@ -375,7 +352,7 @@ export default function Torneios() {
                   <div>
                     <h3 className="font-bold text-lg text-gray-900 dark:text-white">{t.name}</h3>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-                      <span className="flex items-center gap-1"><Clock size={14} /> {new Date(t.date).toLocaleDateString('pt-BR')} às {t.start_time}</span>
+                      <span className="flex items-center gap-1"><Clock size={14} /> {tournamentWhen(t)}</span>
                       <span className="flex items-center gap-1"><Users size={14} /> {t.actual_players || 0} / {t.estimated_players} jog.</span>
                       <span className="flex items-center gap-1"><Layers size={14} /> Stack: {t.starting_stack.toLocaleString()}</span>
                     </div>
@@ -418,7 +395,7 @@ export default function Torneios() {
                         <h2 className="text-lg md:text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight leading-tight">{selectedTournament.name}</h2>
                         <StatusBadge status={selectedTournament.status} />
                       </div>
-                      <p className="text-xs text-gray-500 font-medium mt-0.5">{new Date(selectedTournament.date).toLocaleDateString()} às {selectedTournament.start_time}</p>
+                      <p className="text-xs text-gray-500 font-medium mt-0.5">{tournamentWhen(selectedTournament)}</p>
                     </div>
                   </div>
                   <button onClick={() => setSelectedTournament(null)} className="hidden md:flex p-2 rounded-xl text-gray-400 hover:text-gray-600 transition-all shrink-0"><X size={22} /></button>
@@ -439,6 +416,18 @@ export default function Torneios() {
                       className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'salao' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
                     >
                       <Monitor size={13} /> Salão
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('mesas')}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'mesas' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
+                    >
+                      <Users size={13} /> Mesas
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('financeiro')}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'financeiro' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
+                    >
+                      <DollarSign size={13} /> Financeiro
                     </button>
                   </div>
 
@@ -506,6 +495,9 @@ export default function Torneios() {
                     <div className="bg-white dark:bg-[#141414] rounded-3xl p-6 border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-bold flex items-center gap-2"><History className="text-blue-500" /> Estrutura de Blinds</h3>
+                        <button onClick={() => setBlindTplOpen(true)} className="text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-genesis-red">
+                          Templates
+                        </button>
                       </div>
                       {/* Add-row buttons */}
                       <div className="flex flex-wrap gap-2 mb-3">
@@ -704,14 +696,58 @@ export default function Torneios() {
                     </div>
                   </div>
                 </div>
+              ) : activeTab === 'financeiro' ? (
+                <div className="p-4 md:p-8">
+                  <TournamentFinance
+                    tournament={selectedTournament}
+                    canEdit={selectedTournament.status !== 'finalized'}
+                    onTournamentChange={(t) => { setSelectedTournament((prev) => ({ ...prev, ...t })); fetchTournaments(); }}
+                  />
+                </div>
+              ) : activeTab === 'mesas' ? (
+                <div className="p-4 md:p-8">
+                  <SeatingMap
+                    tournamentId={selectedTournament._id}
+                    canEdit={!['finished', 'finalized'].includes(selectedTournament.status)}
+                  />
+                </div>
               ) : (
                 <div className="p-4 md:p-8 space-y-8">
-                  {selectedTournament.status === 'finished' && (
+                  {(selectedTournament.status === 'finished' || selectedTournament.status === 'finalized') && (
                     <div className="bg-gray-100 dark:bg-zinc-800/50 p-4 rounded-2xl flex items-center justify-center gap-3 border border-dashed border-gray-200 dark:border-zinc-700">
                       <CheckCircle2 className="text-gray-400" size={20} />
-                      <span className="text-sm font-black text-gray-400 uppercase tracking-widest">Torneio Finalizado - Auditoria Apenas</span>
+                      <span className="text-sm font-black text-gray-400 uppercase tracking-widest">
+                        {selectedTournament.status === 'finalized' ? 'Torneio Finalizado — veja o resultado na aba Financeiro' : 'Torneio Finalizado - Auditoria Apenas'}
+                      </span>
                     </div>
                   )}
+
+                  {/* Relógio do torneio */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">Relógio</h3>
+                      <Link
+                        to={`/torneios/${selectedTournament._id}/telao`}
+                        target="_blank"
+                        rel="noopener"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-gray-600 hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700"
+                      >
+                        <Monitor size={13} /> Abrir telão
+                      </Link>
+                    </div>
+                    {(selectedTournament.blind_structure || []).length === 0 ? (
+                      <p className="rounded-2xl border border-dashed border-gray-200 p-4 text-center text-sm text-gray-400 dark:border-zinc-800">
+                        Monte a estrutura de blinds na aba <b>Logística</b> para usar o relógio.
+                      </p>
+                    ) : (
+                      <TournamentClock
+                        tournamentId={selectedTournament._id}
+                        variant="panel"
+                        canControl={selectedTournament.status !== 'finished'}
+                      />
+                    )}
+                  </div>
+
                   {/* Visão do Salão View */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="bg-white dark:bg-[#141414] p-6 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm">
@@ -739,6 +775,14 @@ export default function Torneios() {
                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><ArrowUpCircle className="text-emerald-500" /> Registrar Entrada</h3>
                         <div className="space-y-4">
                           <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Jogador</label>
+                            <PlayerSelect
+                              value={form.entry_player || null}
+                              onChange={(p) => setForm({ ...form, entry_player: p })}
+                              disabled={['finished', 'finalized'].includes(selectedTournament.status)}
+                            />
+                          </div>
+                          <div>
                             <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Modelo de Stack</label>
                             <CustomSelect
                               options={stackModels.map(s => ({ value: s._id, label: `${s.name} (${s.total_value.toLocaleString()})` }))}
@@ -750,18 +794,27 @@ export default function Torneios() {
                           <div className="grid grid-cols-2 gap-3 pt-2">
                             <button
                               onClick={() => handleRegisterEntry('buy-in', form.selected_stack_id)}
-                              disabled={selectedTournament.status === 'finished'}
+                              disabled={['finished', 'finalized'].includes(selectedTournament.status)}
                               className="py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-emerald-500/20 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                             >
                               <Plus size={18} /> Buy-in
                             </button>
                             <button
                               onClick={() => handleRegisterEntry('re-entry', form.selected_stack_id)}
-                              disabled={selectedTournament.status === 'finished'}
+                              disabled={['finished', 'finalized'].includes(selectedTournament.status)}
                               className="py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-600 transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-blue-500/20 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                             >
                               <Plus size={18} /> Re-entry
                             </button>
+                            {selectedTournament.addon_value > 0 && (
+                              <button
+                                onClick={() => handleRegisterEntry('add-on', null)}
+                                disabled={['finished', 'finalized'].includes(selectedTournament.status)}
+                                className="col-span-2 py-2.5 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-30"
+                              >
+                                <Plus size={16} /> Add-on ({(selectedTournament.addon_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -791,19 +844,34 @@ export default function Torneios() {
                           {entries.map(entry => (
                             <div key={entry._id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#0F0F0F] rounded-2xl border border-gray-200 dark:border-zinc-800 hover:border-gray-300 dark:hover:border-zinc-700 transition-all group">
                               <div className="flex items-center gap-4">
-                                <div className={`p-2 rounded-xl ${entry.type === 'buy-in' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-500' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-500'}`}>
-                                  {entry.type === 'buy-in' ? <ArrowUpCircle size={20} /> : <ArrowDownCircle size={20} />}
+                                <div className={`p-2 rounded-xl ${entry.type === 'buy-in' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-500' : entry.type === 'add-on' ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-500' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-500'}`}>
+                                  {entry.type === 'buy-in' ? <ArrowUpCircle size={20} /> : entry.type === 'add-on' ? <Plus size={20} /> : <ArrowDownCircle size={20} />}
                                 </div>
                                 <div>
                                   <p className="font-bold text-gray-900 dark:text-white uppercase tracking-tight text-sm">
-                                    {entry.type === 'buy-in' ? 'Entrada (Buy-in)' : 'Re-entrada'}
+                                    {entry.player_id?.name || entry.player_name || (entry.type === 'buy-in' ? 'Buy-in' : entry.type === 'add-on' ? 'Add-on' : 'Re-entrada')}
                                   </p>
                                   <p className="text-xs text-gray-500 font-medium">
-                                    Stack: {entry.stack_model_id?.name || 'Manual'} | {new Date(entry.timestamp).toLocaleTimeString()}
+                                    {entry.type} · Stack: {entry.stack_model_id?.name || '—'} · {new Date(entry.timestamp).toLocaleTimeString()}
                                   </p>
                                 </div>
                               </div>
-                              <div className="text-right">
+                              <div className="flex items-center gap-2 text-right">
+                                {['finished', 'finalized'].includes(selectedTournament.status) ? null : (
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        await apiDelete(`/tournaments/${selectedTournament._id}/entries/${entry._id}`);
+                                        fetchFloorData(selectedTournament._id);
+                                        fetchTournaments();
+                                      } catch (err) { if (err.status !== 401) showAlert(err.message || 'Erro', 'error'); }
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all"
+                                    title="Remover entrada"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                )}
                                 <p className="text-sm font-black text-gray-900 dark:text-white">#{entries.length - entries.indexOf(entry)}</p>
                               </div>
                             </div>
@@ -824,6 +892,15 @@ export default function Torneios() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {selectedTournament && (
+        <BlindTemplatesModal
+          open={blindTplOpen}
+          onClose={() => setBlindTplOpen(false)}
+          currentRows={selectedTournament.blind_structure || []}
+          onApply={(rows) => handleUpdateTournament(selectedTournament._id, { blind_structure: rows })}
+        />
+      )}
 
       {/* Create Modal */}
       <AnimatePresence>
@@ -863,14 +940,26 @@ export default function Torneios() {
                     <input required type="number" value={form.estimated_players} onChange={e => setForm({ ...form, estimated_players: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold mb-1">Modelo de Stack</label>
-                    <CustomSelect
-                      placeholder="Selecione um modelo de stack"
-                      options={stackModels.map(s => ({ label: `${s.name} — ${s.total_value.toLocaleString()} fichas`, value: s._id }))}
-                      value={form.stack_model_id}
-                      onChange={val => setForm({ ...form, stack_model_id: val })}
-                    />
+                    <label className="block text-sm font-bold mb-1">Lugares por mesa</label>
+                    <input required type="number" min="2" max="10" value={form.seats_per_table} onChange={e => setForm({ ...form, seats_per_table: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-1">Fuso horário</label>
+                  <select value={form.timezone} onChange={e => setForm({ ...form, timezone: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none">
+                    {['America/Sao_Paulo', 'America/Manaus', 'America/Cuiaba', 'America/Bahia', 'America/Recife', 'America/Belem', 'America/Fortaleza', 'America/Rio_Branco'].map(tz => (
+                      <option key={tz} value={tz}>{tz.split('/')[1].replace('_', ' ')}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-1">Modelo de Stack</label>
+                  <CustomSelect
+                    placeholder="Selecione um modelo de stack"
+                    options={stackModels.map(s => ({ label: `${s.name} — ${s.total_value.toLocaleString()} fichas`, value: s._id }))}
+                    value={form.stack_model_id}
+                    onChange={val => setForm({ ...form, stack_model_id: val })}
+                  />
                 </div>
                 <button type="submit" className="w-full py-4 bg-genesis-red text-white font-bold rounded-xl shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all">Criar Evento</button>
               </form>

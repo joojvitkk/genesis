@@ -1,6 +1,12 @@
 node_modules
 .env
+.env.*
+!.env.example
+!.env.prod.example
 dist
+dev-dist
+coverage
+backups
 .DS_Store
 *.log
 .vite

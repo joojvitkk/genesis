@@ -7,5 +7,11 @@ module.exports = {
   ChatMessage: require('./ChatMessage'),
   ActivityLog: require('./ActivityLog'),
   StackModel: require('./StackModel'),
-  TournamentEntry: require('./TournamentEntry')
+  TournamentEntry: require('./TournamentEntry'),
+  Player: require('./Player'),
+  PayoutTemplate: require('./PayoutTemplate'),
+  Elimination: require('./Elimination'),
+  InventoryLedger: require('./InventoryLedger'),
+  Seat: require('./Seat'),
+  BlindStructureTemplate: require('./BlindStructureTemplate'),
 };

@@ -1,16 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
 } from 'recharts';
-import { 
-  Trophy, Coins, Activity, Filter, Download, Calendar, 
-  ChevronDown, Search, ArrowUpRight, ArrowDownRight, Clock, X, ChevronLeft, ChevronRight, Info
+import {
+  Trophy, Coins, Activity, Download, Calendar, ArrowUpRight, Clock, X, ChevronLeft, ChevronRight, Info, Printer, GitCompare, Bookmark, Trash2
 } from 'lucide-react';
-import { BACKEND_URL } from '../App';
+import { apiGet } from '../lib/api';
+import { useAlert } from '../contexts/AlertContext';
+import { exportToCSV } from '../utils/csvExport';
+import { tournamentDate } from '../lib/format';
+
+const PRESETS_KEY = 'genesis_report_presets';
+const readPresets = () => { try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]'); } catch { return []; } };
+const writePresets = (p) => { try { localStorage.setItem(PRESETS_KEY, JSON.stringify(p)); } catch { /* */ } };
+const brl = (n) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export default function Relatorios() {
+  const { showAlert, showPrompt } = useAlert();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -18,6 +26,21 @@ export default function Relatorios() {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedLog, setSelectedLog] = useState(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [comparison, setComparison] = useState(null);
+  const [showComparison, setShowComparison] = useState(false);
+  const [presets, setPresets] = useState(readPresets());
+
+  const applyPreset = (p) => { setCategoryFilter(p.category); setDateRange(p.dateRange); setPage(1); };
+  const savePreset = async () => {
+    const name = await showPrompt('Como quer chamar esta predefinição de filtro?', {
+      title: 'Salvar predefinição', placeholder: 'Ex: Estoque — último mês',
+    });
+    if (!name) return;
+    const next = [...presets.filter((p) => p.name !== name), { name, category: categoryFilter, dateRange }];
+    setPresets(next); writePresets(next);
+    showAlert('Predefinição salva.', 'success');
+  };
+  const deletePreset = (name) => { const next = presets.filter((p) => p.name !== name); setPresets(next); writePresets(next); };
 
   const categories = [
     { id: 'all', label: 'Todos' },
@@ -33,18 +56,39 @@ export default function Relatorios() {
   }, [categoryFilter, page, dateRange]);
 
   const fetchData = async () => {
-    const token = localStorage.getItem('genesis_token');
-    let url = `${BACKEND_URL}/api/reports/data?category=${categoryFilter}&page=${page}&limit=50`;
-    if (dateRange.start) url += `&startDate=${dateRange.start}`;
-    if (dateRange.end) url += `&endDate=${dateRange.end}`;
-
     try {
-      const res = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) setData(await res.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      setData(await apiGet('/reports/data', {
+        category: categoryFilter,
+        page,
+        limit: 50,
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+      }));
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar relatório', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadComparison = async () => {
+    setShowComparison((v) => !v);
+    if (!comparison) {
+      try { setComparison(await apiGet('/reports/comparison')); }
+      catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao carregar comparativo', 'error'); }
+    }
+  };
+
+  const handleExport = () => {
+    const rows = (data?.logs || []).map(l => ({
+      data: new Date(l.createdAt).toLocaleString('pt-BR'),
+      categoria: l.category,
+      acao: l.action,
+      detalhes: l.details,
+      usuario: l.user_name || 'Sistema',
+    }));
+    if (rows.length === 0) return showAlert('Nada para exportar.', 'info');
+    exportToCSV(rows, `genesis-relatorio-${new Date().toISOString().slice(0, 10)}`);
   };
 
   if (loading || !data) {
@@ -97,17 +141,68 @@ export default function Relatorios() {
             )}
           </AnimatePresence>
 
-          <button className="px-4 py-2 bg-genesis-red text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all shadow-lg shadow-red-500/20">
-            <Download size={16}/> PDF
+          <button onClick={loadComparison} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border ${showComparison ? 'bg-genesis-red text-white border-genesis-red' : 'bg-white dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 hover:bg-gray-50'}`}>
+            <GitCompare size={16}/> Comparar
+          </button>
+          <button onClick={() => window.print()} className="px-4 py-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-gray-50 transition-all shadow-sm">
+            <Printer size={16}/> PDF
+          </button>
+          <button onClick={handleExport} className="px-4 py-2 bg-genesis-red text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all shadow-lg shadow-red-500/20">
+            <Download size={16}/> CSV
           </button>
         </div>
       </header>
 
+      {/* Predefinições de filtro */}
+      <div className="flex flex-wrap items-center gap-2 no-print">
+        <Bookmark size={14} className="text-gray-400" />
+        {presets.length === 0 && <span className="text-xs text-gray-400">Nenhuma predefinição salva</span>}
+        {presets.map((p) => (
+          <span key={p.name} className="group inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-600 dark:bg-zinc-800 dark:text-gray-300">
+            <button onClick={() => applyPreset(p)}>{p.name}</button>
+            <button onClick={() => deletePreset(p.name)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500"><Trash2 size={11} /></button>
+          </span>
+        ))}
+        <button onClick={savePreset} className="text-xs font-black uppercase tracking-widest text-genesis-red hover:underline">+ salvar atual</button>
+      </div>
+
+      {/* Comparativo entre torneios */}
+      {showComparison && (
+        <div className="overflow-x-auto rounded-3xl border border-gray-200 dark:border-zinc-800 bg-white dark:bg-[#111111] shadow-sm">
+          <table className="w-full text-left text-sm min-w-[720px]">
+            <thead className="bg-gray-50 dark:bg-zinc-900/50 text-[10px] font-black uppercase tracking-widest text-gray-400">
+              <tr>
+                <th className="px-4 py-3">Torneio</th><th className="px-4 py-3">Data</th>
+                <th className="px-4 py-3 text-right">Entradas</th><th className="px-4 py-3 text-right">Prize pool</th>
+                <th className="px-4 py-3 text-right">Bounty</th><th className="px-4 py-3 text-right">Rake</th>
+                <th className="px-4 py-3">Campeão</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60">
+              {!comparison && <tr><td colSpan={7} className="p-8 text-center text-gray-400">Carregando…</td></tr>}
+              {comparison?.map((c) => (
+                <tr key={c._id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/30">
+                  <td className="px-4 py-3 font-black text-gray-900 dark:text-white">{c.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{tournamentDate(c)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{c.total_entries}{c.addons ? ` (+${c.addons} add)` : ''}</td>
+                  <td className="px-4 py-3 text-right tabular-nums font-bold text-emerald-600 dark:text-emerald-400">{brl(c.prize_pool)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-amber-600">{brl(c.bounty_pool)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-genesis-red">{brl(c.rake_collected)}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{c.winner || '—'}</td>
+                </tr>
+              ))}
+              {comparison?.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-gray-400">Nenhum torneio com dados.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
         <StatCard title="Torneios" value={data.stats.totalTournaments} subValue={`${data.stats.finishedTournaments} finalizados`} icon={<Trophy size={20}/>} color="bg-blue-500" />
         <StatCard title="Chip Races" value={data.stats.totalChipRaces} subValue="Confirmados" icon={<Activity size={20}/>} color="bg-amber-500" />
         <StatCard title="Total de Fichas" value={data.stats.totalChips.toLocaleString()} subValue="No sistema" icon={<Coins size={20}/>} color="bg-emerald-500" />
+        <StatCard title="Valor em Fichas" value={(data.stats.stockValue || 0).toLocaleString('pt-BR')} subValue="Σ valor × qtd" icon={<Coins size={20}/>} color="bg-violet-500" />
         <StatCard title="Logs Totais" value={data.pagination.total} subValue="Registros" icon={<Clock size={20}/>} color="bg-purple-500" />
       </div>
 

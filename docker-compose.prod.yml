@@ -1,0 +1,57 @@
+services:
+  genesis-db:
+    image: mongo:6.0
+    container_name: genesis-db
+    restart: unless-stopped
+    volumes:
+      - genesis_data:/data/db
+    networks: [genesis-net]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  genesis-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: genesis-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://genesis-db:27017/genesis
+      - JWT_SECRET=${JWT_SECRET:?defina JWT_SECRET no .env}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-administrador@admin.com.br}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+    depends_on:
+      genesis-db:
+        condition: service_healthy
+    networks: [genesis-net]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  genesis-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: genesis-frontend
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      genesis-backend:
+        condition: service_healthy
+    networks: [genesis-net]
+
+networks:
+  genesis-net:
+    driver: bridge
+
+volumes:
+  genesis_data:

@@ -1,59 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { PackageOpen, Plus, Edit2, Trash2, ArrowRightLeft, CheckCircle2, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { PackageOpen, Plus, Edit2, Trash2, ArrowRightLeft, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
-import { BACKEND_URL } from '../App';
-
-const CustomSelect = ({ options, value, onChange, placeholder }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = React.useRef(null);
-  
-  const selectedOption = options.find(o => o.value === value);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex justify-between items-center bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 text-sm cursor-pointer text-gray-900 dark:text-white"
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform text-gray-400 shrink-0 ${isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.15 }}
-            className="absolute z-50 w-full mt-1 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-48 overflow-y-auto"
-          >
-            {options.map(opt => (
-              <div 
-                key={opt.value} 
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer text-sm text-gray-900 dark:text-white flex items-center justify-between border-b border-gray-50 dark:border-zinc-800/30 last:border-0"
-              >
-                {opt.label}
-              </div>
-            ))}
-            {options.length === 0 && <div className="px-4 py-3 text-sm text-gray-400">Nenhuma opção disponível</div>}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import CustomSelect from '../components/CustomSelect';
 
 export default function Estoque() {
   const { showAlert, showConfirm } = useAlert();
@@ -67,18 +17,13 @@ export default function Estoque() {
   
   // Forms states
   const [chipForm, setChipForm] = useState({ name: '', value: '', color: '', total_quantity: '' });
-  const [moveForm, setMoveForm] = useState({ chip_id: '', type: 'entrada', quantity: '' });
+  const [moveForm, setMoveForm] = useState({ chip_id: '', type: 'entrada', quantity: '', note: '' });
 
   const fetchChips = async () => {
     try {
-      const token = localStorage.getItem('genesis_token');
-      const res = await fetch(`${BACKEND_URL}/api/chips`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        setChips(data);
-      }
+      setChips(await apiGet('/chips'));
     } catch (e) {
-      console.error(e);
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar fichas', 'error');
     } finally {
       setLoading(false);
     }
@@ -90,70 +35,62 @@ export default function Estoque() {
 
   const handleSaveChip = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('genesis_token');
-    const method = editingChip ? 'PUT' : 'POST';
-    const url = editingChip ? `${BACKEND_URL}/api/chips/${editingChip._id}` : `${BACKEND_URL}/api/chips`;
-    
+    const payload = {
+      name: chipForm.name.trim(),
+      value: Number(chipForm.value),
+      color: chipForm.color,
+    };
+    if (!editingChip) payload.total_quantity = Number(chipForm.total_quantity);
+
+    if (!payload.name || !Number.isFinite(payload.value) || payload.value < 0) {
+      return showAlert('Preencha nome e um valor válido.', 'error');
+    }
+
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(chipForm)
-      });
-      if (res.ok) {
-        setIsChipModalOpen(false);
-        showAlert('Ficha salva com sucesso!', 'success');
-        await fetchChips();
-      } else {
-        showAlert('Erro ao salvar ficha', 'error');
-      }
+      if (editingChip) await apiPut(`/chips/${editingChip._id}`, payload);
+      else await apiPost('/chips', payload);
+      setIsChipModalOpen(false);
+      showAlert('Ficha salva com sucesso!', 'success');
+      await fetchChips();
     } catch (e) {
-      console.error(e);
-      showAlert('Erro de conexão ao salvar ficha', 'error');
+      if (e.status !== 401) showAlert(e.message || 'Erro ao salvar ficha', 'error');
     }
   };
 
   const handleDeleteChip = async (id) => {
     const confirmed = await showConfirm('Tem certeza que deseja excluir esta ficha?');
     if (!confirmed) return;
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/chips/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showAlert('Ficha excluída!', 'success');
-        await fetchChips();
-      }
+      await apiDelete(`/chips/${id}`);
+      showAlert('Ficha excluída!', 'success');
+      await fetchChips();
     } catch (e) {
-      console.error(e);
-      showAlert('Erro ao excluir ficha', 'error');
+      if (e.status !== 401) showAlert(e.message || 'Erro ao excluir ficha', 'error');
     }
   };
 
   const handleMoveStock = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('genesis_token');
-    const quantity_change = moveForm.type === 'entrada' ? parseInt(moveForm.quantity) : -parseInt(moveForm.quantity);
-    
+    const qty = parseInt(moveForm.quantity, 10);
+    if (!moveForm.chip_id) return showAlert('Selecione uma ficha.', 'error');
+    if (!Number.isFinite(qty) || qty <= 0) return showAlert('Informe uma quantidade positiva.', 'error');
+
     try {
-      const res = await fetch(`${BACKEND_URL}/api/inventory/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ chip_id: moveForm.chip_id, quantity_change })
-      });
-      if (res.ok) {
-        setIsMoveModalOpen(false);
-        setMoveForm({ chip_id: '', type: 'entrada', quantity: '' });
-        showAlert(`Movimentação de ${moveForm.type} concluída!`, 'success');
-        await fetchChips();
+      if (moveForm.type === 'quebra') {
+        await apiPost('/inventory/breakage', { chip_id: moveForm.chip_id, quantity: qty, note: moveForm.note });
       } else {
-        showAlert('Erro ao movimentar estoque', 'error');
+        await apiPost('/inventory/update', {
+          chip_id: moveForm.chip_id,
+          quantity_change: moveForm.type === 'entrada' ? qty : -qty,
+          note: moveForm.note,
+        });
       }
+      setIsMoveModalOpen(false);
+      setMoveForm({ chip_id: '', type: 'entrada', quantity: '', note: '' });
+      showAlert('Movimentação registrada!', 'success');
+      await fetchChips();
     } catch (e) {
-      console.error(e);
-      showAlert('Erro de conexão ao movimentar estoque', 'error');
+      if (e.status !== 401) showAlert(e.message || 'Erro ao movimentar estoque', 'error');
     }
   };
 
@@ -201,6 +138,7 @@ export default function Estoque() {
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50">Valor</th>
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50">Cor</th>
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Total</th>
+                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Alocado</th>
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Disponível</th>
                   <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Ações</th>
                 </tr>
@@ -227,6 +165,7 @@ export default function Estoque() {
                         </div>
                       </td>
                       <td className="p-5 text-right font-bold text-gray-900 dark:text-white">{chip.total_quantity.toLocaleString()}</td>
+                      <td className="p-5 text-right font-bold text-amber-600 dark:text-amber-500">{(chip.reserved_quantity || 0).toLocaleString()}</td>
                       <td className="p-5 text-right font-black text-emerald-600 dark:text-emerald-500">{chip.available_quantity.toLocaleString()}</td>
                       <td className="p-5 text-right space-x-2">
                         <button onClick={() => openEditModal(chip)} className="p-2 text-gray-400 hover:text-blue-500 bg-transparent hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Edit2 size={18} /></button>
@@ -237,7 +176,7 @@ export default function Estoque() {
                 </AnimatePresence>
                 {chips.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="p-12 text-center text-gray-400 dark:text-gray-500 text-lg">Nenhum modelo de ficha cadastrado.</td>
+                    <td colSpan="7" className="p-12 text-center text-gray-400 dark:text-gray-500 text-lg">Nenhum modelo de ficha cadastrado.</td>
                   </tr>
                 )}
               </tbody>
@@ -327,15 +266,17 @@ export default function Estoque() {
               <form onSubmit={handleMoveStock} className="p-6 space-y-5">
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Tipo de Movimentação</label>
-                  <div className="flex gap-4">
-                    <label className={`flex-1 p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-center gap-2 font-bold ${moveForm.type === 'entrada' ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500' : 'border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-gray-400'}`}>
-                      <input type="radio" name="type" value="entrada" checked={moveForm.type === 'entrada'} onChange={() => setMoveForm({...moveForm, type: 'entrada'})} className="hidden" />
-                      Entrada
-                    </label>
-                    <label className={`flex-1 p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-center gap-2 font-bold ${moveForm.type === 'saida' ? 'border-red-500 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-500' : 'border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-gray-400'}`}>
-                      <input type="radio" name="type" value="saida" checked={moveForm.type === 'saida'} onChange={() => setMoveForm({...moveForm, type: 'saida'})} className="hidden" />
-                      Saída
-                    </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { v: 'entrada', label: 'Entrada', cls: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500' },
+                      { v: 'saida', label: 'Saída', cls: 'border-red-500 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-500' },
+                      { v: 'quebra', label: 'Quebra/Perda', cls: 'border-amber-500 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-500' },
+                    ].map(o => (
+                      <label key={o.v} className={`p-3 rounded-xl border cursor-pointer transition-all text-center text-xs font-bold ${moveForm.type === o.v ? o.cls : 'border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-gray-400'}`}>
+                        <input type="radio" name="type" value={o.v} checked={moveForm.type === o.v} onChange={() => setMoveForm({ ...moveForm, type: o.v })} className="hidden" />
+                        {o.label}
+                      </label>
+                    ))}
                   </div>
                 </div>
                 <div>
@@ -351,10 +292,14 @@ export default function Estoque() {
                   <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Quantidade (Apenas o número)</label>
                   <input type="number" min="1" value={moveForm.quantity} onChange={e => setMoveForm({...moveForm, quantity: e.target.value})} className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white" required placeholder="Ex: 1500" />
                 </div>
-                
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Observação (opcional)</label>
+                  <input type="text" value={moveForm.note} onChange={e => setMoveForm({...moveForm, note: e.target.value})} className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white" placeholder="Ex: compra fornecedor X / ficha danificada" />
+                </div>
+
               <div className="p-6 border-t border-gray-100 dark:border-zinc-800/50 bg-gray-50 dark:bg-[#111111] shrink-0 rounded-b-3xl">
-                <button type="submit" className={`w-full py-4 rounded-xl font-bold text-white active:scale-95 transition-all shadow-lg ${moveForm.type === 'entrada' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30' : 'bg-red-500 hover:bg-red-600 shadow-red-500/30'}`}>
-                  Confirmar {moveForm.type === 'entrada' ? 'Entrada' : 'Saída'}
+                <button type="submit" className={`w-full py-4 rounded-xl font-bold text-white active:scale-95 transition-all shadow-lg ${moveForm.type === 'entrada' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30' : moveForm.type === 'quebra' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' : 'bg-red-500 hover:bg-red-600 shadow-red-500/30'}`}>
+                  Confirmar {moveForm.type === 'entrada' ? 'Entrada' : moveForm.type === 'quebra' ? 'Quebra/Perda' : 'Saída'}
                 </button>
               </div>
               </form>

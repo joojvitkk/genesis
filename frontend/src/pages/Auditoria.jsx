@@ -1,54 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  History, Search, Filter, ArrowUpCircle, ArrowDownCircle, 
-  Calendar, User, ChevronLeft, ChevronRight, Hash, Info, X, Clock, ChevronDown
+import { Search, ArrowUpCircle, ArrowDownCircle, 
+  Calendar, User, ChevronLeft, ChevronRight, Hash, Info, X, Clock
 } from 'lucide-react';
-import { BACKEND_URL } from '../App';
-
-const CustomSelect = ({ options, value, onChange, placeholder }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = React.useRef(null);
-  const selectedOption = options.find(o => o.value === value);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  return (
-    <div className="relative min-w-[140px]" ref={containerRef}>
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex justify-between items-center bg-transparent border-none px-4 py-2 text-xs cursor-pointer text-gray-500 font-black uppercase tracking-tighter"
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={14} className={`transition-transform text-gray-400 shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-            className="absolute z-50 right-0 mt-2 w-48 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-48 overflow-y-auto"
-          >
-            {options.map(opt => (
-              <div 
-                key={opt.value} 
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className="px-4 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer text-[10px] font-black uppercase text-gray-500 dark:text-white border-b border-gray-50 dark:border-zinc-800/30 last:border-0"
-              >
-                {opt.label}
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
+import { useAlert } from '../contexts/AlertContext';
+import { apiGet } from '../lib/api';
+import CustomSelect from '../components/CustomSelect';
 
 export default function Auditoria() {
   const [logs, setLogs] = useState([]);
@@ -58,28 +15,24 @@ export default function Auditoria() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, pages: 1 });
   const [selectedLog, setSelectedLog] = useState(null);
+  const { showAlert } = useAlert();
 
   useEffect(() => {
     fetchLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, typeFilter]);
 
   const fetchLogs = async () => {
     setLoading(true);
-    const token = localStorage.getItem('genesis_token');
-    let url = `${BACKEND_URL}/api/inventory/logs?page=${page}&limit=50&type=${typeFilter}`;
-    if (searchTerm) url += `&search=${searchTerm}`;
-
     try {
-      const res = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data.logs);
-        setPagination(data.pagination);
-      }
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      const data = await apiGet('/inventory/logs', { page, limit: 50, type: typeFilter, search: searchTerm });
+      setLogs(data.logs || []);
+      setPagination(data.pagination || { total: 0, pages: 1 });
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar logs', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSearch = (e) => {
@@ -144,7 +97,7 @@ export default function Auditoria() {
                 ))
               ) : (
                 logs.map((log) => {
-                  const isEntry = log.action.includes('Entrada');
+                  const isEntry = (log.action || '').includes('Entrada');
                   return (
                     <tr key={log._id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/30 transition-all group">
                       <td className="px-8 py-5 text-xs font-bold text-gray-400">
@@ -164,7 +117,7 @@ export default function Auditoria() {
                       </td>
                       <td className="px-8 py-5">
                         <div className="text-sm font-medium text-gray-600 dark:text-gray-400 italic">
-                          {log.details.replace('Ficha Alterada | ', '')}
+                          {(log.details || '').replace('Ficha Alterada | ', '')}
                         </div>
                       </td>
                       <td className="px-8 py-5">
@@ -229,8 +182,8 @@ export default function Auditoria() {
               <div className="p-8 space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className={`p-3 rounded-2xl ${selectedLog.action.includes('Entrada') ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-                      {selectedLog.action.includes('Entrada') ? <ArrowUpCircle size={24}/> : <ArrowDownCircle size={24}/>}
+                    <div className={`p-3 rounded-2xl ${(selectedLog.action || '').includes('Entrada') ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                      {(selectedLog.action || '').includes('Entrada') ? <ArrowUpCircle size={24}/> : <ArrowDownCircle size={24}/>}
                     </div>
                     <div>
                       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Movimentação</span>

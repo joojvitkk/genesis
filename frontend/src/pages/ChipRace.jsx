@@ -1,52 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calculator, Plus, Trash2, History, ChevronRight, X, Layers, AlertCircle, CheckCircle2, ArrowRight, Edit2, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, X, Layers, CheckCircle2, ArrowRight, Edit2 } from 'lucide-react';
 import { useAlert } from '../contexts/AlertContext';
-import { BACKEND_URL } from '../App';
-
-const CustomSelect = ({ options, value, onChange, placeholder }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = React.useRef(null);
-  const selectedOption = options.find(o => o.value === value);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex justify-between items-center bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm cursor-pointer text-gray-900 dark:text-white"
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={16} className={`transition-transform text-gray-400 shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-            className="absolute z-50 w-full mt-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl shadow-xl max-h-48 overflow-y-auto"
-          >
-            {options.map(opt => (
-              <div 
-                key={opt.value} 
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer text-sm text-gray-900 dark:text-white border-b border-gray-100 dark:border-zinc-800 last:border-0"
-              >
-                {opt.label}
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import CustomSelect from '../components/CustomSelect';
 
 export default function ChipRace() {
   const { showAlert, showConfirm } = useAlert();
@@ -73,64 +30,56 @@ export default function ChipRace() {
   }, []);
 
   const fetchData = async () => {
-    const token = localStorage.getItem('genesis_token');
-    const headers = { 'Authorization': `Bearer ${token}` };
     try {
-      const [racesRes, tournamentsRes, chipsRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/chip-races`, { headers }),
-        fetch(`${BACKEND_URL}/api/tournaments`, { headers }),
-        fetch(`${BACKEND_URL}/api/chips`, { headers })
+      const [racesData, tournamentsData, chipsData] = await Promise.all([
+        apiGet('/chip-races'), apiGet('/tournaments'), apiGet('/chips'),
       ]);
-      if (racesRes.ok) setRaces(await racesRes.json());
-      if (tournamentsRes.ok) setTournaments(await tournamentsRes.json());
-      if (chipsRes.ok) setChipModels(await chipsRes.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      setRaces(racesData);
+      setTournaments(tournamentsData);
+      setChipModels(chipsData);
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar dados', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('genesis_token');
-    const method = editingRace ? 'PUT' : 'POST';
-    const url = editingRace ? `${BACKEND_URL}/api/chip-races/${editingRace._id}` : `${BACKEND_URL}/api/chip-races`;
-    
-    // Map to the backend expected field 'from_quantity'
+    if (!form.tournament_id) return showAlert('Selecione o torneio.', 'error');
+    if (!form.from_chip || !form.to_chip) return showAlert('Selecione as fichas de origem e destino.', 'error');
+
     const payload = {
-      ...form,
-      from_quantity: form.num_players * form.chips_per_player
+      tournament_id: form.tournament_id,
+      type: form.type,
+      active_tables: Number(form.active_tables) || 1,
+      num_players: Number(form.num_players) || 0,
+      chips_per_player: Number(form.chips_per_player) || 0,
+      from_chip: form.from_chip,
+      to_chip: form.to_chip,
     };
 
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        showAlert(editingRace ? 'Cálculo atualizado!' : 'Cálculo registrado!', 'success');
-        setIsModalOpen(false);
-        fetchData();
-      } else {
-        const err = await res.json();
-        showAlert(err.error || 'Erro ao processar', 'error');
-      }
-    } catch (e) { console.error(e); }
+      if (editingRace) await apiPut(`/chip-races/${editingRace._id}`, payload);
+      else await apiPost('/chip-races', payload);
+      showAlert(editingRace ? 'Cálculo atualizado!' : 'Cálculo registrado!', 'success');
+      setIsModalOpen(false);
+      fetchData();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao processar', 'error');
+    }
   };
 
   const handleDelete = async (id) => {
     const confirmed = await showConfirm('Deseja excluir este registro?');
     if (!confirmed) return;
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/chip-races/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showAlert('Registro excluído', 'success');
-        fetchData();
-      }
-    } catch (e) { console.error(e); }
+      await apiDelete(`/chip-races/${id}`);
+      showAlert('Registro excluído', 'success');
+      fetchData();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao excluir', 'error');
+    }
   };
 
   const openCreateModal = () => {

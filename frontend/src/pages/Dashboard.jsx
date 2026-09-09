@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Trophy, Coins, Briefcase, Activity, PlayCircle, CheckCircle2, Clock, PlusCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { BACKEND_URL } from '../App';
+import { apiGet } from '../lib/api';
 
 function formatTimeAgo(dateString) {
   const diff = Date.now() - new Date(dateString).getTime();
@@ -70,14 +70,9 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem('genesis_token');
-        const res = await fetch(`${BACKEND_URL}/api/dashboard/stats`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const result = await res.json();
-        if (res.ok) setData(result);
+        setData(await apiGet('/dashboard/stats'));
       } catch (e) {
-        console.error('Error fetching dashboard data:', e);
+        if (e.status !== 401) console.error('Error fetching dashboard data:', e);
       } finally {
         setLoading(false);
       }
@@ -92,6 +87,7 @@ export default function Dashboard() {
   const SUMMARY_METRICS = [
     { label: 'Torneios Ativos', value: metrics.activeTournamentsCount, icon: <Trophy size={24} />, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-500/10', border: 'border-emerald-200 dark:border-emerald-500/20' },
     { label: 'Fichas no Estoque', value: metrics.totalChipsInStock.toLocaleString('pt-BR'), icon: <Coins size={24} />, color: 'text-genesis-red', bg: 'bg-red-50 dark:bg-genesis-red/10', border: 'border-red-200 dark:border-genesis-red/20' },
+    { label: 'Valor em Fichas', value: (metrics.stockValue || 0).toLocaleString('pt-BR'), icon: <Activity size={24} />, color: 'text-violet-500', bg: 'bg-violet-50 dark:bg-violet-500/10', border: 'border-violet-200 dark:border-violet-500/20' },
     { label: 'Fichários Livres', value: metrics.availableCases, icon: <Briefcase size={24} />, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10', border: 'border-blue-200 dark:border-blue-500/20' },
     { label: 'Chip Races Hoje', value: metrics.chipRacesToday, icon: <Activity size={24} />, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-500/10', border: 'border-amber-200 dark:border-amber-500/20' }
   ];
@@ -110,7 +106,7 @@ export default function Dashboard() {
       </motion.div>
 
       {/* Top Metrics Cards */}
-      <motion.div variants={containerAnim} initial="hidden" animate="show" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+      <motion.div variants={containerAnim} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-5">
         {SUMMARY_METRICS.map((metric, idx) => (
           <motion.div variants={cardAnim} key={idx} className={`bg-white dark:bg-[#141414] p-6 rounded-3xl border ${metric.border} shadow-sm hover:shadow-lg transition-shadow`}>
             <div className="flex items-center justify-between mb-4">

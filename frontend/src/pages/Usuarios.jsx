@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Users, UserPlus, Mail, Shield, Trash2, Edit2, X, Save, 
-  Search, Filter, ChevronRight, Key, AlertCircle, Calendar, UserCheck, Eye, EyeOff
+import { UserPlus, Mail, Trash2, Edit2, X, Save,
+  Search, Eye, EyeOff, KeyRound, ShieldOff
 } from 'lucide-react';
 import { useAlert } from '../contexts/AlertContext';
-import { BACKEND_URL } from '../App';
+import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import { getStoredUser } from '../lib/auth';
 
 export default function Usuarios() {
-  const { showAlert, showConfirm } = useAlert();
+  const { showAlert, showConfirm, showModal } = useAlert();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -17,7 +17,7 @@ export default function Usuarios() {
   const [showPassword, setShowPassword] = useState(false);
 
   // Current logged-in user (to block self-delete)
-  const currentUser = JSON.parse(localStorage.getItem('genesis_user') || '{}');
+  const currentUser = getStoredUser() || {};
 
   const [form, setForm] = useState({
     name: '',
@@ -32,14 +32,13 @@ export default function Usuarios() {
   }, []);
 
   const fetchUsers = async () => {
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/users`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) setUsers(await res.json());
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      setUsers(await apiGet('/users'));
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao carregar usuários', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -47,26 +46,26 @@ export default function Usuarios() {
     if (!editingUser && form.password !== form.confirmPassword) {
       return showAlert('As senhas não coincidem', 'error');
     }
+    if (editingUser && form.password && form.password !== form.confirmPassword) {
+      return showAlert('As senhas não coincidem', 'error');
+    }
 
-    const token = localStorage.getItem('genesis_token');
-    const url = editingUser ? `${BACKEND_URL}/api/users/${editingUser._id}` : `${BACKEND_URL}/api/users`;
-    const method = editingUser ? 'PUT' : 'POST';
+    const payload = { name: form.name, email: form.email, role: form.role };
+    if (form.password) payload.password = form.password;
 
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(form)
-      });
-      if (res.ok) {
-        showAlert(editingUser ? 'Usuário atualizado!' : 'Usuário criado!', 'success');
-        setIsModalOpen(false);
-        fetchUsers();
+      if (editingUser) {
+        await apiPut(`/users/${editingUser._id}`, payload);
+        showAlert('Usuário atualizado!', 'success');
       } else {
-        const data = await res.json();
-        showAlert(data.error || 'Erro ao processar', 'error');
+        await apiPost('/users', payload);
+        showAlert('Usuário criado!', 'success');
       }
-    } catch (e) { console.error(e); }
+      setIsModalOpen(false);
+      fetchUsers();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao processar', 'error');
+    }
   };
 
   const handleEdit = (user) => {
@@ -91,21 +90,50 @@ export default function Usuarios() {
     const confirmed = await showConfirm('Excluir este usuário permanentemente?');
     if (!confirmed) return;
 
-    const token = localStorage.getItem('genesis_token');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/users/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showAlert('Usuário removido', 'success');
-        fetchUsers();
-      }
-    } catch (e) { console.error(e); }
+      await apiDelete(`/users/${id}`);
+      showAlert('Usuário removido', 'success');
+      fetchUsers();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao remover usuário', 'error');
+    }
   };
 
-  const filteredUsers = users.filter(u => 
-    u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const handleResetPassword = async (user) => {
+    const ok = await showConfirm(`Gerar uma senha temporária para ${user.name}? A senha atual deixa de funcionar.`, {
+      title: 'Resetar senha', confirmLabel: 'Gerar', tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      const { temporary_password } = await apiPost(`/users/${user._id}/reset-password`);
+      await showModal(
+        <div className="space-y-3">
+          <p className="select-all rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center font-mono text-lg font-black tracking-wider text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+            {temporary_password}
+          </p>
+          <p className="text-sm font-medium text-gray-500">
+            Anote agora — não será mostrada de novo. {user.name} terá que trocá-la no próximo login.
+          </p>
+        </div>,
+        { title: `Senha temporária de ${user.name}`, tone: 'success', confirmLabel: 'Copiei / anotei' },
+      );
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao resetar senha', 'error');
+    }
+  };
+
+  const handleRevokeSessions = async (user) => {
+    if (!(await showConfirm(`Encerrar todas as sessões de ${user.name}?`))) return;
+    try {
+      await apiPost(`/users/${user._id}/revoke-sessions`);
+      showAlert('Sessões encerradas.', 'success');
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro', 'error');
+    }
+  };
+
+  const filteredUsers = users.filter(u =>
+    u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -159,6 +187,8 @@ export default function Usuarios() {
                   </span>
                   {/* Action buttons — z-10 to stay above decorative elements */}
                   <div className="flex items-center gap-1 relative z-10">
+                    <button onClick={() => handleResetPassword(user)} title="Resetar senha" className="p-2 text-gray-400 hover:text-amber-500 transition-all rounded-xl hover:bg-amber-50 dark:hover:bg-amber-500/10"><KeyRound size={16}/></button>
+                    <button onClick={() => handleRevokeSessions(user)} title="Encerrar sessões" className="p-2 text-gray-400 hover:text-purple-500 transition-all rounded-xl hover:bg-purple-50 dark:hover:bg-purple-500/10"><ShieldOff size={16}/></button>
                     <button onClick={() => handleEdit(user)} className="p-2 text-gray-400 hover:text-blue-500 transition-all rounded-xl hover:bg-blue-50 dark:hover:bg-blue-500/10"><Edit2 size={16}/></button>
                     {user.email !== currentUser?.email ? (
                       <button onClick={() => handleDelete(user._id)} className="p-2 text-gray-400 hover:text-red-500 transition-all rounded-xl hover:bg-red-50 dark:hover:bg-red-500/10"><Trash2 size={16}/></button>
