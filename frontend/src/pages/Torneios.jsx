@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { 
   Trophy, Plus, Clock, 
   ChevronRight, Trash2, 
@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import CustomSelect from '../components/CustomSelect';
+import TournamentClock from '../components/TournamentClock';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -648,6 +649,33 @@ export default function Torneios() {
                       <span className="text-sm font-black text-gray-400 uppercase tracking-widest">Torneio Finalizado - Auditoria Apenas</span>
                     </div>
                   )}
+
+                  {/* Relógio do torneio */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">Relógio</h3>
+                      <Link
+                        to={`/torneios/${selectedTournament._id}/telao`}
+                        target="_blank"
+                        rel="noopener"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-gray-600 hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700"
+                      >
+                        <Monitor size={13} /> Abrir telão
+                      </Link>
+                    </div>
+                    {(selectedTournament.blind_structure || []).length === 0 ? (
+                      <p className="rounded-2xl border border-dashed border-gray-200 p-4 text-center text-sm text-gray-400 dark:border-zinc-800">
+                        Monte a estrutura de blinds na aba <b>Logística</b> para usar o relógio.
+                      </p>
+                    ) : (
+                      <TournamentClock
+                        tournamentId={selectedTournament._id}
+                        variant="panel"
+                        canControl={selectedTournament.status !== 'finished'}
+                      />
+                    )}
+                  </div>
+
                   {/* Visão do Salão View */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="bg-white dark:bg-[#141414] p-6 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm">

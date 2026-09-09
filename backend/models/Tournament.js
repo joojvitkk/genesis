@@ -25,10 +25,18 @@ const TournamentSchema = new mongoose.Schema({
     per_player: { type: Number, default: 0 }
   }],
   current_level: { type: Number, default: 0 },
-  notes: { type: String }
+  notes: { type: String },
+
+  // ─── Relógio do torneio (P1) ──────────────────────────────────────────────
+  // Fonte da verdade fica no servidor; clientes só renderizam a contagem.
+  clock_status: { type: String, enum: ['stopped', 'running', 'paused'], default: 'stopped' },
+  level_started_at: { type: Date, default: null },     // início efetivo do nível atual
+  paused_at: { type: Date, default: null },            // instante da pausa (null = rodando)
+  clock_adjust_seconds: { type: Number, default: 0 },  // ajuste manual acumulado no nível
 }, { timestamps: true });
 
 TournamentSchema.plugin(softDelete);
 TournamentSchema.index({ status: 1, date: -1 });
+TournamentSchema.index({ clock_status: 1 });
 
 module.exports = mongoose.model('Tournament', TournamentSchema);

@@ -11,6 +11,7 @@ const {
 const logActivity = require('../services/activityLogger');
 const { escapeRegex, toInt, pick } = require('../utils/sanitize');
 const { paginate } = require('../lib/pagination');
+const { applyAction, clockPayload } = require('../lib/tournamentClock');
 const { User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage } = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -310,11 +311,15 @@ router.post('/inventory/update', verifyToken, requirePageAccess('estoque'), asyn
 });
 
 // ─── Torneios ────────────────────────────────────────────────────────────────
+// `current_level` e os campos de relógio NÃO entram aqui — são controlados
+// exclusivamente por POST /tournaments/:id/clock.
 const TOURNAMENT_FIELDS = [
   'name', 'date', 'start_time', 'status', 'estimated_players', 'actual_players',
   'starting_stack', 'stack_model_id', 'blind_structure', 'allocated_cases',
-  'stack_composition', 'current_level', 'notes',
+  'stack_composition', 'notes',
 ];
+
+const CLOCK_ACTIONS = ['start', 'pause', 'resume', 'stop', 'next', 'prev', 'goto', 'adjust'];
 
 router.get('/tournaments', verifyToken, async (req, res) => {
   try {
@@ -436,6 +441,32 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('torneios'), async
 
     await logActivity('Torneio Alterado', 'tournament', `ID: ${tournament._id} | Nome: ${tournament.name}`, req.user);
     res.json({ message: 'Torneio atualizado', tournament });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Relógio do torneio (P1) ─────────────────────────────────────────────────
+router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const { action } = req.body || {};
+    const seconds = Number(req.body?.seconds) || 0;
+    if (!CLOCK_ACTIONS.includes(action)) {
+      return res.status(400).json({ error: `Ação inválida. Use uma de: ${CLOCK_ACTIONS.join(', ')}.` });
+    }
+
+    const t = await Tournament.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Torneio não encontrado' });
+
+    const updates = applyAction(t, action, { seconds });
+    if (updates === null) return res.status(400).json({ error: 'Ação inválida.' });
+    Object.assign(t, updates);
+    await t.save();
+
+    const payload = clockPayload(t);
+    req.app.get('io').to(`tournament:${t._id}`).emit('tournamentClock', payload);
+    await logActivity('Relógio do Torneio', 'tournament', `${t.name} | ${action}${seconds ? ` (${seconds}s)` : ''}`, req.user);
+    res.json(payload);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

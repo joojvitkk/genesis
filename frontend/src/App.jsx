@@ -22,6 +22,7 @@ import Relatorios from './pages/Relatorios';
 import Salao from './pages/Salao';
 import Auditoria from './pages/Auditoria';
 import Usuarios from './pages/Usuarios';
+import Telao from './pages/Telao';
 
 // Re-exports para compatibilidade com imports antigos
 export { BACKEND_URL } from './config';
@@ -116,6 +117,18 @@ function App() {
 
   return (
     <Router>
+      <Routes>
+        {/* Tela de projeção — sem sidebar/chrome, ainda exige sessão */}
+        <Route path="/torneios/:id/telao" element={<Telao />} />
+        <Route path="*" element={<Shell role={role} auth={auth} theme={theme} toggleTheme={toggleTheme}
+          sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} handleLogout={handleLogout} />} />
+      </Routes>
+    </Router>
+  );
+}
+
+function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, handleLogout }) {
+  return (
       <div className="min-h-screen flex bg-gray-50 dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 transition-colors duration-300">
         <header className="md:hidden fixed top-0 left-0 right-0 h-14 bg-white dark:bg-[#111111] border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between px-4 z-50 shadow-sm"
                 style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
@@ -186,7 +199,6 @@ function App() {
           </main>
         </div>
       </div>
-    </Router>
   );
 }
 

@@ -6,8 +6,10 @@ const { Server } = require('socket.io');
 
 const app = require('./app');
 const logger = require('./lib/logger');
-const { User, ChatMessage } = require('./models');
+const { User, ChatMessage, Tournament } = require('./models');
 const { decodeToken } = require('./middlewares/authMiddleware');
+const logActivity = require('./services/activityLogger');
+const { autoAdvance, clockPayload } = require('./lib/tournamentClock');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/genesis';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
@@ -50,6 +52,19 @@ io.on('connection', (socket) => {
   socket.on('joinChannel', (channel) => { if (CHANNELS.includes(channel)) socket.join(channel); });
   socket.on('leaveChannel', (channel) => socket.leave(channel));
 
+  // Relógio do torneio: cliente entra na sala e recebe o estado atual na hora
+  socket.on('joinTournament', async (id) => {
+    if (!mongoose.isValidObjectId(id)) return;
+    socket.join(`tournament:${id}`);
+    try {
+      const t = await Tournament.findById(id);
+      if (t) socket.emit('tournamentClock', clockPayload(t));
+    } catch (e) {
+      logger.error({ err: e }, 'joinTournament failed');
+    }
+  });
+  socket.on('leaveTournament', (id) => socket.leave(`tournament:${id}`));
+
   socket.on('sendMessage', async (data = {}) => {
     try {
       const channel = CHANNELS.includes(data.channel) ? data.channel : 'general';
@@ -85,6 +100,40 @@ io.on('connection', (socket) => {
   });
 });
 
+// ─── Runner do relógio ───────────────────────────────────────────────────────
+// A cada segundo: para cada torneio rodando, avança o nível se o tempo estourou
+// e transmite o estado do relógio para quem estiver assistindo aquele torneio.
+let clockTimer = null;
+function startClockRunner() {
+  if (clockTimer) return;
+  clockTimer = setInterval(async () => {
+    try {
+      const running = await Tournament.find({ clock_status: 'running' });
+      const now = Date.now();
+      for (const t of running) {
+        const adv = autoAdvance(t, now);
+        if (adv) {
+          Object.assign(t, adv.updates);
+          await t.save();
+          for (const ev of adv.events) {
+            if (ev.type === 'level') {
+              io.to(`tournament:${t._id}`).emit('tournamentLevelChanged', { tournament_id: String(t._id), level: ev.level });
+            } else if (ev.type === 'marker') {
+              io.to(`tournament:${t._id}`).emit('tournamentMarker', { tournament_id: String(t._id), row_type: ev.row_type, label: ev.label });
+            } else if (ev.type === 'ended') {
+              io.to(`tournament:${t._id}`).emit('tournamentEnded', { tournament_id: String(t._id) });
+            }
+          }
+          logActivity('Nível do Torneio Avançou', 'tournament', `${t.name} | nível ${t.current_level}`, { name: 'Relógio' });
+        }
+        io.to(`tournament:${t._id}`).emit('tournamentClock', clockPayload(t, now));
+      }
+    } catch (e) {
+      logger.error({ err: e }, 'clock runner tick failed');
+    }
+  }, 1000);
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 async function start() {
   await mongoose.connect(MONGO_URI);
@@ -94,6 +143,7 @@ async function start() {
   } catch (e) {
     logger.error({ err: e }, 'error seeding admin user');
   }
+  startClockRunner();
   server.listen(PORT, '0.0.0.0', () => logger.info(`backend listening on ${PORT}`));
 }
 

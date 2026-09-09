@@ -200,6 +200,7 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 | DELETE | `/tournaments/:id` |
 | GET | `/tournaments/:id/entries` · `/tournaments/:id/consolidated-chips` |
 | POST | `/tournaments/:id/entries` — `{ type, stack_model_id }` |
+| POST | `/tournaments/:id/clock` — `{ action, seconds? }` — relógio: `start` · `pause` · `resume` · `stop` · `next` · `prev` · `goto` · `adjust` |
 
 ### Modelos de stack — *modelos_stack*
 | Método | Rota |
@@ -222,9 +223,18 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 
 ### WebSocket (Socket.io, porta 3000)
 Handshake exige `auth.token` (mesmo JWT do REST) — conexões sem token são recusadas.
-Eventos: `joinChannel` / `leaveChannel` / `sendMessage` / `newMessage`,
-`urgentNotification`, `onlineCount` / `getOnlineCount`,
-`chipCasesAllocated` / `chipCasesReleased`, `chipRaceUpdated`, `tournamentTrackingUpdate`.
+
+- **Chat**: `joinChannel` / `leaveChannel` / `sendMessage` → `newMessage`,
+  `urgentNotification`, `onlineCount` / `getOnlineCount`
+- **Relógio de torneio**: `joinTournament` / `leaveTournament` (entra na sala e recebe o
+  estado atual) → `tournamentClock` (1×/s enquanto rodando), `tournamentLevelChanged`,
+  `tournamentMarker` (fim do registro / do dia), `tournamentEnded`
+- **Inventário**: `chipCasesAllocated` / `chipCasesReleased`, `chipRaceUpdated`,
+  `tournamentTrackingUpdate`
+
+### Tela de projeção
+`GET /torneios/:id/telao` — rota do frontend fora da sidebar, para abrir na TV do salão
+(relógio grande, blinds atual/próximo, jogadores, stack médio, fichas em jogo).
 
 ---
 
@@ -340,9 +350,25 @@ automaticamente e mostra um aviso — basta logar de novo.
 - **Log estruturado** (`pino`) substituindo `console.*`.
 - **Backup**: `scripts/backup.sh` / `restore.sh`.
 
-## ⚠️ Ainda em aberto (roadmap P1–P6)
+## ✅ Fase P1 — Relógio de torneio — concluída
 
-- **P1 — Relógio de torneio**: `current_level` não avança sozinho, sem tela de projeção.
+- **Relógio no servidor** como fonte da verdade (`backend/lib/tournamentClock.js`,
+  lógica pura + runner de 1 s em `server.js`): persiste `level_started_at` /
+  `paused_at` / `clock_adjust_seconds`, sobrevive a restart.
+- **Auto-avança** de nível ao esgotar o tempo; pula marcadores (`end_registration`),
+  para no `end_day` / fim da estrutura; emite `tournamentLevelChanged` / `tournamentMarker`
+  / `tournamentEnded`.
+- **Controles** (`POST /tournaments/:id/clock`): start / pause / resume / stop / next /
+  prev / goto / adjust ±s — papel `torneios`. `current_level` saiu da whitelist do
+  `PUT /tournaments/:id` (só o relógio controla).
+- **Frontend**: hook `useTournamentClock` (sincroniza pelo `server_time`), componente
+  `TournamentClock` (painel com controles + variante projeção), aba Salão do torneio com
+  o relógio + botão "Abrir telão", **bip WebAudio** na virada de nível e nos últimos 60 s.
+- **Tela de projeção** `/torneios/:id/telao` — rota fora da sidebar, tela cheia.
+- 13 testes de relógio (lógica pura + endpoint); verificado ponta a ponta contra socket real.
+
+## ⚠️ Ainda em aberto (roadmap P2–P6)
+
 - **P2 — Jogadores/premiação**: `TournamentEntry` ainda é contador anônimo.
 - **P3 — Estoque x fichários**: alocação não reserva fichas; `ChipCase` com 3 gerações de
   campos de alocação para consolidar.
