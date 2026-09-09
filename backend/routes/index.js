@@ -12,7 +12,11 @@ const logActivity = require('../services/activityLogger');
 const { escapeRegex, toInt, pick } = require('../utils/sanitize');
 const { paginate } = require('../lib/pagination');
 const { applyAction, clockPayload } = require('../lib/tournamentClock');
-const { User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage } = require('../models');
+const { entryContribution, summarize, payoutTable, validateTemplate } = require('../lib/tournamentFinance');
+const {
+  User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage,
+  Player, PayoutTemplate, Elimination,
+} = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -317,6 +321,8 @@ const TOURNAMENT_FIELDS = [
   'name', 'date', 'start_time', 'status', 'estimated_players', 'actual_players',
   'starting_stack', 'stack_model_id', 'blind_structure', 'allocated_cases',
   'stack_composition', 'notes',
+  // financeiro (P2)
+  'buy_in', 'rake', 'addon_value', 'addon_chips', 'bounty_value', 'payout_template_id',
 ];
 
 const CLOCK_ACTIONS = ['start', 'pause', 'resume', 'stop', 'next', 'prev', 'goto', 'adjust'];
@@ -383,10 +389,11 @@ router.delete('/tournaments/:id', verifyToken, requirePageAccess('torneios'), as
       );
     }
 
-    // Cascata: entradas somem, chip races ficam arquivadas (status cancelled)
+    // Cascata: entradas e eliminações somem, chip races ficam arquivadas
     const [entriesRes, racesRes] = await Promise.all([
       TournamentEntry.deleteMany({ tournament_id: tournament._id }),
       ChipRace.updateMany({ tournament_id: tournament._id }, { $set: { status: 'cancelled' } }),
+      Elimination.deleteMany({ tournament_id: tournament._id }),
     ]);
 
     await tournament.softDelete();
@@ -521,6 +528,7 @@ router.get('/tournaments/:id/entries', verifyToken, async (req, res) => {
   try {
     const entries = await TournamentEntry.find({ tournament_id: req.params.id })
       .populate('stack_model_id')
+      .populate('player_id', 'name document')
       .sort({ timestamp: -1 });
     res.json(entries);
   } catch (err) {
@@ -530,18 +538,58 @@ router.get('/tournaments/:id/entries', verifyToken, async (req, res) => {
 
 router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('torneios'), async (req, res) => {
   try {
-    const { type, stack_model_id } = req.body || {};
-    if (!['buy-in', 're-entry'].includes(type)) return res.status(400).json({ error: 'Tipo de entrada inválido.' });
+    const { type, stack_model_id, player_id, player_name } = req.body || {};
+    if (!['buy-in', 're-entry', 'add-on'].includes(type)) {
+      return res.status(400).json({ error: 'Tipo de entrada inválido.' });
+    }
 
-    const entry = new TournamentEntry({ tournament_id: req.params.id, type, stack_model_id: stack_model_id || undefined });
+    const tournament = await Tournament.findById(req.params.id);
+    if (!tournament) return res.status(404).json({ error: 'Torneio não encontrado.' });
+
+    if (type === 'add-on' && !(tournament.addon_value > 0)) {
+      return res.status(400).json({ error: 'Este torneio não tem add-on configurado.' });
+    }
+    if (player_id && !(await Player.findById(player_id))) {
+      return res.status(400).json({ error: 'Jogador não encontrado.' });
+    }
+
+    const money = entryContribution(tournament, type);
+    const entry = new TournamentEntry({
+      tournament_id: tournament._id,
+      type,
+      stack_model_id: stack_model_id || undefined,
+      player_id: player_id || null,
+      player_name: player_name || undefined,
+      ...money,
+    });
     await entry.save();
 
     if (type === 'buy-in') {
-      await Tournament.findByIdAndUpdate(req.params.id, { $inc: { actual_players: 1 } });
+      await Tournament.findByIdAndUpdate(tournament._id, { $inc: { actual_players: 1 } });
+    }
+    // re-entry: se o jogador estava eliminado, ele volta (remove a eliminação)
+    if (type === 're-entry' && player_id) {
+      await Elimination.deleteMany({ tournament_id: tournament._id, player_id });
     }
 
-    await logActivity('Entrada Registrada', 'tournament', `Tipo: ${type}`, req.user);
-    res.status(201).json(entry);
+    await logActivity('Entrada Registrada', 'tournament', `${tournament.name} | ${type}${player_name ? ` | ${player_name}` : ''}`, req.user);
+    const populated = await entry.populate('player_id', 'name document');
+    res.status(201).json(populated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/tournaments/:tid/entries/:eid', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const entry = await TournamentEntry.findOne({ _id: req.params.eid, tournament_id: req.params.tid });
+    if (!entry) return res.status(404).json({ error: 'Entrada não encontrada.' });
+    await entry.deleteOne();
+    if (entry.type === 'buy-in') {
+      await Tournament.findByIdAndUpdate(req.params.tid, { $inc: { actual_players: -1 } });
+    }
+    await logActivity('Entrada Removida', 'tournament', `ID: ${req.params.eid}`, req.user);
+    res.json({ message: 'Entrada removida' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -568,6 +616,263 @@ router.get('/tournaments/:id/consolidated-chips', verifyToken, async (req, res) 
       });
     });
     res.json(Object.values(consolidated).sort((a, b) => a.value - b.value));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Jogadores (P2) ──────────────────────────────────────────────────────────
+const PLAYER_FIELDS = ['name', 'document', 'phone', 'email', 'notes'];
+
+router.get('/players', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.search) {
+      const rx = new RegExp(escapeRegex(req.query.search), 'i');
+      filter.$or = [{ name: rx }, { document: rx }, { phone: rx }];
+    }
+    await paginate(res, Player, filter, { sort: { name: 1 }, query: req.query });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/players/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const player = await Player.findById(req.params.id);
+    if (!player) return res.status(404).json({ error: 'Jogador não encontrado.' });
+    const [entries, eliminations] = await Promise.all([
+      TournamentEntry.find({ player_id: player._id }).populate('tournament_id', 'name date').sort({ timestamp: -1 }),
+      Elimination.find({ player_id: player._id }).populate('tournament_id', 'name date'),
+    ]);
+    res.json({ player, entries, eliminations });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/players', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const data = pick(req.body, PLAYER_FIELDS);
+    if (!data.name) return res.status(400).json({ error: 'Nome é obrigatório.' });
+    const player = await Player.create({ ...data, created_by: req.user?.name || 'Sistema' });
+    await logActivity('Jogador Cadastrado', 'tournament', `Nome: ${player.name}`, req.user);
+    res.status(201).json(player);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/players/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const data = pick(req.body, PLAYER_FIELDS);
+    const player = await Player.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true });
+    if (!player) return res.status(404).json({ error: 'Jogador não encontrado.' });
+    res.json(player);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/players/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const player = await Player.findById(req.params.id);
+    if (!player) return res.status(404).json({ error: 'Jogador não encontrado.' });
+    await player.softDelete();
+    res.json({ message: 'Jogador removido' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Templates de premiação (P2) ─────────────────────────────────────────────
+router.get('/payout-templates', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    res.json(await PayoutTemplate.find().sort({ name: 1 }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/payout-templates', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const data = pick(req.body, ['name', 'brackets', 'notes']);
+    const errors = validateTemplate(data);
+    if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+    res.status(201).json(await PayoutTemplate.create(data));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/payout-templates/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const data = pick(req.body, ['name', 'brackets', 'notes']);
+    const errors = validateTemplate(data);
+    if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+    const tpl = await PayoutTemplate.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true });
+    if (!tpl) return res.status(404).json({ error: 'Template não encontrado.' });
+    res.json(tpl);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/payout-templates/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const tpl = await PayoutTemplate.findById(req.params.id);
+    if (!tpl) return res.status(404).json({ error: 'Template não encontrado.' });
+    await tpl.softDelete();
+    res.json({ message: 'Template removido' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Financeiro do torneio + resultados (P2) ─────────────────────────────────
+
+// Monta o retrato financeiro completo de um torneio.
+async function buildFinance(tournamentId) {
+  const t = await Tournament.findById(tournamentId).populate('payout_template_id');
+  if (!t) return null;
+  const [entries, eliminations] = await Promise.all([
+    TournamentEntry.find({ tournament_id: t._id }),
+    Elimination.find({ tournament_id: t._id }).populate('player_id', 'name').populate('eliminated_by', 'name'),
+  ]);
+
+  const s = summarize(entries, eliminations);
+  const payouts = payoutTable(s.prize_pool, t.payout_template_id, s.total_entries);
+
+  // jogadores ativos = entrou (buy-in/re-entry) e não tem eliminação
+  const eliminatedIds = new Set(eliminations.map((e) => String(e.player_id?._id || e.player_id)));
+  const enteredIds = new Set(
+    entries.filter((e) => e.type !== 'add-on' && e.player_id).map((e) => String(e.player_id))
+  );
+  const remaining = [...enteredIds].filter((id) => !eliminatedIds.has(id)).length;
+
+  return {
+    tournament: {
+      _id: t._id, name: t.name, status: t.status,
+      buy_in: t.buy_in, rake: t.rake, addon_value: t.addon_value, addon_chips: t.addon_chips,
+      bounty_value: t.bounty_value,
+      payout_template: t.payout_template_id || null,
+    },
+    summary: s,
+    payouts,
+    players_remaining: remaining,
+    eliminations: eliminations.sort((a, b) => a.position - b.position),
+  };
+}
+
+router.get('/tournaments/:id/finance', verifyToken, async (req, res) => {
+  try {
+    const data = await buildFinance(req.params.id);
+    if (!data) return res.status(404).json({ error: 'Torneio não encontrado.' });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Registra uma eliminação. Se sobrar só 1 jogador, finaliza o torneio e
+// grava os prêmios de cada colocação.
+router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const { player_id, eliminated_by } = req.body || {};
+    const t = await Tournament.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Torneio não encontrado.' });
+    if (t.status === 'finalized') return res.status(400).json({ error: 'Torneio já finalizado.' });
+    if (!player_id || !(await Player.findById(player_id))) {
+      return res.status(400).json({ error: 'Jogador inválido.' });
+    }
+
+    const [entries, elims] = await Promise.all([
+      TournamentEntry.find({ tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] } }),
+      Elimination.find({ tournament_id: t._id }),
+    ]);
+    const enteredIds = new Set(entries.filter((e) => e.player_id).map((e) => String(e.player_id)));
+    const eliminatedIds = new Set(elims.map((e) => String(e.player_id)));
+
+    if (!enteredIds.has(String(player_id))) return res.status(400).json({ error: 'Jogador não está inscrito.' });
+    if (eliminatedIds.has(String(player_id))) return res.status(400).json({ error: 'Jogador já eliminado.' });
+
+    const remaining = [...enteredIds].filter((id) => !eliminatedIds.has(id)).length;
+    const position = remaining; // 8 jogadores restando → quem sai é o 8º
+
+    const bountyAwarded = eliminated_by ? (t.bounty_value || 0) : 0;
+    await Elimination.create({
+      tournament_id: t._id, player_id, position,
+      eliminated_by: eliminated_by || null, bounty_awarded: bountyAwarded,
+    });
+
+    // Sobrou 1 → esse é o campeão; finaliza.
+    if (remaining - 1 === 1) {
+      const winnerId = [...enteredIds].find((id) => !eliminatedIds.has(id) && id !== String(player_id));
+      if (winnerId) await Elimination.create({ tournament_id: t._id, player_id: winnerId, position: 1 });
+
+      const finance = await buildFinance(t._id);
+      // grava prize_awarded em cada eliminação premiada
+      const byPlace = new Map(finance.payouts.map((p) => [p.place, p.amount]));
+      await Promise.all(
+        (await Elimination.find({ tournament_id: t._id })).map((e) =>
+          byPlace.has(e.position)
+            ? Elimination.findByIdAndUpdate(e._id, { prize_awarded: byPlace.get(e.position) })
+            : null
+        )
+      );
+      t.status = 'finalized';
+      t.finalized_at = new Date();
+      t.clock_status = 'stopped';
+      await t.save();
+      await logActivity('Torneio Finalizado', 'tournament', `${t.name}`, req.user);
+    } else {
+      await logActivity('Eliminação Registrada', 'tournament', `${t.name} | pos ${position}`, req.user);
+    }
+
+    res.status(201).json(await buildFinance(t._id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/tournaments/:tid/eliminations/:eid', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const elim = await Elimination.findOne({ _id: req.params.eid, tournament_id: req.params.tid });
+    if (!elim) return res.status(404).json({ error: 'Eliminação não encontrada.' });
+    await elim.deleteOne();
+    // desfazer a finalização se for o caso
+    await Tournament.findByIdAndUpdate(req.params.tid, { status: 'running', finalized_at: null });
+    await logActivity('Eliminação Desfeita', 'tournament', `ID: ${req.params.eid}`, req.user);
+    res.json(await buildFinance(req.params.tid));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/tournaments/:id/results', verifyToken, async (req, res) => {
+  try {
+    const eliminations = await Elimination.find({ tournament_id: req.params.id })
+      .populate('player_id', 'name document')
+      .populate('eliminated_by', 'name')
+      .sort({ position: 1 });
+
+    // bounties ganhos por jogador
+    const bountyByPlayer = {};
+    eliminations.forEach((e) => {
+      if (e.eliminated_by) {
+        const k = String(e.eliminated_by._id);
+        bountyByPlayer[k] = (bountyByPlayer[k] || 0) + (e.bounty_awarded || 0);
+      }
+    });
+
+    res.json(eliminations.map((e) => ({
+      position: e.position,
+      player: e.player_id,
+      prize: e.prize_awarded || 0,
+      bounty_won: bountyByPlayer[String(e.player_id?._id)] || 0,
+      eliminated_by: e.eliminated_by || null,
+      at: e.at,
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -11,7 +11,9 @@ auditoria de operações.
 | Módulo | Descrição |
 | --- | --- |
 | **Dashboard** | Métricas em tempo real: torneios ativos, fichas em estoque, fichários livres, chip races do dia + feed de auditoria. |
-| **Torneios** | Criação, estrutura de blinds (níveis, breaks, marcadores), alocação de fichários, tracking de fichas em jogo, registro de entradas (buy-in / re-entry). |
+| **Torneios** | Criação, estrutura de blinds, **relógio server-side + tela de projeção**, alocação de fichários, tracking de fichas, entradas (buy-in / re-entry / add-on). |
+| **Financeiro do torneio** | Buy-in, rake fixo, bounty, add-on → prize pool calculado. Templates de premiação em % com faixas por nº de inscritos. Eliminações → classificação final com prêmio e bounty por jogador. |
+| **Jogadores** | Cadastro (nome, documento, contato) + histórico de participações e colocações. |
 | **Estoque** | Modelos de ficha (nome, valor, cor, quantidade). Movimentações de entrada/saída com log. |
 | **Fichários** | Kits de fichas com opção de "entrada automática" (debita o estoque ao criar). |
 | **Modelos de Stack** | Composições reutilizáveis de fichas por jogador. |
@@ -199,8 +201,20 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 | PUT | `/tournaments/:id` |
 | DELETE | `/tournaments/:id` |
 | GET | `/tournaments/:id/entries` · `/tournaments/:id/consolidated-chips` |
-| POST | `/tournaments/:id/entries` — `{ type, stack_model_id }` |
+| POST | `/tournaments/:id/entries` — `{ type: buy-in\|re-entry\|add-on, player_id?, stack_model_id? }` |
+| DELETE | `/tournaments/:tid/entries/:eid` |
 | POST | `/tournaments/:id/clock` — `{ action, seconds? }` — relógio: `start` · `pause` · `resume` · `stop` · `next` · `prev` · `goto` · `adjust` |
+| GET | `/tournaments/:id/finance` — resumo financeiro + tabela de premiação + jogadores restantes |
+| GET | `/tournaments/:id/results` — classificação final (colocação, prêmio, bounty) |
+| POST | `/tournaments/:id/eliminations` — `{ player_id, eliminated_by? }` — auto-finaliza quando sobra 1 |
+| DELETE | `/tournaments/:tid/eliminations/:eid` — desfaz |
+
+### Jogadores &amp; Premiação — *torneios*
+| Método | Rota |
+| --- | --- |
+| GET | `/players?search=` · `/players/:id` (com histórico) |
+| POST · PUT · DELETE | `/players[/:id]` |
+| GET · POST · PUT · DELETE | `/payout-templates[/:id]` — templates de % com faixas por nº de inscritos |
 
 ### Modelos de stack — *modelos_stack*
 | Método | Rota |
@@ -367,11 +381,26 @@ automaticamente e mostra um aviso — basta logar de novo.
 - **Tela de projeção** `/torneios/:id/telao` — rota fora da sidebar, tela cheia.
 - 13 testes de relógio (lógica pura + endpoint); verificado ponta a ponta contra socket real.
 
-## ⚠️ Ainda em aberto (roadmap P2–P6)
+## ✅ Fase P2 — Jogadores, premiação e resultados — concluída
 
-- **P2 — Jogadores/premiação**: `TournamentEntry` ainda é contador anônimo.
+- **`Player`** (coleção nova): cadastro completo + histórico. Página `/jogadores`,
+  autocomplete `PlayerSelect` na inscrição (cadastra na hora).
+- **`PayoutTemplate`**: distribuição de % com **faixas por nº de inscritos**; validação
+  de soma 100%; editor visual (`PayoutTemplatesModal`).
+- **`Tournament`** += `buy_in` / `rake` / `bounty_value` / `addon_value` / `addon_chips` /
+  `payout_template_id`. `lib/tournamentFinance.js` (puro): contribuição por entrada
+  (rake fixo, bounty separado, add-on sem rake), agregação e tabela de premiação
+  (resto de arredondamento no 1º).
+- **`Elimination`** (coleção nova): posição automática, bounty ao eliminador; quando
+  sobra 1 jogador o torneio vira `finalized` e grava o prêmio de cada colocação.
+- **Aba "Financeiro"** no torneio: configuração, resumo ao vivo (prize pool, bounty,
+  rake, jogadores restantes), premiação calculada, painel de eliminações e resultado.
+- +11 testes (finance puro + fluxo completo de eliminação); verificado ponta a ponta.
+
+## ⚠️ Ainda em aberto (roadmap P3–P6)
+
 - **P3 — Estoque x fichários**: alocação não reserva fichas; `ChipCase` com 3 gerações de
-  campos de alocação para consolidar.
+  campos de alocação para consolidar; livro-razão de inventário.
 - **P4 — Mesas/seating**, **P5 — segurança avançada / PWA offline**, **P6 — incrementais**.
 
 Ver o [roadmap completo](https://claude.ai/code/artifact/c98c1207-a6ec-4634-8267-1c81b25c5ac5).

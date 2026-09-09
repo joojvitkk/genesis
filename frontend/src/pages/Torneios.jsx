@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { 
-  Trophy, Plus, Clock, 
-  ChevronRight, Trash2, 
-  Play, Pause, CheckCircle2, Users, 
+import {
+  Trophy, Plus, Clock, DollarSign,
+  ChevronRight, Trash2,
+  Play, Pause, CheckCircle2, Users,
   Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, Minus, History, Package
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,6 +11,8 @@ import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import CustomSelect from '../components/CustomSelect';
 import TournamentClock from '../components/TournamentClock';
+import TournamentFinance from '../components/TournamentFinance';
+import PlayerSelect from '../components/PlayerSelect';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -137,10 +139,17 @@ export default function Torneios() {
   }, []);
 
   const handleRegisterEntry = async (type, stack_model_id) => {
-    if (!stack_model_id) return showAlert('Selecione um modelo de stack', 'error');
+    if (type !== 'add-on' && !stack_model_id) return showAlert('Selecione um modelo de stack', 'error');
+    const player = form.entry_player;
     try {
-      await apiPost(`/tournaments/${selectedTournament._id}/entries`, { type, stack_model_id });
+      await apiPost(`/tournaments/${selectedTournament._id}/entries`, {
+        type,
+        stack_model_id: stack_model_id || undefined,
+        player_id: player?._id || undefined,
+        player_name: player?.name || undefined,
+      });
       showAlert('Entrada registrada!', 'success');
+      setForm(f => ({ ...f, entry_player: null }));
       fetchFloorData(selectedTournament._id);
       fetchTournaments();
       if (type === 'buy-in') {
@@ -376,6 +385,12 @@ export default function Torneios() {
                       className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'salao' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
                     >
                       <Monitor size={13} /> Salão
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('financeiro')}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'financeiro' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
+                    >
+                      <DollarSign size={13} /> Financeiro
                     </button>
                   </div>
 
@@ -641,12 +656,22 @@ export default function Torneios() {
                     </div>
                   </div>
                 </div>
+              ) : activeTab === 'financeiro' ? (
+                <div className="p-4 md:p-8">
+                  <TournamentFinance
+                    tournament={selectedTournament}
+                    canEdit={selectedTournament.status !== 'finalized'}
+                    onTournamentChange={(t) => { setSelectedTournament((prev) => ({ ...prev, ...t })); fetchTournaments(); }}
+                  />
+                </div>
               ) : (
                 <div className="p-4 md:p-8 space-y-8">
-                  {selectedTournament.status === 'finished' && (
+                  {(selectedTournament.status === 'finished' || selectedTournament.status === 'finalized') && (
                     <div className="bg-gray-100 dark:bg-zinc-800/50 p-4 rounded-2xl flex items-center justify-center gap-3 border border-dashed border-gray-200 dark:border-zinc-700">
                       <CheckCircle2 className="text-gray-400" size={20} />
-                      <span className="text-sm font-black text-gray-400 uppercase tracking-widest">Torneio Finalizado - Auditoria Apenas</span>
+                      <span className="text-sm font-black text-gray-400 uppercase tracking-widest">
+                        {selectedTournament.status === 'finalized' ? 'Torneio Finalizado — veja o resultado na aba Financeiro' : 'Torneio Finalizado - Auditoria Apenas'}
+                      </span>
                     </div>
                   )}
 
@@ -703,6 +728,14 @@ export default function Torneios() {
                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><ArrowUpCircle className="text-emerald-500" /> Registrar Entrada</h3>
                         <div className="space-y-4">
                           <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Jogador</label>
+                            <PlayerSelect
+                              value={form.entry_player || null}
+                              onChange={(p) => setForm({ ...form, entry_player: p })}
+                              disabled={['finished', 'finalized'].includes(selectedTournament.status)}
+                            />
+                          </div>
+                          <div>
                             <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Modelo de Stack</label>
                             <CustomSelect
                               options={stackModels.map(s => ({ value: s._id, label: `${s.name} (${s.total_value.toLocaleString()})` }))}
@@ -714,18 +747,27 @@ export default function Torneios() {
                           <div className="grid grid-cols-2 gap-3 pt-2">
                             <button
                               onClick={() => handleRegisterEntry('buy-in', form.selected_stack_id)}
-                              disabled={selectedTournament.status === 'finished'}
+                              disabled={['finished', 'finalized'].includes(selectedTournament.status)}
                               className="py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-emerald-500/20 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                             >
                               <Plus size={18} /> Buy-in
                             </button>
                             <button
                               onClick={() => handleRegisterEntry('re-entry', form.selected_stack_id)}
-                              disabled={selectedTournament.status === 'finished'}
+                              disabled={['finished', 'finalized'].includes(selectedTournament.status)}
                               className="py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-600 transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-blue-500/20 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                             >
                               <Plus size={18} /> Re-entry
                             </button>
+                            {selectedTournament.addon_value > 0 && (
+                              <button
+                                onClick={() => handleRegisterEntry('add-on', null)}
+                                disabled={['finished', 'finalized'].includes(selectedTournament.status)}
+                                className="col-span-2 py-2.5 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-30"
+                              >
+                                <Plus size={16} /> Add-on ({(selectedTournament.addon_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -755,19 +797,34 @@ export default function Torneios() {
                           {entries.map(entry => (
                             <div key={entry._id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#0F0F0F] rounded-2xl border border-gray-200 dark:border-zinc-800 hover:border-gray-300 dark:hover:border-zinc-700 transition-all group">
                               <div className="flex items-center gap-4">
-                                <div className={`p-2 rounded-xl ${entry.type === 'buy-in' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-500' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-500'}`}>
-                                  {entry.type === 'buy-in' ? <ArrowUpCircle size={20} /> : <ArrowDownCircle size={20} />}
+                                <div className={`p-2 rounded-xl ${entry.type === 'buy-in' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-500' : entry.type === 'add-on' ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-500' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-500'}`}>
+                                  {entry.type === 'buy-in' ? <ArrowUpCircle size={20} /> : entry.type === 'add-on' ? <Plus size={20} /> : <ArrowDownCircle size={20} />}
                                 </div>
                                 <div>
                                   <p className="font-bold text-gray-900 dark:text-white uppercase tracking-tight text-sm">
-                                    {entry.type === 'buy-in' ? 'Entrada (Buy-in)' : 'Re-entrada'}
+                                    {entry.player_id?.name || entry.player_name || (entry.type === 'buy-in' ? 'Buy-in' : entry.type === 'add-on' ? 'Add-on' : 'Re-entrada')}
                                   </p>
                                   <p className="text-xs text-gray-500 font-medium">
-                                    Stack: {entry.stack_model_id?.name || 'Manual'} | {new Date(entry.timestamp).toLocaleTimeString()}
+                                    {entry.type} · Stack: {entry.stack_model_id?.name || '—'} · {new Date(entry.timestamp).toLocaleTimeString()}
                                   </p>
                                 </div>
                               </div>
-                              <div className="text-right">
+                              <div className="flex items-center gap-2 text-right">
+                                {['finished', 'finalized'].includes(selectedTournament.status) ? null : (
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        await apiDelete(`/tournaments/${selectedTournament._id}/entries/${entry._id}`);
+                                        fetchFloorData(selectedTournament._id);
+                                        fetchTournaments();
+                                      } catch (err) { if (err.status !== 401) showAlert(err.message || 'Erro', 'error'); }
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all"
+                                    title="Remover entrada"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                )}
                                 <p className="text-sm font-black text-gray-900 dark:text-white">#{entries.length - entries.indexOf(entry)}</p>
                               </div>
                             </div>

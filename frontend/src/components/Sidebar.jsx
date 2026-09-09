@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Package, Briefcase, Trophy, Coins,
   MessageSquare, Layers, BarChart, MonitorPlay, ClipboardList,
-  Users, X, LogOut, Sun, Moon, ChevronRight
+  Users, UserCheck, X, LogOut, Sun, Moon, ChevronRight
 } from 'lucide-react';
 import { can } from '../config';
 
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard',  area: 'dashboard' },
   { to: '/salao',        icon: MonitorPlay,     label: 'Salão',      area: 'torneios' },
   { to: '/torneios',     icon: Trophy,          label: 'Torneios',   area: 'torneios' },
+  { to: '/jogadores',    icon: UserCheck,       label: 'Jogadores',  area: 'torneios' },
   { to: '/chip-race',    icon: Coins,           label: 'Chip Race',  area: 'chip_race' },
   { to: '/estoque',      icon: Package,         label: 'Estoque',    area: 'estoque' },
   { to: '/ficharios',    icon: Briefcase,       label: 'Fichários',  area: 'ficharios' },

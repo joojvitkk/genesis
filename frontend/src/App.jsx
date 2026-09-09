@@ -22,6 +22,7 @@ import Relatorios from './pages/Relatorios';
 import Salao from './pages/Salao';
 import Auditoria from './pages/Auditoria';
 import Usuarios from './pages/Usuarios';
+import Jogadores from './pages/Jogadores';
 import Telao from './pages/Telao';
 
 // Re-exports para compatibilidade com imports antigos
@@ -178,6 +179,7 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
               {Object.entries({
                 '/salao': <Salao />,
                 '/torneios': <Torneios />,
+                '/jogadores': <Jogadores />,
                 '/chip-race': <ChipRace />,
                 '/chat': <Chat />,
                 '/estoque': <Estoque />,

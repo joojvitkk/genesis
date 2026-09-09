@@ -22,6 +22,7 @@ export const ROUTE_AREA = {
   '/dashboard': 'dashboard',
   '/salao': 'torneios',
   '/torneios': 'torneios',
+  '/jogadores': 'torneios',
   '/chip-race': 'chip_race',
   '/estoque': 'estoque',
   '/ficharios': 'ficharios',
