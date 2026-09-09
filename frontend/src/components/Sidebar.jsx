@@ -7,22 +7,23 @@ import {
 } from 'lucide-react';
 import { can } from '../config';
 import { useAlert } from '../contexts/AlertContext';
+import { useT } from '../lib/i18n.jsx';
 
 // `area` refere-se à matriz de permissões em config.js (PERMISSIONS)
 const NAV_ITEMS = [
-  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard',  area: 'dashboard' },
-  { to: '/salao',        icon: MonitorPlay,     label: 'Salão',      area: 'torneios' },
-  { to: '/torneios',     icon: Trophy,          label: 'Torneios',   area: 'torneios' },
-  { to: '/jogadores',    icon: UserCheck,       label: 'Jogadores',  area: 'torneios' },
-  { to: '/chip-race',    icon: Coins,           label: 'Chip Race',  area: 'chip_race' },
-  { to: '/estoque',      icon: Package,         label: 'Estoque',    area: 'estoque' },
-  { to: '/livro-estoque',icon: BookOpen,        label: 'Livro-razão',area: 'estoque' },
-  { to: '/ficharios',    icon: Briefcase,       label: 'Fichários',  area: 'ficharios' },
-  { to: '/chat',         icon: MessageSquare,   label: 'Chat',       area: 'chat' },
-  { to: '/modelos-stack',icon: Layers,          label: 'Stacks',     area: 'modelos_stack' },
-  { to: '/relatorios',   icon: BarChart,        label: 'Relatórios', area: 'relatorios' },
-  { to: '/auditoria',    icon: ClipboardList,   label: 'Auditoria',  area: 'relatorios' },
-  { to: '/usuarios',     icon: Users,           label: 'Usuários',   area: 'usuarios' },
+  { to: '/dashboard',    icon: LayoutDashboard, key: 'nav.dashboard',    area: 'dashboard' },
+  { to: '/salao',        icon: MonitorPlay,     key: 'nav.salao',        area: 'torneios' },
+  { to: '/torneios',     icon: Trophy,          key: 'nav.torneios',     area: 'torneios' },
+  { to: '/jogadores',    icon: UserCheck,       key: 'nav.jogadores',    area: 'torneios' },
+  { to: '/chip-race',    icon: Coins,           key: 'nav.chipRace',     area: 'chip_race' },
+  { to: '/estoque',      icon: Package,         key: 'nav.estoque',      area: 'estoque' },
+  { to: '/livro-estoque',icon: BookOpen,        key: 'nav.livroEstoque', area: 'estoque' },
+  { to: '/ficharios',    icon: Briefcase,       key: 'nav.ficharios',    area: 'ficharios' },
+  { to: '/chat',         icon: MessageSquare,   key: 'nav.chat',         area: 'chat' },
+  { to: '/modelos-stack',icon: Layers,          key: 'nav.stacks',       area: 'modelos_stack' },
+  { to: '/relatorios',   icon: BarChart,        key: 'nav.relatorios',   area: 'relatorios' },
+  { to: '/auditoria',    icon: ClipboardList,   key: 'nav.auditoria',    area: 'relatorios' },
+  { to: '/usuarios',     icon: Users,           key: 'nav.usuarios',     area: 'usuarios' },
 ];
 
 // Items that show in the bottom tab bar (most used, max 5)
@@ -31,7 +32,8 @@ const BOTTOM_PRIORITY = ['/salao', '/torneios', '/chip-race', '/chat', '/estoque
 export default function Sidebar({ isOpen, onOpen, onClose, onLogout, onChangePassword, onLogoutAll, user, theme, onToggleTheme }) {
   const location = useLocation();
   const { showConfirm } = useAlert();
-  const filtered = NAV_ITEMS.filter(i => can(user?.role, i.area));
+  const { t, lang, setLang, langs } = useT();
+  const filtered = NAV_ITEMS.filter(i => can(user?.role, i.area)).map(i => ({ ...i, label: t(i.key) }));
 
   const askLogoutAll = async () => {
     if (await showConfirm('Encerrar TODAS as suas sessões (inclusive em outros aparelhos)?')) onLogoutAll?.();
@@ -93,18 +95,24 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, onChangePas
 
         {/* Conta */}
         <div className="p-3 border-t border-gray-100 dark:border-white/5 shrink-0 space-y-0.5">
+          <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
+            <span className="font-semibold">{t('lang.label')}:</span>
+            {langs.map((l) => (
+              <button key={l} onClick={() => setLang(l)} className={`uppercase font-black tracking-widest ${lang === l ? 'text-genesis-red' : 'hover:text-gray-600 dark:hover:text-gray-200'}`}>{l}</button>
+            ))}
+          </div>
           <button onClick={onChangePassword} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl font-semibold text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-all">
-            <KeyRound size={16} /> <span>Trocar senha</span>
+            <KeyRound size={16} /> <span>{t('account.changePassword')}</span>
           </button>
           <button onClick={askLogoutAll} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl font-semibold text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-all">
-            <ShieldOff size={16} /> <span>Encerrar todas as sessões</span>
+            <ShieldOff size={16} /> <span>{t('account.logoutAll')}</span>
           </button>
           <button
             onClick={onLogout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold text-sm text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 transition-all"
           >
             <LogOut size={18} />
-            <span>Sair</span>
+            <span>{t('account.logout')}</span>
           </button>
         </div>
       </aside>
@@ -192,13 +200,26 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, onChangePas
                   <span>{theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}</span>
                 </button>
                 <button
+                  onClick={() => { onClose(); onChangePassword?.(); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all"
+                >
+                  <div className="p-1.5 rounded-lg bg-gray-100 dark:bg-zinc-800"><KeyRound size={16} /></div>
+                  <span>{t('account.changePassword')}</span>
+                </button>
+                <div className="flex items-center gap-2 px-4 py-2 text-xs text-gray-400">
+                  <span className="font-semibold">{t('lang.label')}:</span>
+                  {langs.map((l) => (
+                    <button key={l} onClick={() => setLang(l)} className={`uppercase font-black tracking-widest ${lang === l ? 'text-genesis-red' : ''}`}>{l}</button>
+                  ))}
+                </div>
+                <button
                   onClick={() => { onClose(); onLogout(); }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
                 >
                   <div className="p-1.5 rounded-lg bg-red-50 dark:bg-red-500/10">
                     <LogOut size={16} />
                   </div>
-                  <span>Sair</span>
+                  <span>{t('account.logout')}</span>
                 </button>
               </div>
             </motion.div>

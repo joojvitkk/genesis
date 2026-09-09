@@ -1,0 +1,35 @@
+export default {
+  'nav.dashboard': 'Dashboard',
+  'nav.salao': 'Floor',
+  'nav.torneios': 'Tournaments',
+  'nav.jogadores': 'Players',
+  'nav.chipRace': 'Chip Race',
+  'nav.estoque': 'Inventory',
+  'nav.livroEstoque': 'Ledger',
+  'nav.ficharios': 'Chip cases',
+  'nav.chat': 'Chat',
+  'nav.stacks': 'Stacks',
+  'nav.relatorios': 'Reports',
+  'nav.auditoria': 'Audit',
+  'nav.usuarios': 'Users',
+
+  'account.changePassword': 'Change password',
+  'account.logoutAll': 'Sign out everywhere',
+  'account.logout': 'Sign out',
+
+  'common.save': 'Save',
+  'common.cancel': 'Cancel',
+  'common.delete': 'Delete',
+  'common.confirm': 'Confirm',
+  'common.search': 'Search',
+  'common.new': 'New',
+  'common.loading': 'Loading…',
+
+  'status.scheduled': 'Scheduled',
+  'status.running': 'Running',
+  'status.paused': 'Paused',
+  'status.finished': 'Finished',
+  'status.finalized': 'Completed',
+
+  'lang.label': 'Language',
+};
