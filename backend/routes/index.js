@@ -1513,6 +1513,44 @@ router.get('/reports/data', verifyToken, requirePageAccess('relatorios'), async 
   }
 });
 
+// Comparativo entre torneios (P6)
+router.get('/reports/comparison', verifyToken, requirePageAccess('relatorios'), async (req, res) => {
+  try {
+    const tournaments = await Tournament.find({ status: { $in: ['finished', 'finalized', 'running', 'paused'] } })
+      .sort({ starts_at: -1, date: -1 })
+      .limit(40)
+      .populate('payout_template_id');
+
+    const rows = await Promise.all(tournaments.map(async (t) => {
+      const [entries, elims] = await Promise.all([
+        TournamentEntry.find({ tournament_id: t._id }),
+        Elimination.find({ tournament_id: t._id }).populate('player_id', 'name'),
+      ]);
+      const s = summarize(entries, elims);
+      const winner = elims.find((e) => e.position === 1);
+      return {
+        _id: t._id,
+        name: t.name,
+        starts_at: t.starts_at,
+        date: t.date,
+        status: t.status,
+        buyins: s.buyins,
+        reentries: s.reentries,
+        addons: s.addons,
+        total_entries: s.total_entries,
+        prize_pool: s.prize_pool,
+        bounty_pool: s.bounty_pool,
+        rake_collected: s.rake_collected,
+        actual_players: t.actual_players || 0,
+        winner: winner?.player_id?.name || null,
+      };
+    }));
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Chat ────────────────────────────────────────────────────────────────────
 router.get('/chat/:channel', verifyToken, async (req, res) => {
   try {

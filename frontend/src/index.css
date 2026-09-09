@@ -23,6 +23,15 @@
   }
   :focus:not(:focus-visible) { outline: none; }
 
+  /* Impressão / "Salvar como PDF": só o conteúdo, sem navegação */
+  @media print {
+    aside, header.md\:hidden, nav.md\:hidden, .no-print { display: none !important; }
+    .md\:ml-64 { margin-left: 0 !important; }
+    body { background: #fff !important; color: #000 !important; }
+    * { box-shadow: none !important; }
+    main { padding: 0 !important; }
+  }
+
   /* Respeita "reduzir movimento" do sistema */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
