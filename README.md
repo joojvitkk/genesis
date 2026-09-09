@@ -219,6 +219,11 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 | GET | `/tournaments/:id/seating` — mapa de mesas + sugestão de balanceamento |
 | POST | `/tournaments/:id/seating/draw` · `/move` · `/break-table` · `/redraw` |
 | GET · POST · PUT · DELETE | `/blind-templates[/:id]` — estruturas de blind reutilizáveis |
+| GET | `/reports/comparison` — métricas lado a lado dos torneios (*relatorios*) |
+| GET | `/chat/urgent` · POST `/chat/:id/ack` — alertas urgentes + confirmação de leitura |
+
+`PUT /tournaments/:id` aceita `blind_version` — se enviado e desatualizado, responde **409**
+(trava otimista da estrutura de blinds).
 
 ### Jogadores &amp; Premiação — *torneios*
 | Método | Rota |
@@ -458,21 +463,24 @@ automaticamente e mostra um aviso — basta logar de novo.
   sincroniza no evento `online`.
 - +4 testes; verificado ponta a ponta.
 
-## 🔄 Fase P6 — Incrementais (contínuo)
+## ✅ Fase P6 — Incrementais — concluída
 
-**Feito nesta leva:**
 - **Valuation de estoque** (Σ valor × quantidade) no dashboard e nos relatórios.
-- **Chat**: indicador de mensagens não lidas por canal (bolinha), assinando os 3 canais.
-- **Acessibilidade**: `:focus-visible` consistente em toda a UI; respeito a
-  `prefers-reduced-motion`; `aria-modal`/`role="dialog"` nos modais novos.
+- **Chat**: não lidas por canal, **anexo de imagem** (redimensionado no cliente para
+  ~260 KB), **painel de alertas urgentes com confirmação de leitura** (quem confirmou).
+- **Relatórios**: comparativo entre torneios (`GET /reports/comparison`), export
+  **PDF via `window.print()`** + `@media print`, **predefinições de filtro** salvas.
+- **Fuso horário**: `Tournament.timezone` + `starts_at` derivado (`date`+`start_time`@tz,
+  respeita horário de verão, sem dependência); exibição no fuso correto.
+- **Concorrência**: trava otimista de `blind_structure` (`blind_version` → 409 no
+  conflito, recarrega).
+- **Acessibilidade**: `:focus-visible` consistente, `prefers-reduced-motion`, `aria-modal`.
+- **i18n**: scaffold pt/en (`lib/i18n`, `useT()`, seletor de idioma) — navegação e conta
+  traduzidas; extração das demais telas é incremental.
+- +8 testes; verificado ponta a ponta.
 
-**Backlog (puxar sob demanda):**
-- Chat: anexo de imagem, histórico de alertas urgentes com confirmação de leitura.
-- Relatórios: comparativo entre torneios, filtros salvos, export em PDF.
-- i18n: extrair as strings pt-BR (pt/en/es).
-- Fuso horário: unificar `date` + `start_time` num `datetime` com tz do salão.
-- Concorrência: trava otimista na edição de `blind_structure` (o debounce do P1 já
-  reduziu bastante o risco de sobrescrita).
+> **Roadmap P0–P6 completo.** Backlog residual (i18n das telas restantes, export PDF
+> nativo com layout dedicado, anexos maiores via storage próprio) fica sob demanda.
 
 Ver o [roadmap completo](https://claude.ai/code/artifact/c98c1207-a6ec-4634-8267-1c81b25c5ac5).
 
