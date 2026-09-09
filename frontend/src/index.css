@@ -15,6 +15,24 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Foco visível consistente para navegação por teclado */
+  :focus-visible {
+    outline: 2px solid var(--color-genesis-red);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  :focus:not(:focus-visible) { outline: none; }
+
+  /* Respeita "reduzir movimento" do sistema */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
   html {
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;

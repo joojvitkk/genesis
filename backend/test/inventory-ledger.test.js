@@ -121,6 +121,20 @@ test('recalcChip é idempotente', async () => {
   assert.equal(a.total, 300);
 });
 
+test('dashboard e relatórios trazem a valuation do estoque (Σ valor × qtd)', async () => {
+  const h = await H('material');
+  await request(app).post('/api/chips').set(h).send({ name: 'F25', value: 25, total_quantity: 100 });
+  await request(app).post('/api/chips').set(h).send({ name: 'F100', value: 100, total_quantity: 40 });
+  // 25*100 + 100*40 = 6500
+
+  const dash = await request(app).get('/api/dashboard/stats').set(h);
+  assert.equal(dash.body.metrics.stockValue, 6500);
+
+  const admin = await makeUser('admin');
+  const rep = await request(app).get('/api/reports/data').set('Authorization', `Bearer ${admin.token}`);
+  assert.equal(rep.body.stats.stockValue, 6500);
+});
+
 test('GET /inventory/ledger pagina e filtra por ficha', async () => {
   const h = await H();
   const { body: c1 } = await request(app).post('/api/chips').set(h).send({ name: 'A', value: 5, total_quantity: 100 });

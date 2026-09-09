@@ -255,9 +255,14 @@ router.get('/dashboard/stats', verifyToken, async (req, res) => {
 
     const chipsAggregate = await ChipModel.aggregate([
       { $match: { deleted_at: null } },
-      { $group: { _id: null, total: { $sum: '$total_quantity' } } }
+      { $group: {
+        _id: null,
+        total: { $sum: '$total_quantity' },
+        value: { $sum: { $multiply: ['$total_quantity', '$value'] } },
+      } }
     ]);
     const totalChipsInStock = chipsAggregate.length ? chipsAggregate[0].total : 0;
+    const stockValue = chipsAggregate.length ? chipsAggregate[0].value : 0;
 
     const availableCases = await ChipCase.countDocuments({ status: 'available' });
 
@@ -269,7 +274,7 @@ router.get('/dashboard/stats', verifyToken, async (req, res) => {
     const recentActivities = await ActivityLog.find().sort({ createdAt: -1 }).limit(7);
 
     res.json({
-      metrics: { activeTournamentsCount, totalChipsInStock, availableCases, chipRacesToday },
+      metrics: { activeTournamentsCount, totalChipsInStock, stockValue, availableCases, chipRacesToday },
       recentTournaments,
       recentActivities,
     });
@@ -1471,6 +1476,8 @@ router.get('/reports/data', verifyToken, requirePageAccess('relatorios'), async 
         finishedTournaments,
         totalChipRaces,
         totalChips: chipDistribution.reduce((acc, c) => acc + c.total_quantity, 0),
+        // valuation = Σ (valor da ficha × quantidade total)
+        stockValue: chipDistribution.reduce((acc, c) => acc + (c.value || 0) * (c.total_quantity || 0), 0),
       },
       charts: {
         chipDistribution: chipDistribution.map(c => ({ name: `Ficha ${c.value}`, value: c.total_quantity, color: c.color })),

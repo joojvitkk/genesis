@@ -119,10 +119,11 @@ export default function Relatorios() {
       </header>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
         <StatCard title="Torneios" value={data.stats.totalTournaments} subValue={`${data.stats.finishedTournaments} finalizados`} icon={<Trophy size={20}/>} color="bg-blue-500" />
         <StatCard title="Chip Races" value={data.stats.totalChipRaces} subValue="Confirmados" icon={<Activity size={20}/>} color="bg-amber-500" />
         <StatCard title="Total de Fichas" value={data.stats.totalChips.toLocaleString()} subValue="No sistema" icon={<Coins size={20}/>} color="bg-emerald-500" />
+        <StatCard title="Valor em Fichas" value={(data.stats.stockValue || 0).toLocaleString('pt-BR')} subValue="Σ valor × qtd" icon={<Coins size={20}/>} color="bg-violet-500" />
         <StatCard title="Logs Totais" value={data.pagination.total} subValue="Registros" icon={<Clock size={20}/>} color="bg-purple-500" />
       </div>
 

@@ -458,10 +458,21 @@ automaticamente e mostra um aviso — basta logar de novo.
   sincroniza no evento `online`.
 - +4 testes; verificado ponta a ponta.
 
-## ⚠️ Ainda em aberto (roadmap P6)
+## 🔄 Fase P6 — Incrementais (contínuo)
 
-- **P6 — incrementais** (chat: não lidas/anexos; relatórios ricos + export PDF; a11y;
-  i18n; timezone unificado; trava de edição concorrente de blinds)
+**Feito nesta leva:**
+- **Valuation de estoque** (Σ valor × quantidade) no dashboard e nos relatórios.
+- **Chat**: indicador de mensagens não lidas por canal (bolinha), assinando os 3 canais.
+- **Acessibilidade**: `:focus-visible` consistente em toda a UI; respeito a
+  `prefers-reduced-motion`; `aria-modal`/`role="dialog"` nos modais novos.
+
+**Backlog (puxar sob demanda):**
+- Chat: anexo de imagem, histórico de alertas urgentes com confirmação de leitura.
+- Relatórios: comparativo entre torneios, filtros salvos, export em PDF.
+- i18n: extrair as strings pt-BR (pt/en/es).
+- Fuso horário: unificar `date` + `start_time` num `datetime` com tz do salão.
+- Concorrência: trava otimista na edição de `blind_structure` (o debounce do P1 já
+  reduziu bastante o risco de sobrescrita).
 
 Ver o [roadmap completo](https://claude.ai/code/artifact/c98c1207-a6ec-4634-8267-1c81b25c5ac5).
 

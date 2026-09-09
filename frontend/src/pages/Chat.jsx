@@ -12,52 +12,52 @@ const CHANNELS = [
 ];
 
 export default function Chat() {
-  const [activeChannel, setActiveChannel] = useState('general');
+  const [activeChannel, setActiveChannelRaw] = useState('general');
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isUrgent, setIsUrgent] = useState(false);
   const [user, setUser] = useState(null);
+  const [unread, setUnread] = useState({});
+  const activeRef = useRef(activeChannel);
   const scrollRef = useRef(null);
 
   const [onlineCount, setOnlineCount] = useState(0);
+
+  const setActiveChannel = (id) => {
+    activeRef.current = id;
+    setActiveChannelRaw(id);
+    setUnread((u) => ({ ...u, [id]: false }));
+  };
 
   useEffect(() => {
     setUser(getStoredUser());
 
     socket.on('onlineCount', (count) => setOnlineCount(count));
     socket.emit('getOnlineCount');
-    return () => socket.off('onlineCount');
+    // assina todos os canais para saber de mensagens não lidas
+    CHANNELS.forEach((c) => socket.emit('joinChannel', c.id));
+
+    const onNew = (msg) => {
+      if (msg.channel === activeRef.current) {
+        setMessages((prev) => [...prev, msg]);
+      } else {
+        setUnread((u) => ({ ...u, [msg.channel]: true }));
+      }
+    };
+    socket.on('newMessage', onNew);
+
+    return () => {
+      socket.off('onlineCount');
+      socket.off('newMessage', onNew);
+      CHANNELS.forEach((c) => socket.emit('leaveChannel', c.id));
+    };
   }, []);
 
   useEffect(() => {
     if (!activeChannel) return;
-
-    // Fetch history
-    const fetchHistory = async () => {
-      try {
-        setMessages(await apiGet(`/chat/${activeChannel}`));
-      } catch (e) {
-        if (e.status !== 401) console.error(e);
-      }
-    };
-
-    fetchHistory();
-    socket.emit('joinChannel', activeChannel);
-
-    return () => {
-      socket.emit('leaveChannel', activeChannel);
-    };
-  }, [activeChannel]);
-
-  useEffect(() => {
-    const handleNewMessage = (msg) => {
-      if (msg.channel === activeChannel) {
-        setMessages(prev => [...prev, msg]);
-      }
-    };
-
-    socket.on('newMessage', handleNewMessage);
-    return () => socket.off('newMessage', handleNewMessage);
+    apiGet(`/chat/${activeChannel}`)
+      .then(setMessages)
+      .catch((e) => { if (e.status !== 401) console.error(e); });
   }, [activeChannel]);
 
   useEffect(() => {
@@ -95,10 +95,13 @@ export default function Chat() {
             <button
               key={ch.id}
               onClick={() => setActiveChannel(ch.id)}
-              className={`w-full flex items-center justify-center md:justify-start gap-3 p-3 md:px-4 md:py-3 rounded-2xl transition-all ${activeChannel === ch.id ? 'bg-genesis-red text-white shadow-lg shadow-red-500/20' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-zinc-800/50 hover:text-gray-900 dark:hover:text-gray-100'}`}
+              className={`relative w-full flex items-center justify-center md:justify-start gap-3 p-3 md:px-4 md:py-3 rounded-2xl transition-all ${activeChannel === ch.id ? 'bg-genesis-red text-white shadow-lg shadow-red-500/20' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-zinc-800/50 hover:text-gray-900 dark:hover:text-gray-100'}`}
             >
               {ch.icon}
               <span className="hidden md:block font-bold text-sm uppercase tracking-tight">{ch.label}</span>
+              {unread[ch.id] && activeChannel !== ch.id && (
+                <span className="absolute right-2 top-2 md:static md:ml-auto h-2.5 w-2.5 rounded-full bg-genesis-red animate-pulse" aria-label="mensagens não lidas" />
+              )}
             </button>
           ))}
         </div>
