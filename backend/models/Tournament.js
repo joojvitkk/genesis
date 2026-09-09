@@ -26,6 +26,7 @@ const TournamentSchema = new mongoose.Schema({
   }],
   current_level: { type: Number, default: 0 },
   notes: { type: String },
+  seats_per_table: { type: Number, default: 9 }, // P4
 
   // ─── Financeiro (P2) ─────────────────────────────────────────────────────
   buy_in: { type: Number, default: 0 },        // valor total da entrada

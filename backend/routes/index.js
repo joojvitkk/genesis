@@ -14,9 +14,10 @@ const { paginate } = require('../lib/pagination');
 const { applyAction, clockPayload } = require('../lib/tournamentClock');
 const { entryContribution, summarize, payoutTable, validateTemplate } = require('../lib/tournamentFinance');
 const { recordEntry, recordMany } = require('../lib/inventoryLedger');
+const seating = require('../lib/seating');
 const {
   User, ChipModel, Tournament, ChipCase, ActivityLog, ChipRace, StackModel, TournamentEntry, ChatMessage,
-  Player, PayoutTemplate, Elimination, InventoryLedger,
+  Player, PayoutTemplate, Elimination, InventoryLedger, Seat, BlindStructureTemplate,
 } = require('../models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -394,10 +395,54 @@ router.get('/inventory/ledger', verifyToken, requirePageAccess('estoque'), async
 const TOURNAMENT_FIELDS = [
   'name', 'date', 'start_time', 'status', 'estimated_players', 'actual_players',
   'starting_stack', 'stack_model_id', 'blind_structure', 'allocated_cases',
-  'stack_composition', 'notes',
+  'stack_composition', 'notes', 'seats_per_table',
   // financeiro (P2)
   'buy_in', 'rake', 'addon_value', 'addon_chips', 'bounty_value', 'payout_template_id',
 ];
+
+// ─── helpers de seating (P4) ─────────────────────────────────────────────────
+async function seatNewPlayer(tournament, playerId) {
+  const seatsPerTable = tournament.seats_per_table || 9;
+  const existing = await Seat.findOne({ tournament_id: tournament._id, player_id: playerId });
+  if (existing) return existing;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const docs = await Seat.find({ tournament_id: tournament._id });
+    const tables = seating.buildTables(docs, seatsPerTable);
+    const spot = seating.pickSeatForNewPlayer(tables, seatsPerTable);
+    try {
+      return await Seat.create({ tournament_id: tournament._id, player_id: playerId, ...spot });
+    } catch (e) {
+      if (e.code !== 11000) throw e; // colisão de lugar — tenta de novo
+    }
+  }
+  return null;
+}
+
+async function seatingView(tournamentId) {
+  const t = await Tournament.findById(tournamentId);
+  if (!t) return null;
+  const seatsPerTable = t.seats_per_table || 9;
+  const docs = await Seat.find({ tournament_id: tournamentId }).populate('player_id', 'name');
+  const tablesRaw = seating.buildTables(docs, seatsPerTable);
+  const nameById = new Map(docs.map((d) => [String(d.player_id?._id || d.player_id), d.player_id?.name]));
+
+  const tables = tablesRaw.map((tb) => ({
+    number: tb.number,
+    seats: Array.from({ length: seatsPerTable }, (_, i) => {
+      const p = tb.players.find((x) => x.seat_number === i + 1);
+      return { seat: i + 1, player_id: p?.player_id || null, player_name: p ? nameById.get(p.player_id) : null };
+    }),
+    count: tb.players.length,
+  }));
+
+  return {
+    seats_per_table: seatsPerTable,
+    total_seated: docs.length,
+    tables,
+    balancing: seating.suggestBalance(tablesRaw, seatsPerTable),
+    breakable: seating.breakableTables(tablesRaw, seatsPerTable),
+  };
+}
 
 const CLOCK_ACTIONS = ['start', 'pause', 'resume', 'stop', 'next', 'prev', 'goto', 'adjust'];
 
@@ -466,11 +511,12 @@ router.delete('/tournaments/:id', verifyToken, requirePageAccess('torneios'), as
       }
     }
 
-    // Cascata: entradas e eliminações somem, chip races ficam arquivadas
+    // Cascata: entradas, eliminações e lugares somem; chip races ficam arquivadas
     const [entriesRes, racesRes] = await Promise.all([
       TournamentEntry.deleteMany({ tournament_id: tournament._id }),
       ChipRace.updateMany({ tournament_id: tournament._id }, { $set: { status: 'cancelled' } }),
       Elimination.deleteMany({ tournament_id: tournament._id }),
+      Seat.deleteMany({ tournament_id: tournament._id }),
     ]);
 
     await tournament.softDelete();
@@ -606,6 +652,161 @@ router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('torneios')
   }
 });
 
+// ─── Mesas / Seating (P4) ────────────────────────────────────────────────────
+router.get('/tournaments/:id/seating', verifyToken, async (req, res) => {
+  try {
+    const view = await seatingView(req.params.id);
+    if (!view) return res.status(404).json({ error: 'Torneio não encontrado.' });
+    res.json(view);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Senta todos os jogadores ativos que ainda não têm lugar
+router.post('/tournaments/:id/seating/draw', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const t = await Tournament.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Torneio não encontrado.' });
+
+    const [entries, elims, seats] = await Promise.all([
+      TournamentEntry.find({ tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] }, player_id: { $ne: null } }),
+      Elimination.find({ tournament_id: t._id }),
+      Seat.find({ tournament_id: t._id }),
+    ]);
+    const eliminated = new Set(elims.map((e) => String(e.player_id)));
+    const seated = new Set(seats.map((s) => String(s.player_id)));
+    const toSeat = [...new Set(entries.map((e) => String(e.player_id)))]
+      .filter((id) => !eliminated.has(id) && !seated.has(id));
+
+    for (const id of seating.shuffle(toSeat)) await seatNewPlayer(t, id);
+    await logActivity('Sorteio de Lugares', 'tournament', `${t.name} | ${toSeat.length} jogador(es)`, req.user);
+    res.json(await seatingView(t._id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/tournaments/:id/seating/move', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const { player_id, to_table, to_seat } = req.body || {};
+    if (!player_id || !to_table || !to_seat) return res.status(400).json({ error: 'Informe jogador, mesa e lugar.' });
+    const occupied = await Seat.findOne({ tournament_id: req.params.id, table_number: to_table, seat_number: to_seat });
+    if (occupied && String(occupied.player_id) !== String(player_id)) {
+      return res.status(400).json({ error: 'Lugar ocupado.' });
+    }
+    await Seat.findOneAndUpdate(
+      { tournament_id: req.params.id, player_id },
+      { table_number: to_table, seat_number: to_seat },
+      { upsert: true }
+    );
+    await logActivity('Jogador Movido de Mesa', 'tournament', `Mesa ${to_table} lugar ${to_seat}`, req.user);
+    res.json(await seatingView(req.params.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/tournaments/:id/seating/break-table', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const t = await Tournament.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Torneio não encontrado.' });
+    const tableNumber = Number(req.body?.table_number);
+    const seatsPerTable = t.seats_per_table || 9;
+
+    const docs = await Seat.find({ tournament_id: t._id });
+    const tables = seating.buildTables(docs, seatsPerTable);
+    if (!seating.breakableTables(tables, seatsPerTable).some((x) => x.table_number === tableNumber)) {
+      return res.status(400).json({ error: 'Essa mesa não pode ser quebrada agora (sem lugares suficientes nas outras).' });
+    }
+
+    // lugares livres nas OUTRAS mesas (mesa, lugar), embaralhados
+    const openSpots = seating.shuffle(
+      tables.filter((tb) => tb.number !== tableNumber && tb.players.length > 0)
+        .flatMap((tb) => tb.free.map((seat) => ({ table_number: tb.number, seat_number: seat })))
+    );
+    const movers = seating.shuffle(docs.filter((s) => s.table_number === tableNumber));
+
+    await Seat.deleteMany({ tournament_id: t._id, table_number: tableNumber });
+    await Seat.insertMany(movers.map((m, i) => ({
+      tournament_id: t._id, player_id: m.player_id,
+      table_number: openSpots[i].table_number, seat_number: openSpots[i].seat_number,
+    })));
+    await logActivity('Mesa Quebrada', 'tournament', `${t.name} | mesa ${tableNumber}`, req.user);
+    res.json(await seatingView(t._id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/tournaments/:id/seating/redraw', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const t = await Tournament.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Torneio não encontrado.' });
+    const seatsPerTable = t.seats_per_table || 9;
+
+    const [entries, elims] = await Promise.all([
+      TournamentEntry.find({ tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] }, player_id: { $ne: null } }),
+      Elimination.find({ tournament_id: t._id }),
+    ]);
+    const eliminated = new Set(elims.map((e) => String(e.player_id)));
+    const active = [...new Set(entries.map((e) => String(e.player_id)))].filter((id) => !eliminated.has(id));
+
+    const tablesCount = req.body?.tables ? Number(req.body.tables) : null;
+    const assignments = seating.redraw(active, tablesCount, seatsPerTable);
+
+    await Seat.deleteMany({ tournament_id: t._id });
+    await Seat.insertMany(assignments.map((a) => ({ tournament_id: t._id, ...a })));
+    await logActivity('Redistribuição de Mesas', 'tournament', `${t.name} | ${active.length} jogadores`, req.user);
+    res.json(await seatingView(t._id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Templates de estrutura de blinds (P4) ───────────────────────────────────
+router.get('/blind-templates', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    res.json(await BlindStructureTemplate.find().sort({ name: 1 }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/blind-templates', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const data = pick(req.body, ['name', 'rows', 'notes']);
+    if (!data.name || !Array.isArray(data.rows) || data.rows.length === 0) {
+      return res.status(400).json({ error: 'Nome e ao menos uma linha são obrigatórios.' });
+    }
+    res.status(201).json(await BlindStructureTemplate.create(data));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/blind-templates/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const data = pick(req.body, ['name', 'rows', 'notes']);
+    const tpl = await BlindStructureTemplate.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true });
+    if (!tpl) return res.status(404).json({ error: 'Template não encontrado.' });
+    res.json(tpl);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/blind-templates/:id', verifyToken, requirePageAccess('torneios'), async (req, res) => {
+  try {
+    const tpl = await BlindStructureTemplate.findById(req.params.id);
+    if (!tpl) return res.status(404).json({ error: 'Template não encontrado.' });
+    await tpl.softDelete();
+    res.json({ message: 'Template removido' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // ─── Modelos de Stack ────────────────────────────────────────────────────────
 const STACK_FIELDS = ['name', 'composition', 'total_value', 'notes'];
 
@@ -698,6 +899,10 @@ router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('torneios
     if (type === 're-entry' && player_id) {
       await Elimination.deleteMany({ tournament_id: tournament._id, player_id });
     }
+    // Sorteio de lugar (P4) — buy-in e re-entry ganham um assento
+    if (['buy-in', 're-entry'].includes(type) && player_id && tournament.status !== 'finalized') {
+      await seatNewPlayer(tournament, player_id);
+    }
 
     await logActivity('Entrada Registrada', 'tournament', `${tournament.name} | ${type}${player_name ? ` | ${player_name}` : ''}`, req.user);
     const populated = await entry.populate('player_id', 'name document');
@@ -714,6 +919,13 @@ router.delete('/tournaments/:tid/entries/:eid', verifyToken, requirePageAccess('
     await entry.deleteOne();
     if (entry.type === 'buy-in') {
       await Tournament.findByIdAndUpdate(req.params.tid, { $inc: { actual_players: -1 } });
+    }
+    // se o jogador não tem mais nenhuma entrada ativa, libera o lugar
+    if (entry.player_id && entry.type !== 'add-on') {
+      const stillIn = await TournamentEntry.exists({
+        tournament_id: req.params.tid, player_id: entry.player_id, type: { $in: ['buy-in', 're-entry'] },
+      });
+      if (!stillIn) await Seat.deleteOne({ tournament_id: req.params.tid, player_id: entry.player_id });
     }
     await logActivity('Entrada Removida', 'tournament', `ID: ${req.params.eid}`, req.user);
     res.json({ message: 'Entrada removida' });
@@ -931,11 +1143,13 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('tor
       tournament_id: t._id, player_id, position,
       eliminated_by: eliminated_by || null, bounty_awarded: bountyAwarded,
     });
+    await Seat.deleteOne({ tournament_id: t._id, player_id }); // libera o lugar
 
     // Sobrou 1 → esse é o campeão; finaliza.
     if (remaining - 1 === 1) {
       const winnerId = [...enteredIds].find((id) => !eliminatedIds.has(id) && id !== String(player_id));
       if (winnerId) await Elimination.create({ tournament_id: t._id, player_id: winnerId, position: 1 });
+      await Seat.deleteMany({ tournament_id: t._id }); // torneio acabou
 
       const finance = await buildFinance(t._id);
       // grava prize_awarded em cada eliminação premiada
@@ -969,6 +1183,9 @@ router.delete('/tournaments/:tid/eliminations/:eid', verifyToken, requirePageAcc
     await elim.deleteOne();
     // desfazer a finalização se for o caso
     await Tournament.findByIdAndUpdate(req.params.tid, { status: 'running', finalized_at: null });
+    // o jogador volta ao jogo → ganha um lugar de volta
+    const t = await Tournament.findById(req.params.tid);
+    if (t) await seatNewPlayer(t, elim.player_id);
     await logActivity('Eliminação Desfeita', 'tournament', `ID: ${req.params.eid}`, req.user);
     res.json(await buildFinance(req.params.tid));
   } catch (err) {

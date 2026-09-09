@@ -212,6 +212,9 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 | GET | `/tournaments/:id/results` — classificação final (colocação, prêmio, bounty) |
 | POST | `/tournaments/:id/eliminations` — `{ player_id, eliminated_by? }` — auto-finaliza quando sobra 1 |
 | DELETE | `/tournaments/:tid/eliminations/:eid` — desfaz |
+| GET | `/tournaments/:id/seating` — mapa de mesas + sugestão de balanceamento |
+| POST | `/tournaments/:id/seating/draw` · `/move` · `/break-table` · `/redraw` |
+| GET · POST · PUT · DELETE | `/blind-templates[/:id]` — estruturas de blind reutilizáveis |
 
 ### Jogadores &amp; Premiação — *torneios*
 | Método | Rota |
@@ -417,10 +420,27 @@ automaticamente e mostra um aviso — basta logar de novo.
   botão "Conferir" nos fichários.
 - +9 testes; verificado ponta a ponta.
 
-## ⚠️ Ainda em aberto (roadmap P4–P6)
+## ✅ Fase P4 — Mesas, seating e templates de blind — concluída
 
-- **P4 — Mesas/seating** + templates de blind reutilizáveis
-- **P5 — segurança avançada / PWA offline** · **P6 — incrementais**
+- **`Seat`** (coleção nova, um doc por lugar ocupado). `Tournament += seats_per_table` (9).
+- **Sorteio digital**: buy-in / re-entry sorteiam mesa + lugar automaticamente
+  (equilibrando ao sentar); eliminação libera o lugar; abre nova mesa quando as
+  existentes lotam.
+- `lib/seating.js` (puro): `pickSeatForNewPlayer`, `suggestBalance` (diferença de 2+ →
+  move o próximo da mesa maior pra menor), `breakableTables` (quebra a menor quando cabe
+  em uma mesa a menos), `redraw`.
+- Endpoints `/seating/draw|move|break-table|redraw`. Quebra de mesa realoca nos lugares
+  livres exatos das outras.
+- **`BlindStructureTemplate`**: salvar a estrutura atual como template e aplicar em outro
+  torneio (`BlindTemplatesModal`).
+- Frontend: aba **"Mesas"** no torneio (grade de mesas, banner de balanceamento com
+  "aplicar", quebrar mesa, redistribuir), campo "lugares por mesa" no cadastro.
+- +10 testes; verificado ponta a ponta.
+
+## ⚠️ Ainda em aberto (roadmap P5–P6)
+
+- **P5 — segurança avançada / observabilidade / PWA offline**
+- **P6 — incrementais** (chat, relatórios ricos, a11y, i18n, timezone, concorrência)
 
 Ver o [roadmap completo](https://claude.ai/code/artifact/c98c1207-a6ec-4634-8267-1c81b25c5ac5).
 

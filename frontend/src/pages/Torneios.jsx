@@ -13,6 +13,8 @@ import CustomSelect from '../components/CustomSelect';
 import TournamentClock from '../components/TournamentClock';
 import TournamentFinance from '../components/TournamentFinance';
 import PlayerSelect from '../components/PlayerSelect';
+import SeatingMap from '../components/SeatingMap';
+import BlindTemplatesModal from '../components/BlindTemplatesModal';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -47,6 +49,7 @@ export default function Torneios() {
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'logistica');
+  const [blindTplOpen, setBlindTplOpen] = useState(false);
 
   useEffect(() => {
     const tournamentId = searchParams.get('id');
@@ -61,6 +64,7 @@ export default function Torneios() {
     date: new Date().toISOString().split('T')[0],
     start_time: '20:00',
     estimated_players: 50,
+    seats_per_table: 9,
     stack_model_id: '',
     notes: ''
   });
@@ -387,6 +391,12 @@ export default function Torneios() {
                       <Monitor size={13} /> Salão
                     </button>
                     <button
+                      onClick={() => setActiveTab('mesas')}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'mesas' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
+                    >
+                      <Users size={13} /> Mesas
+                    </button>
+                    <button
                       onClick={() => setActiveTab('financeiro')}
                       className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'financeiro' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
                     >
@@ -458,6 +468,9 @@ export default function Torneios() {
                     <div className="bg-white dark:bg-[#141414] rounded-3xl p-6 border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-bold flex items-center gap-2"><History className="text-blue-500" /> Estrutura de Blinds</h3>
+                        <button onClick={() => setBlindTplOpen(true)} className="text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-genesis-red">
+                          Templates
+                        </button>
                       </div>
                       {/* Add-row buttons */}
                       <div className="flex flex-wrap gap-2 mb-3">
@@ -664,6 +677,13 @@ export default function Torneios() {
                     onTournamentChange={(t) => { setSelectedTournament((prev) => ({ ...prev, ...t })); fetchTournaments(); }}
                   />
                 </div>
+              ) : activeTab === 'mesas' ? (
+                <div className="p-4 md:p-8">
+                  <SeatingMap
+                    tournamentId={selectedTournament._id}
+                    canEdit={!['finished', 'finalized'].includes(selectedTournament.status)}
+                  />
+                </div>
               ) : (
                 <div className="p-4 md:p-8 space-y-8">
                   {(selectedTournament.status === 'finished' || selectedTournament.status === 'finalized') && (
@@ -846,6 +866,15 @@ export default function Torneios() {
         )}
       </AnimatePresence>
 
+      {selectedTournament && (
+        <BlindTemplatesModal
+          open={blindTplOpen}
+          onClose={() => setBlindTplOpen(false)}
+          currentRows={selectedTournament.blind_structure || []}
+          onApply={(rows) => handleUpdateTournament(selectedTournament._id, { blind_structure: rows })}
+        />
+      )}
+
       {/* Create Modal */}
       <AnimatePresence>
         {isCreateModalOpen && (
@@ -884,14 +913,18 @@ export default function Torneios() {
                     <input required type="number" value={form.estimated_players} onChange={e => setForm({ ...form, estimated_players: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold mb-1">Modelo de Stack</label>
-                    <CustomSelect
-                      placeholder="Selecione um modelo de stack"
-                      options={stackModels.map(s => ({ label: `${s.name} — ${s.total_value.toLocaleString()} fichas`, value: s._id }))}
-                      value={form.stack_model_id}
-                      onChange={val => setForm({ ...form, stack_model_id: val })}
-                    />
+                    <label className="block text-sm font-bold mb-1">Lugares por mesa</label>
+                    <input required type="number" min="2" max="10" value={form.seats_per_table} onChange={e => setForm({ ...form, seats_per_table: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-1">Modelo de Stack</label>
+                  <CustomSelect
+                    placeholder="Selecione um modelo de stack"
+                    options={stackModels.map(s => ({ label: `${s.name} — ${s.total_value.toLocaleString()} fichas`, value: s._id }))}
+                    value={form.stack_model_id}
+                    onChange={val => setForm({ ...form, stack_model_id: val })}
+                  />
                 </div>
                 <button type="submit" className="w-full py-4 bg-genesis-red text-white font-bold rounded-xl shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all">Criar Evento</button>
               </form>

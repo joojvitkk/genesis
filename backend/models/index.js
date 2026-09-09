@@ -12,4 +12,6 @@ module.exports = {
   PayoutTemplate: require('./PayoutTemplate'),
   Elimination: require('./Elimination'),
   InventoryLedger: require('./InventoryLedger'),
+  Seat: require('./Seat'),
+  BlindStructureTemplate: require('./BlindStructureTemplate'),
 };
