@@ -14,7 +14,9 @@ import { useAlert } from './contexts/AlertContext';
 import Dashboard from './pages/Dashboard';
 import Estoque from './pages/Estoque';
 import Ficharios from './pages/Ficharios';
+import ModelosFicharios from './pages/ModelosFicharios';
 import Torneios from './pages/Torneios';
+import Eventos from './pages/Eventos';
 import ChipRace from './pages/ChipRace';
 import Chat from './pages/Chat';
 import ModelosStack from './pages/ModelosStack';
@@ -22,11 +24,12 @@ import Relatorios from './pages/Relatorios';
 import Salao from './pages/Salao';
 import Auditoria from './pages/Auditoria';
 import Usuarios from './pages/Usuarios';
-import Jogadores from './pages/Jogadores';
+import Ocorrencias from './pages/Ocorrencias';
 import LivroEstoque from './pages/LivroEstoque';
 import Telao from './pages/Telao';
 import ChangePassword from './pages/ChangePassword';
 import { flushOfflineQueue } from './lib/offlineQueue';
+import { occurrenceAlertText } from './lib/occurrenceAlert';
 
 // Re-exports para compatibilidade com imports antigos
 export { BACKEND_URL } from './config';
@@ -103,8 +106,19 @@ function App() {
       }
     };
 
+    // Ocorrência VERMELHA (ex.: ficha de alto valor perdida): alerta urgente para todos (spec §11)
+    const handleOccurrence = (o) => {
+      const text = occurrenceAlertText(o);
+      if (!text) return;
+      showAlert(`OCORRÊNCIA VERMELHA: ${text}`, 'error');
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('GENESIS — OCORRÊNCIA VERMELHA', { body: text, icon: '/pwa-192x192.png' });
+      }
+    };
+
     socket.on('urgentNotification', handleUrgent);
-    return () => socket.off('urgentNotification', handleUrgent);
+    socket.on('occurrenceOpened', handleOccurrence);
+    return () => { socket.off('urgentNotification', handleUrgent); socket.off('occurrenceOpened', handleOccurrence); };
   }, [showAlert]);
 
   const handleLogin = (token, user) => {
@@ -216,12 +230,14 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
               <Route path="/" element={<Navigate to={homeRoute(role)} replace />} />
               {Object.entries({
                 '/salao': <Salao />,
+                '/eventos': <Eventos />,
                 '/torneios': <Torneios />,
-                '/jogadores': <Jogadores />,
                 '/chip-race': <ChipRace />,
                 '/chat': <Chat />,
                 '/estoque': <Estoque />,
                 '/livro-estoque': <LivroEstoque />,
+                '/ocorrencias': <Ocorrencias />,
+                '/modelos-ficharios': <ModelosFicharios />,
                 '/ficharios': <Ficharios />,
                 '/modelos-stack': <ModelosStack />,
                 '/dashboard': <Dashboard />,

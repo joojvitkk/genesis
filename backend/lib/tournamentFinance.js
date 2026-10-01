@@ -46,7 +46,7 @@ function summarize(entries = [], eliminations = []) {
     rake_collected: rakeCollected,
     prize_pool: sum('prize_contribution'),
     bounty_pool: sum('bounty_contribution'),
-    bounty_paid: eliminations.reduce((s, el) => s + (el.bounty_awarded || 0), 0),
+    bounty_paid: 0, // sem eliminador não há bounty a pagar por eliminação
   };
 }
 

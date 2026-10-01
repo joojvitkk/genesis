@@ -118,6 +118,7 @@ function clockPayload(t, now = Date.now()) {
   const cur = t.current_level || 0;
   const players = t.actual_players || 0;
   const stack = t.starting_stack || 0;
+  const chipsValue = t.chips_value_in_play != null ? t.chips_value_in_play : players * stack;
   return {
     tournament_id: String(t._id),
     name: t.name,
@@ -129,8 +130,10 @@ function clockPayload(t, now = Date.now()) {
     server_time: now,
     actual_players: players,
     starting_stack: stack,
-    total_chips_in_play: players * stack,
-    avg_stack: players > 0 ? Math.round((players * stack) / players) : stack,
+    // valor nominal das fichas em jogo: DERIVADO no servidor (entradas × modelo de stack por ação, com reentradas e
+    // add-ons — lib/tournamentChips). Torneios ainda não recalculados caem em jogadores × stack inicial.
+    total_chips_in_play: chipsValue,
+    avg_stack: players > 0 ? Math.round(chipsValue / players) : stack,
   };
 }
 

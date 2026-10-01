@@ -11,6 +11,18 @@ services:
       - genesis_data:/data/db
     networks:
       - genesis-net
+    # Replica set de 1 nó: necessário para TRANSAÇÕES (movimentações de estoque — G2).
+    # O healthcheck inicia o replica set na primeira vez e depois só confere o status.
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'genesis-db:27017'}]}).ok }"
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
 
   genesis-backend:
     build: ./backend
@@ -23,10 +35,11 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
-      - MONGO_URI=mongodb://genesis-db:27017/genesis
+      - MONGO_URI=mongodb://genesis-db:27017/genesis?replicaSet=rs0
       - JWT_SECRET=super_secret_genesis_key_2026
     depends_on:
-      - genesis-db
+      genesis-db:
+        condition: service_healthy
     networks:
       - genesis-net
     healthcheck:

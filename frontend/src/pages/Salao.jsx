@@ -127,7 +127,7 @@ function TournamentCard({ tournament, onOpen }) {
 
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-gray-50 dark:bg-zinc-900/50 p-4 rounded-3xl border border-gray-100 dark:border-zinc-800">
-            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Jogadores</p>
+            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Entradas</p>
             <div className="flex items-center gap-2">
               <Users size={16} className="text-genesis-red" />
               <span className="text-lg font-black text-gray-900 dark:text-white">{tournament.actual_players || 0}</span>

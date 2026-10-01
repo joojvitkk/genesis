@@ -27,6 +27,8 @@ async function seedAdmin() {
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: CORS_ORIGIN, methods: ['GET', 'POST'] } });
 app.set('io', io);
+// G10: cada lote de movimentos gravado avisa o painel (fino: fichas/fichários/torneios afetados)
+require('./lib/movements').setNotifier((payload) => io.emit('movementsPosted', payload));
 
 // ─── WebSockets ──────────────────────────────────────────────────────────────
 io.use((socket, next) => {
@@ -160,6 +162,8 @@ function startClockRunner() {
 async function start() {
   await mongoose.connect(MONGO_URI);
   logger.info('connected to MongoDB');
+  // avisa (uma vez) se o Mongo não é replica set: movimentações de estoque perdem a transação
+  require('./lib/movements').supportsTransactions().catch(() => {});
   try {
     await seedAdmin();
   } catch (e) {

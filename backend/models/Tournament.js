@@ -3,6 +3,8 @@ const softDelete = require('../lib/softDelete');
 const { computeStartsAt, DEFAULT_TZ } = require('../lib/datetime');
 
 const TournamentSchema = new mongoose.Schema({
+  event_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', default: null }, // Evento → Torneio → Sessões (G4)
+  number: { type: Number, default: null, min: 1 },                                  // nº do torneio no evento (#02)
   name: { type: String, required: true },
   date: { type: Date, required: true },
   start_time: { type: String },
@@ -11,8 +13,18 @@ const TournamentSchema = new mongoose.Schema({
   status: { type: String, enum: ['scheduled', 'running', 'paused', 'finished', 'finalized'], default: 'scheduled' },
   estimated_players: { type: Number, default: 0 },
   actual_players: { type: Number, default: 0 },
-  starting_stack: { type: Number, default: 0 },
+  entry_seq: { type: Number, default: 0 }, // contador das entradas (numera "Entrada #n"; nunca volta atrás, nem ao cancelar)
+  starting_stack: { type: Number, default: 0 }, // DERIVADO: valor nominal do stack do buy-in padrão
+  // Modelo de stack PADRÃO (vale para toda ação sem mapeamento próprio) e mapeamento por AÇÃO
+  // (`action` = chave da coluna do modelo: buy_in, optional_buy_in, re_entry, add_on…).
   stack_model_id: { type: mongoose.Schema.Types.ObjectId, ref: 'StackModel', default: null },
+  stack_models: [{
+    _id: false,
+    action: { type: String, required: true },
+    stack_model_id: { type: mongoose.Schema.Types.ObjectId, ref: 'StackModel', required: true },
+  }],
+  // Valor nominal das fichas em jogo — DERIVADO (lib/tournamentChips.refreshTournamentChips), null = não calculado.
+  chips_value_in_play: { type: Number, default: null },
   blind_structure: [{
     row_type: { type: String, enum: ['level', 'break', 'end_registration', 'end_day'], default: 'level' },
     level: { type: Number },
@@ -21,11 +33,6 @@ const TournamentSchema = new mongoose.Schema({
     ante: { type: Number },
     duration: { type: Number },   // minutes (for levels and breaks)
     label: { type: String }       // custom label for special rows
-  }],
-  allocated_cases: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ChipCase' }],
-  stack_composition: [{
-    chip_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ChipModel' },
-    per_player: { type: Number, default: 0 }
   }],
   current_level: { type: Number, default: 0 },
   notes: { type: String },
@@ -37,7 +44,7 @@ const TournamentSchema = new mongoose.Schema({
   rake: { type: Number, default: 0 },          // valor fixo de rake por entrada
   addon_value: { type: Number, default: 0 },   // preço do add-on (0 = sem add-on)
   addon_chips: { type: Number, default: 0 },   // fichas que o add-on concede
-  bounty_value: { type: Number, default: 0 },  // parte do buy-in que vira bounty por KO (0 = sem bounty)
+  bounty_value: { type: Number, default: 0 },  // parte do buy-in reservada como bounty (financeiro do torneio)
   payout_template_id: { type: mongoose.Schema.Types.ObjectId, ref: 'PayoutTemplate', default: null },
   finalized_at: { type: Date, default: null },
 

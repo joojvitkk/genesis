@@ -11,14 +11,20 @@ auditoria de operações.
 | Módulo | Descrição |
 | --- | --- |
 | **Dashboard** | Métricas em tempo real: torneios ativos, fichas em estoque, fichários livres, chip races do dia + feed de auditoria. |
+| **Eventos e Sessões** | **Evento → Torneio → Sessões/fases**: um torneio (ex.: *#02 Warm Up*) tem várias sessões (Dia 1A, 1B, 1C, Dia Final) e continua sendo **um só**. Entradas e mesas são por sessão; fichários e modelos de stack são do torneio. O torneio só fecha com todas as sessões encerradas. |
 | **Torneios** | Criação, estrutura de blinds, **relógio server-side + tela de projeção**, alocação de fichários, tracking de fichas, entradas (buy-in / re-entry / add-on). |
-| **Financeiro do torneio** | Buy-in, rake fixo, bounty, add-on → prize pool calculado. Templates de premiação em % com faixas por nº de inscritos. Eliminações → classificação final com prêmio e bounty por jogador. |
-| **Jogadores** | Cadastro (nome, documento, contato) + histórico de participações e colocações. |
-| **Estoque** | Modelos de ficha; saldos (total / alocado / disponível) **derivados do livro-razão**. Entradas, saídas, quebra/perda. |
-| **Livro-razão de fichas** | Todo movimento de estoque em ordem (`/livro-estoque`) — fonte da verdade dos saldos. |
-| **Fichários** | Kits de fichas; alocar a um torneio **reserva** as fichas (voltam ao finalizar). Conferência física por maleta gera lançamento de ajuste. |
-| **Modelos de Stack** | Composições reutilizáveis de fichas por jogador. |
-| **Chip Race / Color Up** | Calculadora e histórico de trocas de fichas de menor valor. |
+| **Financeiro do torneio** | Buy-in, rake fixo, bounty, add-on → prize pool calculado. Templates de premiação em % com faixas por nº de inscritos. Eliminações **por entrada** ("Entrada #n") → classificação final com prêmio. |
+| **Estoque** | Saldos **por fichário × ficha, derivados das movimentações** (montagem, saída, perda, ajuste, estorno). O saldo nunca fica negativo. |
+| **Livro-razão de fichas** | `Movement`: imutável, com origem → destino, fichário, motivo e usuário (`/livro-estoque`). Erro se corrige por **estorno**, nunca por edição/exclusão. É a fonte da verdade dos saldos. |
+| **Alocação de fichas** | **Parcial**, por denominação e quantidade: o mesmo fichário atende 2 torneios (ex.: ≥ 5.000 no A, ≤ 1.000 no B) se a soma alocada de cada ficha não passar do saldo físico. A regra `quantidade ≤ livre` é do servidor (409 com o excesso e quem está segurando). A reserva vale **desde que aloca**, não só quando o torneio inicia. |
+| **Fichários** | Kits de fichas; alocação **por torneio** (veja acima). Conferência física compara o contado com o esperado (derivado): falta vira perda, sobra vira `FOUND` e cada diferença abre uma **ocorrência** com semáforo — nada é sobrescrito. |
+| **Fichas → Modelos de Fichário → Fichários** | Ficha é cadastro mestre (sem quantidade); o **Modelo de Fichário** define quanto de cada ficha compõe um fichário; o **Fichário físico** é a unidade real, criada a partir de um modelo. Cadastros só do admin. |
+| **Modelos de Stack** | Grade **ficha × ação** (buy-in padrão, opcional, reentrada, add-on…): quantas fichas UMA entrada recebe em cada ação. Informe só a **quantidade de ações**; o servidor calcula as fichas por denominação (e o valor). |
+| **Material no torneio** | **Envio** (fichário → em jogo, por ação: o stack calcula as fichas; só do que está alocado), **retorno** (em jogo → fichário) e o resumo *esperado × enviado × em jogo × pendente*. Tudo é movimentação imutável. |
+| **Chip Race / Color Up** | Lançamento por denominação do que **saiu** e do que **entrou** de jogo; o servidor calcula valor retirado, valor colocado e a **quebra matemática** (legítima — nunca vira perda física). Movimenta as fichas num lote e só se corrige por **estorno**. |
+| **Descarte de stack** | Um stack é abandonado: as fichas informadas (não precisam ser a composição original) saem do **jogo** e voltam ao fichário na hora; reduz o esperado em jogo. Valor total calculado no servidor; imutável (só estorno, admin); atualiza o painel em tempo real por socket. |
+| **Ocorrências e semáforo** | Divergência física (falta/sobra) vira **ocorrência**: verde/amarelo/vermelho pela faixa do valor nominal (configurável), justificativa, recuperação parcial ou total e histórico completo — nunca é apagada. Ocorrência vermelha dispara alerta urgente para todos. A quebra matemática do Chip Race **não** gera ocorrência. |
+| **Dashboard e relatórios** | Respondem "onde estão as fichas / o que acontece agora" **só pelos movimentos** (nenhum cache legado): estoque por denominação, matriz fichário × denominação, em jogo por torneio/sessão, fluxos, ocorrências por semáforo, conflitos de alocação e linha do tempo. O painel atualiza **por bloco** em tempo real (`movementsPosted`, `occurrenceOpened`…). Relatórios e comparativo trazem descartes, perdas, recuperações e a quebra do chip race; CSV de logs e de fichas. |
 | **Chat** | Canais `geral`, `material`, `salao` via WebSocket + alertas urgentes globais. |
 | **Relatórios / Auditoria** | Gráficos (Recharts) e log paginado de todas as ações do sistema. |
 | **Usuários** | CRUD de membros e papéis (somente admin). |
@@ -50,7 +56,10 @@ docker compose up --build
 
 ### Local (sem Docker)
 
-Pré-requisitos: Node.js 22+ e um MongoDB acessível.
+Pré-requisitos: Node.js 22+ e um MongoDB **replica set** (as movimentações de estoque usam transações;
+o `docker-compose.yml` já sobe assim). Contra o Mongo do compose, use `directConnection=true` na
+`MONGO_URI` (veja `backend/.env.example`). Em MongoDB *standalone* o backend funciona, mas as
+movimentações caem num mutex em memória (seguro só com 1 processo) e ele avisa no boot — **não use em produção**.
 
 ```bash
 # backend
@@ -101,6 +110,7 @@ cd frontend && npm run lint && npm test && npm run build
 | `npm run migrate:status` | Lista o estado das migrações. |
 | `./scripts/backup.sh [dir]` | `mongodump` comprimido + retenção de 14 dias. Ideal em cron. |
 | `./scripts/restore.sh arquivo.archive.gz` | Restaura um backup (`--drop`, pede confirmação). |
+| `node scripts/audit-legacy-chips.js [--uri …] [--json f] [--strict]` | Auditoria **somente-leitura** do estoque legado (fichas duplicadas, dupla contabilização, reservas órfãs). Ver `ROADMAP_NUCLEO_FICHAS.md` (G0). |
 
 ---
 
@@ -137,23 +147,31 @@ conexão com o banco, se ainda não existir. **Troque a senha após o primeiro a
 
 ## 👥 Papéis e permissões
 
-Definido em `backend/middlewares/authMiddleware.js` (`accessControl`).
-
-A matriz vive em **dois lugares em sincronia**: `backend/middlewares/authMiddleware.js`
-(`accessControl`) e `frontend/src/config.js` (`PERMISSIONS`). Menu, rotas e API usam a
-mesma fonte.
+Matriz **ÁREA × NÍVEL** (`view` < `operate` < `manage`), definida em **dois lugares em sincronia**:
+`backend/middlewares/authMiddleware.js` (`PERMISSIONS`) e `frontend/src/config.js` (`PERMISSIONS`) — o teste
+`backend/test/permissions.test.js` **compara os dois**. Menu, rotas, botões e API usam a mesma fonte.
 
 | Área | admin | material | salao |
 | --- | :-: | :-: | :-: |
-| dashboard | ✅ | ✅ | ✅ |
-| estoque | ✅ | ✅ | ✅ |
-| ficharios | ✅ | ✅ | — |
-| torneios | ✅ | ✅ | ✅ |
-| chip_race | ✅ | ✅ | ✅ |
-| chat | ✅ | ✅ | ✅ |
-| relatorios | ✅ | ✅ | — |
-| usuarios | ✅ | — | — |
-| modelos_stack | ✅ | ✅ | ✅ |
+| dashboard | manage | view | view |
+| estoque (fichas, movimentos, ocorrências) | manage | **operate** | view |
+| ficharios (modelos e fichários) | manage | **operate** | — |
+| torneios (estrutura + material: envio, retorno, descarte, conferência) | manage | **operate** | view |
+| mesas (entradas, eliminações, mesas, relógio) | manage | operate | **operate** |
+| chip_race | manage | **operate** | view |
+| modelos_stack | manage | view | view |
+| relatorios (inclui histórico de saldo) | manage | view | — |
+| chat | manage | operate | operate |
+| usuarios | manage | — | — |
+
+- **view** consulta · **operate** lança/confere/justifica/registra · **manage** cadastra, estorna, exclui, configura.
+- **Material não cria** ficha, modelo, fichário, stack, evento, torneio, sessão, template nem usuário (403). Perda e conferência são operação;
+  montagem, saída, ajuste, estorno e encerramento de ocorrência são administrativos.
+- **Salão** (D3): só consulta o estoque e o torneio; opera **mesas** (entradas, eliminações, relógio) e o chat. Alterar a **estrutura** do torneio
+  (nome, financeiro, stack, blinds) é `manage`; `status`, `actual_players`, `estimated_players` e `notes` são operacionais.
+- **Escopo por torneio:** `User.allowed_tournament_ids` (vazio = todos; admin ignora). Quem tem a lista só enxerga/opera esses torneios
+  em `/tournaments/:tid/**`, na listagem, em `POST /conversions` e no histórico de saldo — a mudança vale **imediatamente**.
+- Nenhuma rota `DELETE` de movimentação existe; entradas e eliminações **não são apagadas** (cancelam-se com motivo).
 
 ---
 
@@ -180,26 +198,93 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 | PUT | `/users/:id` |
 | DELETE | `/users/:id` |
 
-### Estoque de fichas — *estoque*
+### Fichas (cadastro mestre) — *estoque* · escrita: *admin*
+A ficha só tem **valor NOMINAL, cor e ativa** — **jamais valor monetário**, **sem tipo** (não existe ficha KO) e sem nome de
+modelo e sem quantidade (`name`, `kind` e qualquer campo de quantidade/valor monetário → 400). Valor + cor são
+únicos entre as fichas ativas (409) e ficam fixos depois que a ficha é usada. Na tela de fichas a **cor é escolhida numa paleta
+no estilo Excel** (cores × tons + cores padrão) ou pelo botão **Personalizar cor** — ninguém digita hexadecimal.
+
 | Método | Rota |
 | --- | --- |
-| GET | `/chips` |
-| POST | `/chips` |
-| PUT | `/chips/:id` |
-| DELETE | `/chips/:id` |
-| POST | `/inventory/update` — `{ chip_id, quantity_change, note? }` (registra no livro-razão) |
-| POST | `/inventory/breakage` — `{ chip_id, quantity, note? }` — quebra/perda |
-| GET | `/inventory/ledger` — livro-razão paginado (`chip_id`, `type`) |
-| POST | `/cases/:id/count` — `{ counts: [{ chip_id, counted }] }` — conferência física |
+| GET | `/chips` — `?active=true\|false` |
+| POST | `/chips` — `{ value, color }` *(admin)* — `monetary_value` (ou qualquer campo de valor monetário/quantidade) → 400 |
+| PUT | `/chips/:id` — inclui `{ active: false }` para descontinuar *(admin)* |
+| DELETE | `/chips/:id` — **405**: fichas não são excluídas, são desativadas |
+
+### Movimentações e saldos — *estoque*
+Fonte da verdade do estoque. **Não existe `PUT`/`DELETE`**: erro se corrige por estorno + novo lançamento.
+Saldo de uma localização = Σ entradas − Σ saídas (nunca gravado como número). Origem/destino:
+`external` (fora do sistema), `binder` (dentro de um fichário) e `lost` (divergência do fichário).
+
+| Método | Rota |
+| --- | --- |
+| POST | `/movements` — `{ type, binder_id, chip_id, quantity }` ou `{ …, items: [{ chip_id, quantity }] }` (lote, tudo-ou-nada). Tipos: `ASSEMBLY` (entrada/montagem), `WITHDRAWAL` (saída), `ADJUSTMENT` (`direction: in\|out`) — só **admin**; `LOSS` (quebra/perda) — admin e material. `reason` **obrigatório** em todos (a montagem também). Saldo insuficiente → **409** com o saldo real. |
+| POST | `/movements/:id/reverse` — `{ reason, whole_batch? }` *(admin)*: grava o movimento inverso (`REVERSAL`) vinculado ao original, que permanece intacto. Estornar duas vezes → 409; estorno não é estornável. |
+| GET | `/movements` — filtros `binder_id`, `chip_id`, `type`, `user_id`, `batch_id`, `from`, `to`, `tournament_id`, `session_id`; cada linha traz `reversed_by` quando foi estornada |
+| GET | `/balances` — saldos derivados por fichário × ficha (`binder_id`, `chip_id`, `kind=lost` para divergências) + totais |
+| GET | `/audit/history` — `?binder_id=`, `?chip_id=` ou `?tournament_id=` (`binder_id` + `chip_id` filtra a ficha): cada movimento com o **efeito no saldo** e o saldo depois (`effects[]`), `reversed_by`, `balances` finais e paginação — reconstruído dos movimentos *(relatorios)* |
 | GET | `/inventory/logs` — *relatorios* (paginado, `search`, `type`) |
 
-### Fichários — *ficharios*
+### Modelos de Fichário — *ficharios* · escrita: *admin*
+Composição padrão `[{ chip_id, quantity }]` (fichas já cadastradas, sem repetir, quantidade inteira ≥ 1).
+A mesma ficha pode estar em vários modelos com quantidades diferentes. Editar um modelo **não** altera
+fichários já criados.
+
 | Método | Rota |
 | --- | --- |
-| GET | `/cases` |
-| POST | `/cases` |
-| PUT | `/cases/:id` |
-| DELETE | `/cases/:id` |
+| GET | `/binder-models` |
+| POST | `/binder-models` — `{ name, composition, notes? }` |
+| PUT | `/binder-models/:id` |
+| DELETE | `/binder-models/:id` — 409 se houver fichários usando o modelo |
+
+### Fichários físicos — *ficharios* · escrita: *admin*
+Unidade real, criada opcionalmente a partir de um modelo (`model_id`). O fichário **nasce vazio** e o
+conteúdo é **derivado das movimentações** (`chips` no corpo → 400); o estoque físico entra por montagem.
+O conteúdo (`chips`), as `allocations` e a situação (`allocated`/`available`) vêm **derivados na leitura** (movimentos + alocações abertas); nada disso é gravado no fichário.
+
+| Método | Rota |
+| --- | --- |
+| GET | `/binders` |
+| POST | `/binders` — `{ name, code?, model_id? }` |
+| PUT | `/binders/:id` |
+| DELETE | `/binders/:id` — 409 se ainda houver fichas dentro |
+| POST | `/binders/:id/assemble` — `{ from_model: true }` ou `{ items: [{ chip_id, quantity }] }` *(admin)*: lança `ASSEMBLY` |
+| POST | `/binders/:id/count` — `{ counts: [{ chip_id, counted }], reason? }` — conferência *(material também)*: compara com o saldo derivado; falta → `LOSS` (fichário → divergência), sobra → `FOUND`; cada diferença abre uma **ocorrência** (`occurrences[]` na resposta); `reason` só é obrigatório a partir do nível configurado do semáforo (padrão: vermelho) |
+
+### Eventos e sessões — *torneios* · criar/editar/excluir: *admin*
+Evento → Torneio (`event_id`, `number` único dentro do evento) → Sessões. `POST /tournaments` aceita `sessions: ['Dia 1A', …]`
+(só admin; sem isso nasce **"Dia Único"**). Sessão: `scheduled → running → finished`; operadores mudam o status, só o admin
+reabre uma encerrada. Excluir sessão: 409 se tiver entradas ou for a última.
+
+| Método | Rota |
+| --- | --- |
+| GET | `/events` (com nº de torneios) · `/events/:id` (torneios + sessões) |
+| POST · PUT · DELETE | `/events[/:id]` — excluir só sem torneios |
+| GET | `/tournaments/:id/sessions` — sessões com **contadores de ações** e valor das fichas em jogo de cada uma |
+| POST | `/tournaments/:id/sessions` — `{ name, starts_at? }` *(admin)* |
+| PUT | `/tournaments/:tid/sessions/:sid` — `{ status }` (operador) · `{ name, starts_at, notes }` (admin) |
+| DELETE | `/tournaments/:tid/sessions/:sid` *(admin)* |
+| GET | `/tournaments/:tid/sessions/:sid/chips-in-play` — fichas em jogo só daquela sessão (o do torneio é a soma) |
+
+`PUT /tournaments/:id { status: 'finished' }` → **409** com a lista de sessões pendentes; envie `finish_sessions: true` para encerrá-las junto.
+Financeiro, eliminações, relógio e blinds seguem no **torneio** (um único prize pool).
+
+### Alocações de fichas — leitura: qualquer autenticado · escrita: *admin*
+`livre(fichário, ficha) = saldo físico − Σ alocações abertas (planejadas + ativas) de todos os torneios`. Pedir mais que o livre → **409**
+com `details` (`requested`, `balance`, `allocated_elsewhere`, `free`, `excess`, `held_by`); nada é gravado. A checagem roda sob os
+mesmos bloqueios das movimentações (alocar e retirar ao mesmo tempo não estoura o saldo). **Retiradas** (`WITHDRAWAL`, `ADJUSTMENT`
+saída, estorno) não podem levar o fichário abaixo do alocado; uma **perda** apurada na conferência não é barrada e vira *falta*
+(`shortfall`) na alocação. Alocações não são apagadas: liberar = `status: released` (histórico).
+
+| Método | Rota |
+| --- | --- |
+| POST | `/tournaments/:id/allocations` — `{ binder_id, mode, note? }` com `mode`: `binder` (fichário inteiro) · `denominations` (`chip_ids` **ou** `min_value`/`max_value`) · `quantities` (`chips: [{ chip_id, quantity }]`). Uma alocação aberta por (torneio, fichário). |
+| PUT | `/allocations/:id` — `{ chips: [{ chip_id, quantity }] }` substitui a lista (a própria alocação não conta contra si) |
+| DELETE | `/allocations/:id` — **libera** (histórico) e devolve a capacidade |
+| GET | `/allocations` — `?tournament_id=`, `?binder_id=`, `?status=`, `?open=false\|all` (padrão: só abertas); traz saldo e `shortfall` por ficha |
+| GET | `/allocations/matrix?binder_id=` — por ficha: saldo, alocado a cada torneio e **livre** (negativo = falta) — *ficharios* |
+
+Não existe campo de alocação gravado no torneio nem no fichário: o estado vem das alocações abertas (`GET /binders`, `GET /inventory/by-chip`).
 
 ### Torneios — *torneios* (GET liberado a qualquer autenticado)
 | Método | Rota |
@@ -208,16 +293,20 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 | POST | `/tournaments` |
 | PUT | `/tournaments/:id` |
 | DELETE | `/tournaments/:id` |
-| GET | `/tournaments/:id/entries` · `/tournaments/:id/consolidated-chips` |
-| POST | `/tournaments/:id/entries` — `{ type: buy-in\|re-entry\|add-on, player_id?, stack_model_id? }` |
-| DELETE | `/tournaments/:tid/entries/:eid` |
+| GET | `/tournaments/:id/entries` |
+| GET | `/tournaments/:id/chips-in-play` — fichas em jogo **calculadas no servidor**: `counts` por ação, `rows` por denominação (`quantity`, `value`, `by_action`), `totals`, `uncovered` (ações sem composição). `/consolidated-chips` = formato antigo do mesmo cálculo |
+| POST | `/tournaments/:id/needs` — `{ counts: { buy_in: 100, re_entry: 10 } }` → necessidade de fichas (simulação; não grava nada) |
+| POST | `/tournaments/:id/entries` — `{ type: buy-in\|re-entry\|add-on, action?, quantity?, session_id? }`. Cada entrada recebe um **número** ("Entrada #n"; não há cadastro de jogadores). O **stack é derivado da ação** (buy-in→`buy_in`, re-entry→`re_entry`, add-on→`add_on`; um buy-in pode ser `optional_buy_in` ou outra coluna do modelo). `quantity` 2–500 registra várias ações de uma vez (sem jogador). `stack_model_id` é ignorado |
+| POST | `/tournaments/:tid/entries/:eid/cancel` — `{ reason }` *(mesas)*: **cancela** a entrada (fica registrada com quem/quando/por quê e sai dos cálculos). `DELETE` → 405 |
 | POST | `/tournaments/:id/clock` — `{ action, seconds? }` — relógio: `start` · `pause` · `resume` · `stop` · `next` · `prev` · `goto` · `adjust` |
-| GET | `/tournaments/:id/finance` — resumo financeiro + tabela de premiação + jogadores restantes |
-| GET | `/tournaments/:id/results` — classificação final (colocação, prêmio, bounty) |
-| POST | `/tournaments/:id/eliminations` — `{ player_id, eliminated_by? }` — auto-finaliza quando sobra 1 |
-| DELETE | `/tournaments/:tid/eliminations/:eid` — desfaz |
-| GET | `/tournaments/:id/seating` — mapa de mesas + sugestão de balanceamento |
-| POST | `/tournaments/:id/seating/draw` · `/move` · `/break-table` · `/redraw` |
+| GET | `/tournaments/:id/finance` — resumo financeiro + tabela de premiação + entradas restantes (`entries_in_play`) |
+| GET | `/tournaments/:id/results` — classificação final (colocação, entrada, prêmio) |
+| POST | `/tournaments/:id/eliminations` — `{ entry_id }` — elimina uma **entrada**; auto-finaliza quando sobra 1 |
+| POST | `/tournaments/:tid/eliminations/:eid/cancel` — `{ reason }`: cancela a eliminação (a entrada volta ao jogo). `DELETE` → 405 |
+| GET | `/tournaments/:id/seating` — mapa de mesas + sugestão de balanceamento **da sessão** (`?session_id=`) |
+| POST | `/tournaments/:id/seating/draw` · `/move` · `/break-table` · `/redraw` — `session_id` no corpo (cada sessão tem as suas mesas) |
+
+**Qual sessão?** Sem `session_id`: torneio com 1 sessão → ela; com várias → a única em andamento; ambíguo → **400** (informe `session_id`). Torneios anteriores ao G4 sem sessões seguem funcionando (sessão nula). Sessão **encerrada** não recebe entradas.
 | GET · POST · PUT · DELETE | `/blind-templates[/:id]` — estruturas de blind reutilizáveis |
 | GET | `/reports/comparison` — métricas lado a lado dos torneios (*relatorios*) |
 | GET | `/chat/urgent` · POST `/chat/:id/ack` — alertas urgentes + confirmação de leitura |
@@ -225,30 +314,102 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 `PUT /tournaments/:id` aceita `blind_version` — se enviado e desatualizado, responde **409**
 (trava otimista da estrutura de blinds).
 
-### Jogadores &amp; Premiação — *torneios*
+### Premiação — *torneios*
+> Não existe cadastro de jogadores: a identidade nas mesas e eliminações é a **entrada** ("Entrada #n").
+
 | Método | Rota |
 | --- | --- |
-| GET | `/players?search=` · `/players/:id` (com histórico) |
-| POST · PUT · DELETE | `/players[/:id]` |
 | GET · POST · PUT · DELETE | `/payout-templates[/:id]` — templates de % com faixas por nº de inscritos |
 
-### Modelos de stack — *modelos_stack*
+### Modelos de stack — *modelos_stack* · escrita: *admin*
+Grade ficha × ação: `actions: [{ key, label }]` (padrão: `buy_in`, `optional_buy_in`, `re_entry`; extras como `add_on`
+ou `vip` são configuráveis) e `composition: [{ chip_id, quantities: { [action]: inteiro ≥ 0 } }]`. O valor de cada
+coluna é **derivado** (`totals`/`total_value`) — nunca digitado. O formato antigo `{ chip_id, quantity }` vira `buy_in`.
+
 | Método | Rota |
 | --- | --- |
 | GET | `/stacks` |
-| POST · PUT · DELETE | `/stacks[/:id]` |
+| POST · PUT | `/stacks[/:id]` — editar recalcula os torneios que usam o modelo |
+| DELETE | `/stacks/:id` — 409 se em uso por torneio/entrada; senão soft-delete |
+| POST | `/stacks/:id/needs` — `{ counts: { buy_in: 100 } }` → `{ rows: [{ chip, quantity, value }], totals, uncovered }` |
 
-### Chip Race — *chip_race*
+O torneio guarda o modelo **padrão** (`stack_model_id`) e, opcionalmente, um modelo por ação (`stack_models: [{ action, stack_model_id }]`).
+`starting_stack`, `chips_value_in_play` (usado pelo relógio/projeção) e o valor do stack são derivados; `starting_stack` e
+`stack_composition` enviados pelo cliente são ignorados.
+
+### Material no torneio — envio, retorno e resumo
+`Movement` ganhou a localização **`play`** (em jogo; o id é o torneio) e os tipos `SEND_BUY_IN` · `SEND_OPTIONAL` · `SEND_REENTRY` ·
+`SEND_ADDITIONAL` · `RETURN` · `CHIP_RACE_OUT/IN` · `COLOR_UP_OUT/IN`. Quem registra: **admin e material**; o salão consulta.
+
+**A alocação é o teto do envio.** Reservado = alocado − enviado (o enviado é derivado dos movimentos): enviar consome a reserva do
+torneio e o "livre" do fichário não muda. Enviar além do reservado (ou de fichário não alocado) → **409** com o que falta; a
+edição da alocação não pode ficar abaixo do já enviado.
+
 | Método | Rota |
 | --- | --- |
-| GET | `/chip-races` |
-| POST · PUT · DELETE | `/chip-races[/:id]` |
+| POST | `/tournaments/:id/sends` — `{ items: [{ action, count }] }` (o stack calcula as fichas por denominação) e/ou `{ chips: [{ chip_id, quantity }] }` (envio adicional); `session_id?`, `binder_id?`, `reason?`. Sai só dos fichários alocados ao torneio. |
+| POST | `/tournaments/:id/returns` — `{ binder_id, chips: [{ chip_id, quantity }], session_id?, reason? }`; não passa do que está em jogo; vale também depois de o torneio encerrar |
+| GET | `/tournaments/:id/material` — por ficha: `expected` (ações × stack ± conversões − descartes), `sent`, `returned`, `discarded`, `conversion_in/out`, `on_table`, `pending` (= esperado − em jogo); estornos abatem as colunas; `?session_id=` |
+
+### Chip Race / Color Up — *chip_race* (`Conversion`)
+O operador informa o que **saiu** (`outs`) e o que **entrou** (`ins`) de jogo, por denominação. O **servidor** calcula
+`value_out`, `value_in` e `math_breakage = value_in − value_out`. A quebra matemática é uma diferença legítima da conversão e
+**nunca cria perda/ocorrência** (spec §18.4); só a conferência física aponta divergência. As fichas saem/entram por um lote de
+movimentos (`CHIP_RACE_*`/`COLOR_UP_*`), o que sai vai para `binder_id` (ou o único fichário alocado) e o que entra sai dos alocados.
+Conversão e movimentos são **imutáveis** — `PUT`/`DELETE` → **405**; corrige-se por **estorno do lote**. Conversões alteram as fichas
+em jogo (e o valor do relógio pela quebra); as estornadas e as do modelo antigo não contam.
+
+| Método | Rota |
+| --- | --- |
+| POST | `/conversions/preview` — `{ outs, ins }` → valores e quebra (mesma conta do registro; não grava) |
+| POST | `/conversions` — `{ tournament_id, type: CHIP_RACE\|COLOR_UP, outs, ins, binder_id?, session_id?, note? }` *(admin e material)* |
+| GET | `/conversions` (`?tournament_id=`, `?status=`) · `/conversions/:id` |
+| POST | `/conversions/:id/reverse` — `{ reason }` *(admin)*: estorna o lote; 409 se as fichas já foram movimentadas depois |
+| PUT · DELETE | `/conversions/:id` — **405** (imutável) |
+
+### Descarte de stack — *torneios* (G7)
+O descarte move fichas do **jogo** para o fichário (`DISCARD`, `play → binder`), por denominação efetivamente devolvida, e **reduz o esperado
+em jogo** (`chips-in-play`). Acima do que está em jogo → **409** (nada é gravado). Com um único fichário alocado ele é o destino; com vários
+(ou nenhum) informe `binder_id`. Torneio com várias sessões exige `session_id`. Admin e material lançam; o salão só consulta.
+
+| Método | Rota |
+| --- | --- |
+| POST | `/tournaments/:id/discards` (ou `/tournaments/:id/sessions/:sid/discards`) — `{ chips: [{ chip_id, quantity }], binder_id?, session_id?, note? }` → lote com `total_chips` e `total_value` (calculados no servidor) |
+| POST | `/tournaments/:id/discards/preview` — mesma conta do registro, sem gravar |
+| GET | `/tournaments/:id/discards` (`?session_id=`) — um item por lote, com total, fichas, fichário, usuário, horário e `reversed` |
+| POST | `/tournaments/:id/discards/:batch/reverse` — `{ reason }` *(admin)*: restaura o em jogo; 409 se já estornado ou se as fichas já foram movimentadas |
+| PUT · DELETE | `/tournaments/:id/discards/:batch` — **405** (imutável) |
+
+Sockets emitidos: `materialChanged`, `balancesChanged`, `chipsInPlayChanged`, `discardRegistered`.
+
+### Ocorrências, conferência e semáforo — *estoque* (G8)
+Toda divergência física é uma **ocorrência** (`open → justified → partially_recovered → recovered`, ou `closed` / `voided`). A fonte da verdade
+continua nos movimentos (`LOSS`, `FOUND`, `RECOVERY`); a ocorrência guarda a gestão (semáforo, justificativa, histórico) e **nunca é apagada**.
+A severidade é fotografada na abertura (mudar a configuração não reescreve o passado). Perda em jogo vai para a divergência do **torneio**.
+
+| Método | Rota |
+| --- | --- |
+| POST | `/tournaments/:id/count` — `{ counts: [{ chip_id, counted }], session_id?, reason? }` *(admin e material)*: conferência do **jogo** (contado × fichas em jogo); a resposta traz `value` com a quebra matemática das conversões só como explicação |
+| GET | `/occurrences` (`?status=active\|all\|<status>`, `severity`, `kind`, `scope`, `binder_id`, `tournament_id`, `chip_id`) · `/occurrences/:id` · `/occurrences/summary` |
+| POST | `/occurrences/:id/justify` — `{ justification }` *(admin e material)* |
+| POST | `/occurrences/:id/recover` — `{ quantity, binder_id?, note? }` *(admin e material)*: `RECOVERY` divergência → fichário; perda de fichário volta ao mesmo fichário, perda em jogo exige `binder_id`; 409 acima do que falta |
+| POST | `/occurrences/:id/recoveries/reverse` — `{ batch_id, reason }` *(admin)* |
+| POST | `/occurrences/:id/close` — `{ justification }` *(admin)*: a perda restante fica registrada como definitiva |
+| POST | `/occurrences/:id/reverse` — `{ reason }` *(admin)*: estorna a divergência (contagem errada); exige estornar antes as recuperações |
+| PUT · DELETE | `/occurrences/:id` — **405** |
+| GET · PUT · DELETE | `/settings/severity` — faixas por valor nominal, escalonamento por quantidade e nível mínimo da justificativa (PUT/DELETE só admin) |
+
+Movimentos de uma ocorrência **não** se estornam pela rota de movimentos (409): corrija pela ocorrência. Perda lançada à mão (`POST /movements` `LOSS`)
+também abre ocorrência. Sockets: `occurrenceOpened` (as vermelhas viram alerta urgente) e `occurrenceUpdated`.
+
+**Tempo real (G10):** cada lote de movimentos gravado emite `movementsPosted { batch_id, types, chip_ids, binder_ids, tournament_ids }`; o Dashboard refaz só os blocos afetados (com debounce).
 
 ### Dashboard / Relatórios / Chat
 | Método | Rota | Acesso |
 | --- | --- | --- |
-| GET | `/dashboard/stats` | autenticado |
-| GET | `/reports/data` | *relatorios* |
+| GET | `/dashboard/stats` (`?blocks=`) — painel derivado dos **movimentos**; blocos: `metrics`, `recent`, `inventory` (por ficha + matriz fichário × denominação), `in_play` (torneio/sessão), `flows` (enviadas, devolvidas, descartadas, chip race/color up com a quebra, perdidas, recuperadas), `occurrences` (abertas por semáforo, recuperadas), `conflicts` (alocações sem saldo), `timeline`, `binders` | autenticado |
+| GET | `/inventory/by-chip` — em fichários, reservado, livre, em jogo, em divergência por ficha (Estoque) | *estoque* |
+| GET | `/reports/data` — estoque/valor/distribuição/descartes/perdas/recuperações pelo saldo derivado | *relatorios* |
 | GET | `/chat/:channel` | autenticado |
 
 ### WebSocket (Socket.io, porta 3000)
@@ -264,7 +425,7 @@ Handshake exige `auth.token` (mesmo JWT do REST) — conexões sem token são re
 
 ### Tela de projeção
 `GET /torneios/:id/telao` — rota do frontend fora da sidebar, para abrir na TV do salão
-(relógio grande, blinds atual/próximo, jogadores, stack médio, fichas em jogo).
+(relógio grande, blinds atual/próximo, entradas, stack médio, fichas em jogo).
 
 ---
 
@@ -303,9 +464,9 @@ genesis/
 ### Notas de API
 
 - **Soft-delete**: `DELETE` de torneio, ficha e fichário marca `deleted_at` — o registro
-  some das listagens mas fica no banco. Apagar um torneio remove suas entradas e arquiva
-  (`status: cancelled`) seus chip races.
-- **Paginação**: as listagens (`/tournaments`, `/chips`, `/cases`, `/chip-races`) devolvem
+  some das listagens mas fica no banco. Apagar um torneio **preserva** entradas, eliminações e
+  movimentos (só a disposição das mesas é limpa).
+- **Paginação**: as listagens (`/tournaments`, `/chips`, `/binders`) devolvem
   um array por padrão (teto de 500) com headers `X-Total-Count` / `X-Total-Pages`. Com
   `?page=` / `?limit=` devolvem `{ data, pagination }`.
 
@@ -397,7 +558,11 @@ automaticamente e mostra um aviso — basta logar de novo.
 - **Tela de projeção** `/torneios/:id/telao` — rota fora da sidebar, tela cheia.
 - 13 testes de relógio (lógica pura + endpoint); verificado ponta a ponta contra socket real.
 
-## ✅ Fase P2 — Jogadores, premiação e resultados — concluída
+## ✅ Fase P2 — Premiação e resultados — concluída
+
+> ⚠️ **Superado:** o cadastro de **jogadores** (`Player`, página `/jogadores`) foi removido — a identidade nas mesas e eliminações é a
+> **entrada** ("Entrada #n") — e o **bounty por eliminador** deixou de existir. Migração `20261002000000-remove-players-and-chip-money`
+> (dados arquivados em `archive_*`). O texto abaixo é só o histórico da fase.
 
 - **`Player`** (coleção nova): cadastro completo + histórico. Página `/jogadores`,
   autocomplete `PlayerSelect` na inscrição (cadastra na hora).
@@ -415,6 +580,10 @@ automaticamente e mostra um aviso — basta logar de novo.
 
 ## ✅ Fase P3 — Livro-razão de inventário — concluída
 
+> ⚠️ **Removido no G11** (`ROADMAP_NUCLEO_FICHAS.md`): o estoque físico é o `Movement` (por fichário, imutável, com estorno).
+> O `InventoryLedger` v1, os caches de quantidade da ficha e do fichário e a rota `/cases` saíram do sistema; os dados antigos
+> ficam nas coleções `archive_*` (migração `20261001000000-legacy-cleanup`). O texto abaixo é só o histórico da fase.
+
 - **`InventoryLedger`** (coleção nova, append-only): `entrada` / `saida` / `quebra` /
   `contagem` / `ajuste` / `saldo_inicial` / `alocacao` / `retorno`. `quantity` com sinal.
 - **`ChipModel.total_quantity` / `reserved_quantity` / `available_quantity` são cache
@@ -422,7 +591,7 @@ automaticamente e mostra um aviso — basta logar de novo.
   lançamento; não se edita mais direto.
 - Alocar um fichário a um torneio em andamento gera `alocacao` (reserva); finalizar/excluir
   gera `retorno` **do valor exato reservado** (imune a mudanças no conteúdo da maleta).
-- Conferência física por maleta (`POST /cases/:id/count`): ajusta o conteúdo e lança a
+- (histórico P3; substituído no G2) Conferência física por maleta (`POST /cases/:id/count`): ajustava o conteúdo e lançava a
   diferença como `contagem`.
 - Migração `20260911` semeia o ledger a partir do estado atual (preserva os números).
 - Frontend: página `/livro-estoque`, coluna "Alocado" no estoque, ação Quebra/Perda,

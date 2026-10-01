@@ -91,6 +91,15 @@ export default function Relatorios() {
     exportToCSV(rows, `genesis-relatorio-${new Date().toISOString().slice(0, 10)}`);
   };
 
+  // CSV do estoque: distribuição das fichas pelo saldo derivado (em fichários, em jogo, divergência)
+  const handleExportChips = () => {
+    const rows = (data?.charts?.chipDistribution || []).map((c) => ({
+      ficha: c.name, em_ficharios: c.in_binders, em_jogo: c.in_play, em_divergencia: c.lost, existentes: c.value,
+    }));
+    if (rows.length === 0) return showAlert('Nada para exportar.', 'info');
+    exportToCSV(rows, `genesis-fichas-${new Date().toISOString().slice(0, 10)}`);
+  };
+
   if (loading || !data) {
     return (
       <div className="p-10 flex flex-col gap-8 animate-pulse">
@@ -148,7 +157,10 @@ export default function Relatorios() {
             <Printer size={16}/> PDF
           </button>
           <button onClick={handleExport} className="px-4 py-2 bg-genesis-red text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all shadow-lg shadow-red-500/20">
-            <Download size={16}/> CSV
+            <Download size={16}/> CSV logs
+          </button>
+          <button onClick={handleExportChips} className="px-4 py-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-gray-50 transition-all shadow-sm">
+            <Download size={16}/> CSV fichas
           </button>
         </div>
       </header>
@@ -169,17 +181,19 @@ export default function Relatorios() {
       {/* Comparativo entre torneios */}
       {showComparison && (
         <div className="overflow-x-auto rounded-3xl border border-gray-200 dark:border-zinc-800 bg-white dark:bg-[#111111] shadow-sm">
-          <table className="w-full text-left text-sm min-w-[720px]">
+          <table className="w-full text-left text-sm min-w-[960px]">
             <thead className="bg-gray-50 dark:bg-zinc-900/50 text-[10px] font-black uppercase tracking-widest text-gray-400">
               <tr>
                 <th className="px-4 py-3">Torneio</th><th className="px-4 py-3">Data</th>
                 <th className="px-4 py-3 text-right">Entradas</th><th className="px-4 py-3 text-right">Prize pool</th>
                 <th className="px-4 py-3 text-right">Bounty</th><th className="px-4 py-3 text-right">Rake</th>
+                <th className="px-4 py-3 text-right">Fichas enviadas</th><th className="px-4 py-3 text-right">Descartado</th>
+                <th className="px-4 py-3 text-right">Perdido</th><th className="px-4 py-3 text-right">Quebra chip race</th>
                 <th className="px-4 py-3">Campeão</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60">
-              {!comparison && <tr><td colSpan={7} className="p-8 text-center text-gray-400">Carregando…</td></tr>}
+              {!comparison && <tr><td colSpan={11} className="p-8 text-center text-gray-400">Carregando…</td></tr>}
               {comparison?.map((c) => (
                 <tr key={c._id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/30">
                   <td className="px-4 py-3 font-black text-gray-900 dark:text-white">{c.name}</td>
@@ -188,10 +202,14 @@ export default function Relatorios() {
                   <td className="px-4 py-3 text-right tabular-nums font-bold text-emerald-600 dark:text-emerald-400">{brl(c.prize_pool)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-amber-600">{brl(c.bounty_pool)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-genesis-red">{brl(c.rake_collected)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{(c.material?.sent_value || 0).toLocaleString('pt-BR')}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{(c.material?.discarded_value || 0).toLocaleString('pt-BR')}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums ${c.material?.lost_value > 0 ? 'font-bold text-red-600' : ''}`}>{(c.material?.lost_value || 0).toLocaleString('pt-BR')}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-500">{(c.material?.math_breakage || 0).toLocaleString('pt-BR')}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{c.winner || '—'}</td>
                 </tr>
               ))}
-              {comparison?.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-gray-400">Nenhum torneio com dados.</td></tr>}
+              {comparison?.length === 0 && <tr><td colSpan={11} className="p-8 text-center text-gray-400">Nenhum torneio com dados.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -201,9 +219,17 @@ export default function Relatorios() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
         <StatCard title="Torneios" value={data.stats.totalTournaments} subValue={`${data.stats.finishedTournaments} finalizados`} icon={<Trophy size={20}/>} color="bg-blue-500" />
         <StatCard title="Chip Races" value={data.stats.totalChipRaces} subValue="Confirmados" icon={<Activity size={20}/>} color="bg-amber-500" />
-        <StatCard title="Total de Fichas" value={data.stats.totalChips.toLocaleString()} subValue="No sistema" icon={<Coins size={20}/>} color="bg-emerald-500" />
-        <StatCard title="Valor em Fichas" value={(data.stats.stockValue || 0).toLocaleString('pt-BR')} subValue="Σ valor × qtd" icon={<Coins size={20}/>} color="bg-violet-500" />
+        <StatCard title="Total de Fichas" value={data.stats.totalChips.toLocaleString()} subValue={`${(data.stats.chipsInBinders || 0).toLocaleString()} em fichários · ${(data.stats.chipsInPlay || 0).toLocaleString()} em jogo`} icon={<Coins size={20}/>} color="bg-emerald-500" />
+        <StatCard title="Valor em Fichas" value={(data.stats.stockValue || 0).toLocaleString('pt-BR')} subValue="Σ valor × saldo derivado" icon={<Coins size={20}/>} color="bg-violet-500" />
         <StatCard title="Logs Totais" value={data.pagination.total} subValue="Registros" icon={<Clock size={20}/>} color="bg-purple-500" />
+      </div>
+
+      {/* Fichas: descartes, perdas e recuperações (derivados das movimentações) */}
+      <div data-testid="chip-flow-stats" className="grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-6">
+        <StatCard title="Descartadas" value={(data.stats.discardedChips || 0).toLocaleString()} subValue={`valor ${(data.stats.discardedValue || 0).toLocaleString('pt-BR')}`} icon={<Coins size={20}/>} color="bg-rose-500" />
+        <StatCard title="Perdidas" value={(data.stats.lostChips || 0).toLocaleString()} subValue={`valor ${(data.stats.lostValue || 0).toLocaleString('pt-BR')}`} icon={<Activity size={20}/>} color="bg-red-500" />
+        <StatCard title="Recuperadas" value={(data.stats.recoveredChips || 0).toLocaleString()} subValue={`valor ${(data.stats.recoveredValue || 0).toLocaleString('pt-BR')}`} icon={<Activity size={20}/>} color="bg-emerald-600" />
+        <StatCard title="Ocorrências abertas" value={data.stats.openOccurrences || 0} subValue={`${data.stats.redOccurrences || 0} vermelha(s)`} icon={<Info size={20}/>} color="bg-amber-600" />
       </div>
 
       {/* Charts Section */}

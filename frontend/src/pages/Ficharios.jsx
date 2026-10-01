@@ -1,20 +1,30 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, Plus, Trash2, Edit2, X, AlertCircle, PackagePlus, Link2, PackageCheck } from 'lucide-react';
+import { Briefcase, Plus, Trash2, Edit2, X, AlertCircle, Link2, PackageCheck, PackagePlus, Boxes, Grid3x3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import { getStoredUser } from '../lib/auth';
 import CustomSelect from '../components/CustomSelect';
+import AllocationMatrix from '../components/AllocationMatrix';
 
 export default function Ficharios() {
   const { showAlert, showConfirm } = useAlert();
+  // Criar/editar/excluir fichário é cadastro estrutural: só admin (o backend também barra).
+  const isAdmin = getStoredUser()?.role === 'admin';
   const [cases, setCases] = useState([]);
   const [availableChips, setAvailableChips] = useState([]);
+  const [binderModels, setBinderModels] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCase, setEditingCase] = useState(null);
-  // form.chips: [{ chip_id, quantity, give_entry }]
-  const [form, setForm] = useState({ name: '', chips: [] });
+  // O CONTEÚDO do fichário não é digitado: é derivado das movimentações (montagem, retiradas, conferências).
+  const [form, setForm] = useState({ name: '', code: '', model_id: '', assemble_now: true });
+
+  // Montagem (admin): lança ASSEMBLY no fichário
+  const [assembleCase, setAssembleCase] = useState(null);
+  const [assembleRows, setAssembleRows] = useState([{ chip_id: '', quantity: '' }]);
+  const [assembleReason, setAssembleReason] = useState(''); // montagem é administrativa: exige motivo (G11)
 
   // Multi-allocation modal state
   const [isAllocModalOpen, setIsAllocModalOpen] = useState(false);
@@ -23,21 +33,33 @@ export default function Ficharios() {
   // Conferência física
   const [countCase, setCountCase] = useState(null);
   const [countValues, setCountValues] = useState({});
+  const [countReason, setCountReason] = useState('');
+
+  // Disponibilidade: matriz ficha × torneio (saldo, alocado a quem, livre) — vinda do servidor
+  const [matrixBinder, setMatrixBinder] = useState(null);
+  const [matrix, setMatrix] = useState(null);
+  const openMatrix = async (c) => {
+    setMatrixBinder(c);
+    setMatrix(null);
+    try { setMatrix(await apiGet('/allocations/matrix', { binder_id: c._id })); }
+    catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao carregar a disponibilidade', 'error'); setMatrixBinder(null); }
+  };
 
   useEffect(() => {
     if (countCase) {
       const init = {};
       countCase.chips.forEach((c) => { if (c.chip_id) init[c.chip_id._id || c.chip_id] = c.quantity; });
       setCountValues(init);
+      setCountReason('');
     }
   }, [countCase]);
 
   const submitCount = async () => {
     const counts = Object.entries(countValues).map(([chip_id, counted]) => ({ chip_id, counted: Number(counted) || 0 }));
     try {
-      const res = await apiPost(`/cases/${countCase._id}/count`, { counts });
+      const res = await apiPost(`/binders/${countCase._id}/count`, { counts, reason: countReason.trim() });
       const nDiff = res.diffs.length;
-      showAlert(nDiff === 0 ? 'Conferência OK — sem diferenças.' : `Conferência registrada: ${nDiff} diferença(s) ajustada(s).`, nDiff === 0 ? 'success' : 'info');
+      showAlert(nDiff === 0 ? 'Conferência OK — sem diferenças.' : `Conferência registrada: ${nDiff} ocorrência(s) aberta(s) (veja em Ocorrências).`, nDiff === 0 ? 'success' : 'info');
       setCountCase(null);
       await fetchInitialData();
     } catch (e) {
@@ -47,9 +69,10 @@ export default function Ficharios() {
 
   const fetchInitialData = async () => {
     try {
-      const [casesData, chipsData] = await Promise.all([apiGet('/cases'), apiGet('/chips')]);
+      const [casesData, chipsData, modelsData] = await Promise.all([apiGet('/binders'), apiGet('/chips'), apiGet('/binder-models')]);
       setCases(casesData);
       setAvailableChips(chipsData);
+      setBinderModels(modelsData);
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao carregar fichários', 'error');
     } finally {
@@ -62,27 +85,22 @@ export default function Ficharios() {
   // ── SAVE CASE ────────────────────────────────────────────────
   const handleSaveCase = async (e) => {
     e.preventDefault();
-    const cleanChips = form.chips
-      .filter(c => c.chip_id && Number(c.quantity) > 0)
-      .map(c => ({ chip_id: c.chip_id, quantity: parseInt(c.quantity, 10) }));
-
     if (!form.name.trim()) return showAlert('Informe o nome do fichário.', 'error');
 
+    const payload = { name: form.name.trim(), code: form.code.trim(), model_id: form.model_id || null };
     try {
-      if (editingCase) await apiPut(`/cases/${editingCase._id}`, { name: form.name.trim(), chips: cleanChips });
-      else await apiPost('/cases', { name: form.name.trim(), chips: cleanChips });
-
-      // ── Auto entry: give_entry rows ──────────────────────────
-      const entryRows = form.chips.filter(c => c.chip_id && Number(c.quantity) > 0 && c.give_entry);
-      if (entryRows.length > 0) {
-        await Promise.all(entryRows.map(row =>
-          apiPost('/inventory/update', { chip_id: row.chip_id, quantity_change: parseInt(row.quantity, 10) })
-        ));
-        showAlert(`Fichário salvo e entrada de estoque registrada para ${entryRows.length} modelo(s)!`, 'success');
-      } else {
+      if (editingCase) {
+        await apiPut(`/binders/${editingCase._id}`, payload);
         showAlert('Fichário salvo com sucesso!', 'success');
+      } else {
+        const created = await apiPost('/binders', payload);
+        if (form.model_id && form.assemble_now) {
+          await apiPost(`/binders/${created._id}/assemble`, { from_model: true });
+          showAlert('Fichário criado e montado a partir do modelo!', 'success');
+        } else {
+          showAlert('Fichário criado (vazio). Use "Montar" para lançar as fichas.', 'success');
+        }
       }
-
       setIsModalOpen(false);
       await fetchInitialData();
     } catch (e) {
@@ -90,11 +108,40 @@ export default function Ficharios() {
     }
   };
 
+  // ── MONTAGEM (ASSEMBLY) ──────────────────────────────────────
+  const openAssemble = (c) => {
+    setAssembleCase(c);
+    setAssembleRows([{ chip_id: '', quantity: '' }]);
+    setAssembleReason('');
+  };
+  const updateAssembleRow = (i, field, value) => setAssembleRows(rows => rows.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
+
+  const submitAssemble = async (fromModel) => {
+    let body;
+    if (fromModel) body = { from_model: true };
+    else {
+      const items = assembleRows.filter(r => r.chip_id || r.quantity);
+      if (!items.length || items.some(r => !r.chip_id || !(Number(r.quantity) >= 1) || !Number.isInteger(Number(r.quantity)))) {
+        return showAlert('Cada linha precisa de uma ficha e de uma quantidade inteira maior que zero.', 'error');
+      }
+      if (!assembleReason.trim()) return showAlert('Informe o motivo da montagem (ex.: compra do lote, reposição).', 'error');
+      body = { items: items.map(r => ({ chip_id: r.chip_id, quantity: Number(r.quantity) })), reason: assembleReason.trim() };
+    }
+    try {
+      const res = await apiPost(`/binders/${assembleCase._id}/assemble`, body);
+      showAlert(`Montagem registrada (${res.movements} lançamento(s)).`, 'success');
+      setAssembleCase(null);
+      await fetchInitialData();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao montar fichário', 'error');
+    }
+  };
+
   const handleDeleteCase = async (id) => {
     const confirmed = await showConfirm('Tem certeza que deseja excluir este fichário?');
     if (!confirmed) return;
     try {
-      await apiDelete(`/cases/${id}`);
+      await apiDelete(`/binders/${id}`);
       showAlert('Fichário excluído', 'success');
       await fetchInitialData();
     } catch (e) {
@@ -104,64 +151,29 @@ export default function Ficharios() {
 
   const openCreateModal = () => {
     setEditingCase(null);
-    setForm({ name: '', chips: [{ chip_id: '', quantity: '', give_entry: false }] });
+    setForm({ name: '', code: '', model_id: '', assemble_now: true });
     setIsModalOpen(true);
   };
 
   const openEditModal = (c) => {
     setEditingCase(c);
-    const mappedChips = c.chips.map(item => ({
-      chip_id: item.chip_id ? item.chip_id._id : '',
-      quantity: item.quantity,
-      give_entry: false   // never pre-check on edit to avoid duplicate entries
-    }));
-    setForm({ name: c.name, chips: mappedChips.length ? mappedChips : [{ chip_id: '', quantity: '', give_entry: false }] });
+    setForm({ name: c.name, code: c.code || '', model_id: c.model_id?._id || c.model_id || '', assemble_now: false });
     setIsModalOpen(true);
   };
 
-  const addChipRow = () => setForm({ ...form, chips: [...form.chips, { chip_id: '', quantity: '', give_entry: false }] });
-
-  const updateChipRow = (index, field, value) => {
-    const newChips = [...form.chips];
-    newChips[index][field] = value;
-    setForm({ ...form, chips: newChips });
+  const selectModel = (modelId) => {
+    const model = binderModels.find((m) => m._id === modelId);
+    setForm({ ...form, model_id: modelId || '', name: !editingCase && model && !form.name ? model.name : form.name });
   };
 
-  const removeChipRow = (index) => setForm({ ...form, chips: form.chips.filter((_, i) => i !== index) });
-
-  // ── Stock warnings ───────────────────────────────────────────
-  const getStockWarnings = () => {
-    const warnings = [];
-    form.chips.forEach(row => {
-      if (row.chip_id && row.quantity) {
-        const chip = availableChips.find(c => c._id === row.chip_id);
-        if (chip) {
-          let previouslyAllocated = 0;
-          if (editingCase) {
-            const oldRow = editingCase.chips.find(c => c.chip_id && c.chip_id._id === row.chip_id);
-            if (oldRow) previouslyAllocated = oldRow.quantity;
-          }
-          // If give_entry is checked we're adding stock, so no warning needed
-          if (row.give_entry) return;
-          const realAvailable = chip.available_quantity + previouslyAllocated;
-          const diff = realAvailable - parseInt(row.quantity);
-          if (diff < 0) warnings.push({ name: chip.name, negative: Math.abs(diff) });
-        }
-      }
-    });
-    return warnings;
-  };
-
-  const warnings = getStockWarnings();
+  const chipOptions = () => availableChips
+    .filter((c) => c.active !== false)
+    .map((c) => ({ value: c._id, label: `${c.name} · ${c.color || 's/ cor'}` }));
 
   // ── Allocations label ────────────────────────────────────────
   const getAllocLabel = (c) => {
     const allocs = c.allocations || [];
-    if (allocs.length === 0) {
-      // fall back to legacy field
-      if (c.status === 'allocated') return `Em Uso: ${c.allocated_to_tournament_name}`;
-      return null;
-    }
+    if (allocs.length === 0) return null;
     if (allocs.length === 1) return `Em Uso: ${allocs[0].tournament_name}`;
     return `Compartilhado (${allocs.length} torneios)`;
   };
@@ -170,8 +182,8 @@ export default function Ficharios() {
     const allocs = c.allocations || [];
     if (c.status === 'maintenance') return <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-500">Manutenção</span>;
     if (allocs.length >= 2) return <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-500">Compartilhado ({allocs.length})</span>;
-    if (allocs.length === 1 || c.status === 'allocated') {
-      const name = allocs[0]?.tournament_name || c.allocated_to_tournament_name;
+    if (allocs.length === 1) {
+      const name = allocs[0]?.tournament_name;
       return <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-500 truncate max-w-[150px]" title={name}>Em Uso: {name}</span>;
     }
     return <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500">Disponível</span>;
@@ -185,12 +197,14 @@ export default function Ficharios() {
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold mb-1 text-gray-900 dark:text-white">Fichários e Maletas</h1>
-          <p className="text-gray-500 dark:text-gray-400">Gerencie a alocação de maletas e o conteúdo de cada kit.</p>
+          <h1 className="text-3xl md:text-4xl font-extrabold mb-1 text-gray-900 dark:text-white">Fichários físicos</h1>
+          <p className="text-gray-500 dark:text-gray-400">Cada fichário é uma unidade real, criada a partir de um modelo. O estoque fica separado por fichário.</p>
         </div>
-        <button onClick={openCreateModal} className="w-full md:w-auto px-6 py-3 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 transition-all flex justify-center items-center gap-2 shadow-lg shadow-red-500/20">
-          <Plus size={18} /> Novo Fichário
-        </button>
+        {isAdmin && (
+          <button onClick={openCreateModal} className="w-full md:w-auto px-6 py-3 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 transition-all flex justify-center items-center gap-2 shadow-lg shadow-red-500/20">
+            <Plus size={18} /> Novo Fichário
+          </button>
+        )}
       </motion.div>
 
       {loading ? (
@@ -215,6 +229,12 @@ export default function Ficharios() {
                       <span className="truncate">{c.name}</span>
                     </h3>
                     {getStatusBadge(c)}
+                    {(c.model_id?.name || c.code) && (
+                      <p className="mt-2 text-xs text-gray-500 flex items-center gap-1.5 flex-wrap">
+                        {c.model_id?.name && <span className="inline-flex items-center gap-1"><Boxes size={11} className="text-genesis-red" /> Modelo {c.model_id.name}</span>}
+                        {c.code && <span className="font-mono px-1.5 py-0.5 rounded bg-gray-100 dark:bg-zinc-800">{c.code}</span>}
+                      </p>
+                    )}
                     {/* Show all allocations if shared */}
                     {allocs.length >= 2 && (
                       <div className="mt-2 space-y-1">
@@ -227,11 +247,15 @@ export default function Ficharios() {
                     )}
                   </div>
                   <div className="flex gap-2 shrink-0">
+                    <button onClick={() => openMatrix(c)} title="Disponibilidade por torneio" className="p-2 text-gray-400 hover:text-purple-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Grid3x3 size={16} /></button>
+                    {isAdmin && (
+                      <button onClick={() => openAssemble(c)} title="Montar / adicionar fichas" className="p-2 text-gray-400 hover:text-emerald-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><PackagePlus size={16} /></button>
+                    )}
                     {c.chips.length > 0 && (
                       <button onClick={() => setCountCase(c)} title="Conferência física" className="p-2 text-gray-400 hover:text-genesis-red bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><PackageCheck size={16} /></button>
                     )}
-                    <button onClick={() => openEditModal(c)} className="p-2 text-gray-400 hover:text-blue-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Edit2 size={16} /></button>
-                    {c.status !== 'allocated' && allocs.length === 0 && (
+                    {isAdmin && <button onClick={() => openEditModal(c)} title="Editar" className="p-2 text-gray-400 hover:text-blue-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Edit2 size={16} /></button>}
+                    {isAdmin && c.status !== 'allocated' && allocs.length === 0 && (
                       <button onClick={() => handleDeleteCase(c._id)} className="p-2 text-gray-400 hover:text-red-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Trash2 size={16} /></button>
                     )}
                   </div>
@@ -300,97 +324,57 @@ export default function Ficharios() {
 
                 {/* Body */}
                 <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Identificação do fichário</label>
+                      <input
+                        type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
+                        className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white"
+                        required placeholder="Ex: LISA 1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Código</label>
+                      <input
+                        type="text" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
+                        className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white"
+                        placeholder="Opcional"
+                      />
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Nome da Maleta/Fichário</label>
-                    <input
-                      type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
-                      className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white"
-                      required placeholder="Ex: Maleta Poker Stars A"
+                    <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300 flex items-center gap-2"><Boxes size={14} /> Modelo de fichário</label>
+                    <CustomSelect
+                      options={[{ value: '', label: 'Sem modelo (fichário avulso)' }, ...binderModels.map(m => ({ value: m._id, label: m.name }))]}
+                      value={form.model_id}
+                      onChange={selectModel}
+                      placeholder="Selecione o modelo..."
                     />
+                    <p className="mt-2 text-xs text-gray-500">
+                      {editingCase
+                        ? 'O modelo é a montagem padrão; alterá-lo aqui não recompõe o conteúdo.'
+                        : 'Ao escolher um modelo, o conteúdo abaixo é preenchido com a montagem padrão. Vários fichários podem seguir o mesmo modelo.'}
+                    </p>
                   </div>
 
-                  <div>
-                    <div className="flex justify-between items-center mb-3">
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Conteúdo do Fichário</label>
-                      <button type="button" onClick={addChipRow} className="text-sm font-bold text-genesis-red hover:text-red-700 flex items-center gap-1 transition-colors">
-                        <Plus size={14} /> Adicionar Modelo
-                      </button>
-                    </div>
-
-                    {/* Column headers */}
-                    <div className="grid grid-cols-[1fr_80px_auto_auto] gap-2 px-3 mb-1">
-                      <p className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Ficha</p>
-                      <p className="text-[10px] uppercase font-bold text-gray-400 tracking-widest text-center">Qtd</p>
-                      <p className="text-[10px] uppercase font-bold text-gray-400 tracking-widest text-center flex items-center gap-1">
-                        <PackagePlus size={10} /> Entrada
-                      </p>
-                      <p></p>
-                    </div>
-
-                    <div className="space-y-3">
-                      {form.chips.map((row, index) => (
-                        <div key={index} className="grid grid-cols-[1fr_80px_auto_auto] items-center gap-2 bg-gray-50 dark:bg-[#111111] p-3 rounded-xl border border-gray-200 dark:border-zinc-700/50">
-                          <CustomSelect
-                            options={availableChips.map(c => ({ value: c._id, label: `${c.name} (Disp: ${c.available_quantity})` }))}
-                            value={row.chip_id}
-                            onChange={(val) => updateChipRow(index, 'chip_id', val)}
-                            placeholder="Selecione a ficha..."
-                          />
-                          <input
-                            type="number" min="1" placeholder="Qtd" value={row.quantity}
-                            onChange={(e) => updateChipRow(index, 'quantity', e.target.value)}
-                            className="w-full bg-white dark:bg-[#141414] border border-gray-300 dark:border-zinc-700 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-genesis-red text-gray-900 dark:text-white text-center"
-                          />
-                          {/* Give-entry toggle */}
-                          <button
-                            type="button"
-                            onClick={() => updateChipRow(index, 'give_entry', !row.give_entry)}
-                            title={row.give_entry ? 'Dar entrada no estoque ao salvar' : 'Não dar entrada no estoque'}
-                            className={`p-2 rounded-lg border-2 transition-all ${row.give_entry
-                              ? 'bg-emerald-500 border-emerald-500 text-white'
-                              : 'border-gray-300 dark:border-zinc-700 text-gray-400 hover:border-emerald-400'}`}
-                          >
-                            <PackagePlus size={16} />
-                          </button>
-                          <button type="button" onClick={() => removeChipRow(index)} className="p-2 text-gray-400 hover:text-red-500 transition-colors">
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      ))}
-                      {form.chips.length === 0 && (
-                        <div className="text-center p-4 border border-dashed border-gray-300 dark:border-zinc-700 rounded-xl text-gray-500 text-sm">
-                          Nenhuma ficha adicionada.
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Give-entry info */}
-                    {form.chips.some(r => r.give_entry) && (
-                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-xl flex gap-2 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
-                        <PackagePlus size={14} className="shrink-0 mt-0.5" />
-                        <span>Os modelos marcados com <b>Entrada</b> terão a quantidade adicionada automaticamente ao estoque ao salvar.</span>
-                      </motion.div>
-                    )}
-                  </div>
-
-                  {/* Warnings */}
-                  {warnings.length > 0 && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl flex gap-3 text-red-700 dark:text-red-400 text-sm font-medium">
-                      <AlertCircle className="shrink-0 mt-0.5" size={18} />
-                      <div>
-                        <p className="font-bold mb-1">Atenção: Estoque insuficiente!</p>
-                        <ul className="list-disc pl-4 space-y-1">
-                          {warnings.map((w, i) => <li key={i}>Faltam <b>{w.negative.toLocaleString()} un.</b> do modelo {w.name}.</li>)}
-                        </ul>
-                        <p className="mt-2 text-xs opacity-80">Você ainda pode salvar o fichário, mas o estoque físico não cobre esta configuração.</p>
-                      </div>
-                    </motion.div>
+                  {!editingCase && form.model_id && (
+                    <label className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-[#111111] cursor-pointer">
+                      <input type="checkbox" checked={form.assemble_now} onChange={e => setForm({ ...form, assemble_now: e.target.checked })} className="mt-1 accent-red-600" />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        <b>Montar agora</b> com a composição do modelo.
+                        <span className="block text-xs text-gray-500 mt-0.5">Lança as fichas do modelo no fichário (uma movimentação de montagem, com histórico e estorno).</span>
+                      </span>
+                    </label>
                   )}
+                  <p className="text-xs text-gray-500">
+                    O conteúdo do fichário não é digitado: ele vem das movimentações (montagem, retiradas, perdas e conferências).
+                  </p>
 
                   {editingCase?.status === 'allocated' && (
                     <div className="p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl flex gap-3 text-amber-700 dark:text-amber-500 text-sm font-medium">
                       <AlertCircle className="shrink-0 mt-0.5" size={18} />
-                      <p>Este fichário está atualmente alocado no torneio <b>{editingCase.allocated_to_tournament_name}</b>. Edite as quantidades com cuidado.</p>
+                      <p>Este fichário está atualmente alocado no torneio <b>{(editingCase.allocations || []).map((a) => a.tournament_name).join(', ')}</b>. Edite as quantidades com cuidado.</p>
                     </div>
                   )}
                 </div>
@@ -423,7 +407,7 @@ export default function Ficharios() {
                 <button type="button" onClick={() => setCountCase(null)} className="text-gray-400 hover:text-gray-600"><X /></button>
               </div>
               <div className="space-y-3 p-6">
-                <p className="text-xs font-medium text-gray-500">Informe quantas fichas de cada modelo você contou. A diferença vira um lançamento de ajuste no livro-razão.</p>
+                <p className="text-xs font-medium text-gray-500">Informe quantas fichas de cada denominação você contou. Falta vira perda (divergência) e sobra vira ajuste no livro-razão — nada é sobrescrito.</p>
                 {countCase.chips.filter((c) => c.chip_id).map((c) => {
                   const id = c.chip_id._id || c.chip_id;
                   const counted = countValues[id];
@@ -447,10 +431,92 @@ export default function Ficharios() {
                     </div>
                   );
                 })}
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">Justificativa (obrigatória para diferenças de severidade alta)</label>
+                  <input
+                    type="text" value={countReason} onChange={(e) => setCountReason(e.target.value)} placeholder="Ex.: contagem do fim do turno"
+                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-700 dark:bg-zinc-900"
+                  />
+                </div>
               </div>
               <div className="flex gap-3 border-t border-gray-100 p-4 dark:border-zinc-800">
                 <button onClick={() => setCountCase(null)} className="flex-1 rounded-xl bg-gray-100 py-3 text-xs font-black uppercase text-gray-600 dark:bg-zinc-800 dark:text-gray-300">Cancelar</button>
                 <button onClick={submitCount} className="flex-1 rounded-xl bg-genesis-red py-3 text-xs font-black uppercase text-white hover:bg-red-700">Registrar conferência</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Montagem (ASSEMBLY) */}
+      <AnimatePresence>
+        {assembleCase && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setAssembleCase(null)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-lg rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]"
+            >
+              <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
+                <h2 className="flex items-center gap-2 text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">
+                  <PackagePlus size={20} className="text-genesis-red" /> Montar "{assembleCase.name}"
+                </h2>
+                <button type="button" onClick={() => setAssembleCase(null)} className="text-gray-400 hover:text-gray-600"><X /></button>
+              </div>
+              <div className="space-y-4 p-6">
+                {assembleCase.model_id?.name && (
+                  <button
+                    type="button" onClick={() => submitAssemble(true)}
+                    className="w-full rounded-xl border-2 border-dashed border-emerald-400 p-3 text-sm font-bold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+                  >
+                    <Boxes size={14} className="mr-2 inline" /> Lançar a composição do modelo "{assembleCase.model_id.name}"
+                  </button>
+                )}
+                <p className="text-xs text-gray-500">Ou lance fichas avulsas. Cada montagem entra no livro-razão e pode ser estornada.</p>
+                <div className="space-y-3">
+                  {assembleRows.map((row, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_100px_auto] items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700/50 dark:bg-[#0c0c0c]">
+                      <CustomSelect options={chipOptions()} value={row.chip_id} onChange={(v) => updateAssembleRow(i, 'chip_id', v)} placeholder="Selecione a ficha..." />
+                      <input
+                        type="number" min="1" step="1" placeholder="Qtd" value={row.quantity} onChange={(e) => updateAssembleRow(i, 'quantity', e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-2 py-2 text-center text-sm text-gray-900 focus:border-genesis-red focus:outline-none dark:border-zinc-700 dark:bg-[#141414] dark:text-white"
+                      />
+                      <button type="button" onClick={() => setAssembleRows(rows => rows.filter((_, idx) => idx !== i))} className="p-2 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setAssembleRows(rows => [...rows, { chip_id: '', quantity: '' }])} className="flex items-center gap-1 text-sm font-bold text-genesis-red hover:text-red-700">
+                    <Plus size={14} /> Adicionar ficha
+                  </button>
+                  <input
+                    type="text" value={assembleReason} onChange={(e) => setAssembleReason(e.target.value)} placeholder="Motivo da montagem (obrigatório)" aria-label="Motivo da montagem"
+                    className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-genesis-red focus:outline-none dark:border-zinc-700 dark:bg-[#141414] dark:text-white"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 border-t border-gray-100 p-4 dark:border-zinc-800">
+                <button onClick={() => setAssembleCase(null)} className="flex-1 rounded-xl bg-gray-100 py-3 text-xs font-black uppercase text-gray-600 dark:bg-zinc-800 dark:text-gray-300">Cancelar</button>
+                <button onClick={() => submitAssemble(false)} className="flex-1 rounded-xl bg-genesis-red py-3 text-xs font-black uppercase text-white hover:bg-red-700">Lançar montagem</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Disponibilidade: saldo × alocado por torneio × livre */}
+      <AnimatePresence>
+        {matrixBinder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMatrixBinder(null)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]">
+              <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
+                <h2 className="flex items-center gap-2 text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">
+                  <Grid3x3 size={20} className="text-genesis-red" /> Disponibilidade — {matrixBinder.name}
+                </h2>
+                <button type="button" onClick={() => setMatrixBinder(null)} className="text-gray-400 hover:text-gray-600"><X /></button>
+              </div>
+              <div className="space-y-3 p-6">
+                <p className="text-xs text-gray-500">O mesmo fichário pode atender mais de um torneio, desde que a soma alocada de cada ficha não passe do saldo. <b>Livre</b> = saldo − alocado.</p>
+                {matrix ? <AllocationMatrix matrix={matrix} /> : <p className="py-6 text-center text-gray-400 animate-pulse">Carregando…</p>}
               </div>
             </motion.div>
           </div>

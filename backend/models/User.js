@@ -7,6 +7,8 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true, select: false },
   role: { type: String, enum: ['admin', 'material', 'salao'], default: 'salao' },
   created_by: { type: String },
+  // G11 — escopo por torneio: vazio = sem restrição; preenchido = SOMENTE estes torneios (admin ignora)
+  allowed_tournament_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tournament' }],
 
   // P5 — segurança de sessão
   session_version: { type: Number, default: 1 },        // incrementar = revoga todos os tokens

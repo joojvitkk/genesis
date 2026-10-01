@@ -6,6 +6,7 @@ import { Search, ArrowUpCircle, ArrowDownCircle,
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet } from '../lib/api';
 import CustomSelect from '../components/CustomSelect';
+import BalanceHistory from '../components/BalanceHistory';
 
 export default function Auditoria() {
   const [logs, setLogs] = useState([]);
@@ -15,6 +16,7 @@ export default function Auditoria() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, pages: 1 });
   const [selectedLog, setSelectedLog] = useState(null);
+  const [tab, setTab] = useState('log'); // 'log' | 'saldo'
   const { showAlert } = useAlert();
 
   useEffect(() => {
@@ -49,6 +51,14 @@ export default function Auditoria() {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+      <nav className="flex gap-2 border-b border-gray-200 dark:border-zinc-800" role="tablist">
+        {[['log', 'Log de atividades'], ['saldo', 'Histórico de saldo']].map(([key, label]) => (
+          <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-4 py-2 text-xs font-black uppercase tracking-widest ${tab === key ? 'border-genesis-red text-genesis-red' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>{label}</button>
+        ))}
+      </nav>
+      {tab === 'saldo' ? <BalanceHistory /> : (
+      <>
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-4xl font-black text-gray-900 dark:text-white uppercase tracking-tighter">Log de Auditoria</h1>
@@ -219,6 +229,8 @@ export default function Auditoria() {
           </div>
         )}
       </AnimatePresence>
+      </>
+      )}
     </div>
   );
 }
