@@ -124,7 +124,7 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
 
         {/* métricas */}
         <div className={`mt-4 grid grid-cols-3 gap-4 ${isProjection ? 'text-xl md:text-3xl' : 'text-sm'}`}>
-          <Metric label="Jogadores" value={(clock.actual_players ?? 0).toLocaleString('pt-BR')} projection={isProjection} />
+          <Metric label="Entradas" value={(clock.actual_players ?? 0).toLocaleString('pt-BR')} projection={isProjection} />
           <Metric label="Stack médio" value={(clock.avg_stack ?? 0).toLocaleString('pt-BR')} projection={isProjection} />
           <Metric label="Fichas em jogo" value={(clock.total_chips_in_play ?? 0).toLocaleString('pt-BR')} projection={isProjection} />
         </div>

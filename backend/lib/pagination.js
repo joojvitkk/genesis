@@ -24,7 +24,7 @@ function readPageParams(query = {}) {
  *   limitado ao HARD_CAP, com headers X-Total-Count / X-Total-Pages.
  * - Com ?page/?limit: responde { data, pagination }.
  */
-async function paginate(res, model, filter, { sort, populate, select, query } = {}) {
+async function paginate(res, model, filter, { sort, populate, select, query, transform } = {}) {
   const { page, limit, skip, paginated } = readPageParams(query);
 
   let q = model.find(filter);
@@ -33,7 +33,8 @@ async function paginate(res, model, filter, { sort, populate, select, query } = 
   if (populate) [].concat(populate).forEach((p) => { q = q.populate(p); });
   q = q.skip(skip).limit(limit);
 
-  const [data, total] = await Promise.all([q.exec(), model.countDocuments(filter)]);
+  const [rows, total] = await Promise.all([q.exec(), model.countDocuments(filter)]);
+  const data = transform ? await transform(rows) : rows; // ex.: anexar dados derivados à página
   const pages = Math.max(1, Math.ceil(total / limit));
 
   res.set('X-Total-Count', String(total));

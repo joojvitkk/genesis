@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DollarSign, Save, Settings, Trophy, Skull, RotateCcw } from 'lucide-react';
-import { apiGet, apiPut, apiPost, apiDelete } from '../lib/api';
+import { apiGet, apiPut, apiPost } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
-import PlayerSelect from './PlayerSelect';
+import CustomSelect from './CustomSelect';
 import PayoutTemplatesModal from './PayoutTemplatesModal';
 import { enqueue } from '../lib/offlineQueue';
 
@@ -34,7 +34,7 @@ function Stat({ label, value, accent }) {
 }
 
 export default function TournamentFinance({ tournament, canEdit, onTournamentChange }) {
-  const { showAlert, showConfirm } = useAlert();
+  const { showAlert, showConfirm, showPrompt } = useAlert();
   const tid = tournament._id;
   const [cfg, setCfg] = useState({
     buy_in: tournament.buy_in || 0, rake: tournament.rake || 0,
@@ -45,8 +45,7 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
   const [finance, setFinance] = useState(null);
   const [results, setResults] = useState([]);
   const [tplModal, setTplModal] = useState(false);
-  const [elimTarget, setElimTarget] = useState(null); // player being eliminated
-  const [elimBy, setElimBy] = useState(null);
+  const [elimTarget, setElimTarget] = useState(''); // id da ENTRADA a eliminar (não há cadastro de jogadores)
   const [savingCfg, setSavingCfg] = useState(false);
 
   const finalized = tournament.status === 'finalized';
@@ -91,11 +90,11 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
   const doEliminate = async () => {
     if (!elimTarget) return;
     const path = `/tournaments/${tid}/eliminations`;
-    const body = { player_id: elimTarget._id, eliminated_by: elimBy?._id || null };
+    const body = { entry_id: elimTarget };
     try {
       const fin = await apiPost(path, body);
       setFinance(fin);
-      setElimTarget(null); setElimBy(null);
+      setElimTarget('');
       await refresh();
       if (fin.tournament?.status === 'finalized') {
         showAlert('Torneio finalizado!', 'success');
@@ -104,7 +103,7 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
     } catch (e) {
       if (e.status === 0) {
         enqueue(path, body);
-        setElimTarget(null); setElimBy(null);
+        setElimTarget('');
         showAlert('Sem conexão — eliminação salva offline.', 'info');
       } else if (e.status !== 401) {
         showAlert(e.message || 'Erro ao registrar eliminação', 'error');
@@ -113,9 +112,11 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
   };
 
   const undoElim = async (elimId) => {
-    if (!(await showConfirm('Desfazer esta eliminação? O jogador volta ao torneio.'))) return;
+    // eliminações não são apagadas: cancelam-se com motivo (o registro permanece)
+    const reason = await showPrompt('Cancelar esta eliminação? A entrada volta ao jogo. Informe o motivo (obrigatório):', { title: 'Cancelar eliminação', confirmLabel: 'Cancelar eliminação' });
+    if (!reason?.trim()) return;
     try {
-      setFinance(await apiDelete(`/tournaments/${tid}/eliminations/${elimId}`));
+      setFinance(await apiPost(`/tournaments/${tid}/eliminations/${elimId}/cancel`, { reason: reason.trim() }));
       await refresh();
       onTournamentChange?.({ ...tournament, status: 'running' });
     } catch (e) {
@@ -140,7 +141,7 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <Field label="Buy-in" value={cfg.buy_in} onChange={(v) => setCfg((c) => ({ ...c, buy_in: v }))} suffix="R$" />
           <Field label="Rake (fixo/entrada)" value={cfg.rake} onChange={(v) => setCfg((c) => ({ ...c, rake: v }))} suffix="R$" />
-          <Field label="Bounty por KO" value={cfg.bounty_value} onChange={(v) => setCfg((c) => ({ ...c, bounty_value: v }))} suffix="R$" />
+          <Field label="Bounty (parte do buy-in)" value={cfg.bounty_value} onChange={(v) => setCfg((c) => ({ ...c, bounty_value: v }))} suffix="R$" />
           <Field label="Add-on (valor)" value={cfg.addon_value} onChange={(v) => setCfg((c) => ({ ...c, addon_value: v }))} suffix="R$" />
           <Field label="Add-on (fichas)" value={cfg.addon_chips} onChange={(v) => setCfg((c) => ({ ...c, addon_chips: v }))} />
           <label className="block">
@@ -172,7 +173,7 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
           <Stat label="Buy-ins" value={s.buyins} />
           <Stat label="Re-entries" value={s.reentries} />
           <Stat label="Add-ons" value={s.addons} />
-          <Stat label="Jogadores em jogo" value={finance.players_remaining} accent="text-blue-500" />
+          <Stat label="Entradas em jogo" value={finance.players_remaining} accent="text-blue-500" />
         </section>
       )}
 
@@ -205,15 +206,12 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
         {!finalized && canEdit && (
           <div className="mb-4 space-y-3 rounded-2xl bg-gray-50 p-4 dark:bg-zinc-900/60">
             <div>
-              <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-gray-400">Quem foi eliminado</span>
-              <PlayerSelect value={elimTarget} onChange={setElimTarget} placeholder="Jogador eliminado…" />
+              <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-gray-400">Qual entrada foi eliminada</span>
+              <CustomSelect
+                options={(finance?.entries_in_play || []).map((e) => ({ value: e._id, label: `${e.label} · ${e.type}` }))}
+                value={elimTarget} onChange={setElimTarget} placeholder="Entrada eliminada…"
+              />
             </div>
-            {tournament.bounty_value > 0 && (
-              <div>
-                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-gray-400">Eliminado por (ganha o bounty)</span>
-                <PlayerSelect value={elimBy} onChange={setElimBy} placeholder="Eliminador (opcional)…" />
-              </div>
-            )}
             <button
               onClick={doEliminate}
               disabled={!elimTarget}
@@ -230,11 +228,10 @@ export default function TournamentFinance({ tournament, canEdit, onTournamentCha
             <div key={r.position} className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-2.5 text-sm dark:bg-zinc-900/60">
               <span className="flex items-center gap-2">
                 <span className={`font-black tabular-nums ${r.position === 1 ? 'text-genesis-red' : 'text-gray-400'}`}>{r.position}º</span>
-                <span className="font-bold text-gray-800 dark:text-gray-100">{r.player?.name || '—'}</span>
+                <span className="font-bold text-gray-800 dark:text-gray-100">{r.label || '—'}</span>
               </span>
               <span className="flex items-center gap-3">
                 {r.prize > 0 && <span className="font-black tabular-nums text-emerald-600 dark:text-emerald-400">{brl(r.prize)}</span>}
-                {r.bounty_won > 0 && <span className="text-xs font-black text-amber-500">+{brl(r.bounty_won)} KO</span>}
                 {!finalized && canEdit && (
                   <button onClick={() => undoElim(finance?.eliminations?.find((e) => e.position === r.position)?._id)} className="text-gray-300 hover:text-genesis-red" title="Desfazer">
                     <RotateCcw size={13} />

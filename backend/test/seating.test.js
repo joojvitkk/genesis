@@ -4,7 +4,7 @@ const { connect, clearDb, disconnect, makeUser } = require('./helpers');
 
 const request = require('supertest');
 const app = require('../app');
-const { Tournament, Player, Seat, BlindStructureTemplate } = require('../models');
+const { Tournament, Seat, BlindStructureTemplate } = require('../models');
 const S = require('../lib/seating');
 
 before(connect);
@@ -12,36 +12,36 @@ after(disconnect);
 beforeEach(clearDb);
 
 // ─── Lógica pura ────────────────────────────────────────────────────────────
-test('pickSeatForNewPlayer abre nova mesa quando todas cheias', () => {
+test('pickSeatForNewEntry abre nova mesa quando todas cheias', () => {
   const tables = S.buildTables(
-    Array.from({ length: 9 }, (_, i) => ({ table_number: 1, seat_number: i + 1, player_id: 'p' + i })),
+    Array.from({ length: 9 }, (_, i) => ({ table_number: 1, seat_number: i + 1, entry_id: 'p' + i })),
     9
   );
-  const spot = S.pickSeatForNewPlayer(tables, 9);
+  const spot = S.pickSeatForNewEntry(tables, 9);
   assert.equal(spot.table_number, 2);
 });
 
-test('pickSeatForNewPlayer equilibra pela mesa menos cheia', () => {
+test('pickSeatForNewEntry equilibra pela mesa menos cheia', () => {
   const docs = [
-    ...Array.from({ length: 8 }, (_, i) => ({ table_number: 1, seat_number: i + 1, player_id: 'a' + i })),
-    ...Array.from({ length: 3 }, (_, i) => ({ table_number: 2, seat_number: i + 1, player_id: 'b' + i })),
+    ...Array.from({ length: 8 }, (_, i) => ({ table_number: 1, seat_number: i + 1, entry_id: 'a' + i })),
+    ...Array.from({ length: 3 }, (_, i) => ({ table_number: 2, seat_number: i + 1, entry_id: 'b' + i })),
   ];
-  const spot = S.pickSeatForNewPlayer(S.buildTables(docs, 9), 9);
+  const spot = S.pickSeatForNewEntry(S.buildTables(docs, 9), 9);
   assert.equal(spot.table_number, 2);
 });
 
 test('suggestBalance dispara com diferença de 2+', () => {
   const docs = [
-    ...Array.from({ length: 8 }, (_, i) => ({ table_number: 1, seat_number: i + 1, player_id: 'a' + i })),
-    ...Array.from({ length: 4 }, (_, i) => ({ table_number: 2, seat_number: i + 1, player_id: 'b' + i })),
+    ...Array.from({ length: 8 }, (_, i) => ({ table_number: 1, seat_number: i + 1, entry_id: 'a' + i })),
+    ...Array.from({ length: 4 }, (_, i) => ({ table_number: 2, seat_number: i + 1, entry_id: 'b' + i })),
   ];
   const s = S.suggestBalance(S.buildTables(docs, 9), 9);
   assert.equal(s.from_table, 1);
   assert.equal(s.to_table, 2);
 
   const balanced = [
-    ...Array.from({ length: 5 }, (_, i) => ({ table_number: 1, seat_number: i + 1, player_id: 'a' + i })),
-    ...Array.from({ length: 4 }, (_, i) => ({ table_number: 2, seat_number: i + 1, player_id: 'b' + i })),
+    ...Array.from({ length: 5 }, (_, i) => ({ table_number: 1, seat_number: i + 1, entry_id: 'a' + i })),
+    ...Array.from({ length: 4 }, (_, i) => ({ table_number: 2, seat_number: i + 1, entry_id: 'b' + i })),
   ];
   assert.equal(S.suggestBalance(S.buildTables(balanced, 9), 9), null);
 });
@@ -49,8 +49,8 @@ test('suggestBalance dispara com diferença de 2+', () => {
 test('breakableTables sugere quebrar a menor quando cabe em uma mesa a menos', () => {
   // 7 + 2 = 9 cabe numa única mesa 9-max → quebra a mesa 2
   const canBreak = [
-    ...Array.from({ length: 7 }, (_, i) => ({ table_number: 1, seat_number: i + 1, player_id: 'a' + i })),
-    ...Array.from({ length: 2 }, (_, i) => ({ table_number: 2, seat_number: i + 1, player_id: 'b' + i })),
+    ...Array.from({ length: 7 }, (_, i) => ({ table_number: 1, seat_number: i + 1, entry_id: 'a' + i })),
+    ...Array.from({ length: 2 }, (_, i) => ({ table_number: 2, seat_number: i + 1, entry_id: 'b' + i })),
   ];
   const b = S.breakableTables(S.buildTables(canBreak, 9), 9);
   assert.equal(b.length, 1);
@@ -58,8 +58,8 @@ test('breakableTables sugere quebrar a menor quando cabe em uma mesa a menos', (
 
   // 8 + 5 = 13 não cabe em uma mesa 9-max → nada a quebrar
   const cannot = [
-    ...Array.from({ length: 8 }, (_, i) => ({ table_number: 1, seat_number: i + 1, player_id: 'a' + i })),
-    ...Array.from({ length: 5 }, (_, i) => ({ table_number: 2, seat_number: i + 1, player_id: 'b' + i })),
+    ...Array.from({ length: 8 }, (_, i) => ({ table_number: 1, seat_number: i + 1, entry_id: 'a' + i })),
+    ...Array.from({ length: 5 }, (_, i) => ({ table_number: 2, seat_number: i + 1, entry_id: 'b' + i })),
   ];
   assert.deepEqual(S.breakableTables(S.buildTables(cannot, 9), 9), []);
 });
@@ -78,19 +78,16 @@ async function H(role = 'salao') {
   return { Authorization: `Bearer ${token}` };
 }
 
-test('inscrição senta o jogador; eliminação libera o lugar', async () => {
+test('inscrição senta a ENTRADA; eliminação libera o lugar', async () => {
   const h = await H();
   const t = await Tournament.create({ name: 'T', date: new Date(), status: 'running', seats_per_table: 9, buy_in: 100 });
-  const players = await Promise.all(['A', 'B', 'C'].map((n) => Player.create({ name: n })));
-
-  for (const p of players) {
-    await request(app).post(`/api/tournaments/${t._id}/entries`).set(h).send({ type: 'buy-in', player_id: p._id });
-  }
+  const entries = [];
+  for (let i = 0; i < 3; i++) entries.push((await request(app).post(`/api/tournaments/${t._id}/entries`).set(h).send({ type: 'buy-in' })).body);
   let view = (await request(app).get(`/api/tournaments/${t._id}/seating`).set(h)).body;
   assert.equal(view.total_seated, 3);
   assert.equal(view.tables[0].count, 3);
 
-  await request(app).post(`/api/tournaments/${t._id}/eliminations`).set(h).send({ player_id: players[2]._id });
+  await request(app).post(`/api/tournaments/${t._id}/eliminations`).set(h).send({ entry_id: entries[2]._id });
   view = (await request(app).get(`/api/tournaments/${t._id}/seating`).set(h)).body;
   assert.equal(view.total_seated, 2);
 });
@@ -98,10 +95,7 @@ test('inscrição senta o jogador; eliminação libera o lugar', async () => {
 test('12 inscritos com mesa de 9 abrem uma 2ª mesa; redraw reequilibra', async () => {
   const h = await H();
   const t = await Tournament.create({ name: 'T', date: new Date(), status: 'running', seats_per_table: 9, buy_in: 50 });
-  const players = await Promise.all(Array.from({ length: 12 }, (_, i) => Player.create({ name: 'P' + i })));
-  for (const p of players) {
-    await request(app).post(`/api/tournaments/${t._id}/entries`).set(h).send({ type: 'buy-in', player_id: p._id });
-  }
+  for (let i = 0; i < 12; i++) await request(app).post(`/api/tournaments/${t._id}/entries`).set(h).send({ type: 'buy-in' });
   let view = (await request(app).get(`/api/tournaments/${t._id}/seating`).set(h)).body;
   assert.equal(view.tables.length, 2);
   assert.equal(view.total_seated, 12);
@@ -112,7 +106,7 @@ test('12 inscritos com mesa de 9 abrem uma 2ª mesa; redraw reequilibra', async 
 });
 
 test('CRUD de template de blinds', async () => {
-  const h = await H();
+  const h = await H('admin');
   const rows = [{ row_type: 'level', level: 1, small_blind: 25, big_blind: 50, duration: 20 }];
   const created = await request(app).post('/api/blind-templates').set(h).send({ name: 'Turbo', rows });
   assert.equal(created.status, 201);

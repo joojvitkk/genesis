@@ -24,11 +24,14 @@ export default function Usuarios() {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'salao'
+    role: 'salao',
+    allowed_tournament_ids: []
   });
+  const [tournaments, setTournaments] = useState([]); // para o escopo por torneio (G11)
 
   useEffect(() => {
     fetchUsers();
+    apiGet('/tournaments').then((t) => setTournaments(Array.isArray(t) ? t : t?.data || [])).catch(() => {});
   }, []);
 
   const fetchUsers = async () => {
@@ -50,7 +53,7 @@ export default function Usuarios() {
       return showAlert('As senhas não coincidem', 'error');
     }
 
-    const payload = { name: form.name, email: form.email, role: form.role };
+    const payload = { name: form.name, email: form.email, role: form.role, allowed_tournament_ids: form.role === 'admin' ? [] : form.allowed_tournament_ids };
     if (form.password) payload.password = form.password;
 
     try {
@@ -75,7 +78,8 @@ export default function Usuarios() {
       email: user.email || user.username || '',
       role: user.role,
       password: '',
-      confirmPassword: ''
+      confirmPassword: '',
+      allowed_tournament_ids: (user.allowed_tournament_ids || []).map(String),
     });
     setIsModalOpen(true);
   };
@@ -157,7 +161,7 @@ export default function Usuarios() {
             />
           </div>
           <button 
-            onClick={() => { setEditingUser(null); setForm({name:'', email:'', password:'', confirmPassword:'', role:'salao'}); setIsModalOpen(true); }}
+            onClick={() => { setEditingUser(null); setForm({name:'', email:'', password:'', confirmPassword:'', role:'salao', allowed_tournament_ids: []}); setIsModalOpen(true); }}
             className="px-6 py-3 bg-genesis-red text-white font-black uppercase text-xs rounded-2xl shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all flex items-center justify-center gap-2"
           >
             <UserPlus size={16}/> Novo Usuário
@@ -305,6 +309,23 @@ export default function Usuarios() {
                       ))}
                     </div>
                   </div>
+
+                  {form.role !== 'admin' && tournaments.length > 0 && (
+                    <fieldset data-testid="tournament-scope">
+                      <legend className="text-[10px] font-black text-gray-400 uppercase mb-2 block tracking-widest">Torneios permitidos</legend>
+                      <p className="mb-2 text-[11px] text-gray-400">Nenhum marcado = acessa todos os torneios. Marcando, só enxerga e opera os escolhidos.</p>
+                      <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-gray-100 p-2 dark:border-zinc-800">
+                        {tournaments.map((t) => (
+                          <label key={t._id} className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                            <input
+                              type="checkbox" checked={form.allowed_tournament_ids.includes(t._id)}
+                              onChange={(e) => setForm({ ...form, allowed_tournament_ids: e.target.checked ? [...form.allowed_tournament_ids, t._id] : form.allowed_tournament_ids.filter((id) => id !== t._id) })}
+                            /> {t.name}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  )}
                 </div>
 
                 <button type="submit" className="w-full py-4 bg-genesis-red text-white font-black uppercase text-xs rounded-2xl hover:opacity-90 transition-all shadow-xl shadow-red-500/20 flex items-center justify-center gap-2">

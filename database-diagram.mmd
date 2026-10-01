@@ -1,164 +1,215 @@
 erDiagram
+  %% Genesis — modelo de dados após o roadmap G0–G11.
+  %% Hierarquia: Ficha → Modelo de Fichário → Fichário físico. NENHUMA quantidade é gravada:
+  %% saldos (fichário, em jogo, divergência) são DERIVADOS de Movement (Σ to − Σ from).
 
   User {
     ObjectId _id PK
-    String   name "required"
-    String   email "required, unique"
-    String   password "hashed, bcrypt"
+    String   name
+    String   email "unique"
+    String   password "bcrypt"
     String   role "admin | material | salao"
-    String   created_by
-    Date     createdAt
-    Date     updatedAt
+    ObjectId allowed_tournament_ids "escopo por torneio (vazio = todos)"
+    Number   session_version
   }
 
-  ChipModel {
+  Chip {
     ObjectId _id PK
-    String   name "required"
-    Number   value "required – denomination"
-    String   color "hex color"
-    Number   total_quantity "required"
-    Number   available_quantity
-    Date     createdAt
-    Date     updatedAt
+    Number   value "valor NOMINAL (a ficha jamais tem valor monetário)"
+    String   color "hex"
+    Boolean  active
+    String   name "derivado"
   }
 
-  StackModel {
+  BinderModel {
     ObjectId _id PK
-    String   name "required"
-    Number   total_value "calculated"
-    String   notes
-    Date     createdAt
-    Date     updatedAt
+    String   name
   }
-
-  StackModel_Composition {
-    ObjectId stack_model_id FK
-    ObjectId chip_id FK
-    Number   quantity "required"
-  }
-
-  ChipCase {
-    ObjectId _id PK
-    String   name "required"
-    String   status "available | allocated | maintenance"
-    String   allocated_to_tournament "Tournament _id (string)"
-    String   allocated_to_tournament_name
-    Date     createdAt
-    Date     updatedAt
-  }
-
-  ChipCase_Chips {
-    ObjectId chip_case_id FK
+  BinderModel_Composition {
+    ObjectId binder_model_id FK
     ObjectId chip_id FK
     Number   quantity
   }
 
+  Binder {
+    ObjectId _id PK
+    String   name
+    String   code
+    ObjectId model_id FK
+    String   status "available | allocated | maintenance (derivado, exceto manutenção)"
+  }
+
+  Movement {
+    ObjectId _id PK "IMUTÁVEL"
+    String   type "ASSEMBLY WITHDRAWAL ADJUSTMENT LOSS FOUND RECOVERY REVERSAL SEND_* RETURN CHIP_RACE_* COLOR_UP_* DISCARD"
+    ObjectId chip_id FK
+    Number   quantity "> 0"
+    Object   from "kind: external | binder | lost | play + id"
+    Object   to "idem"
+    ObjectId binder_id FK
+    ObjectId tournament_id FK
+    ObjectId session_id FK
+    ObjectId batch_id "lote gravado junto"
+    ObjectId reverses FK "estorno → original (único)"
+    String   reason
+    Object   meta "occurrence_id…"
+    String   user_name
+    Date     createdAt
+  }
+
+  BalanceLock {
+    String _id PK "kind:id:chip — serializa lançamentos concorrentes"
+  }
+
+  Event {
+    ObjectId _id PK
+    String   name
+    Date     start_date
+    Date     end_date
+  }
+
   Tournament {
     ObjectId _id PK
-    String   name "required"
-    Date     date "required"
-    String   start_time
-    String   status "scheduled | running | paused | finished"
-    Number   estimated_players
-    Number   actual_players
-    Number   starting_stack "derived from StackModel"
-    ObjectId stack_model_id FK "ref StackModel"
-    Number   current_level
-    String   notes
-    Date     createdAt
-    Date     updatedAt
+    ObjectId event_id FK
+    Number   number
+    String   name
+    Date     date
+    String   status "scheduled | running | paused | finished | finalized"
+    ObjectId stack_model_id FK "modelo padrão"
+    Number   buy_in
+    Number   bounty_value
+    Date     deleted_at "soft delete"
   }
 
-  Tournament_BlindStructure {
+  TournamentSession {
+    ObjectId _id PK
     ObjectId tournament_id FK
-    Number   level
-    Number   small_blind
-    Number   big_blind
-    Number   ante
-    Number   duration "minutes"
+    String   name "Dia 1A, Dia Final…"
+    String   status "scheduled | running | finished"
   }
 
-  Tournament_AllocatedCases {
-    ObjectId tournament_id FK
-    ObjectId chip_case_id FK
+  StackModel {
+    ObjectId _id PK
+    String   name
+    Object   actions "buy_in, re_entry, add_on…"
   }
-
-  Tournament_StackComposition {
-    ObjectId tournament_id FK
+  StackModel_Composition {
+    ObjectId stack_model_id FK
     ObjectId chip_id FK
-    Number   per_player "chips per player"
+    Object   quantities "por ação"
+  }
+
+  Allocation {
+    ObjectId _id PK
+    ObjectId binder_id FK
+    ObjectId tournament_id FK
+    String   status "planned | active | released"
+    Boolean  open
+  }
+  Allocation_Chips {
+    ObjectId allocation_id FK
+    ObjectId chip_id FK
+    Number   quantity "TETO do envio"
+  }
+
+  Conversion {
+    ObjectId _id PK
+    ObjectId tournament_id FK
+    String   type "CHIP_RACE | COLOR_UP"
+    Number   value_out
+    Number   value_in
+    Number   math_breakage "value_in − value_out (não é perda)"
+    ObjectId movement_batch_id
+    String   status "active | reversed"
+  }
+
+  Occurrence {
+    ObjectId _id PK
+    String   kind "LOSS | SURPLUS"
+    String   scope "binder | tournament"
+    ObjectId chip_id FK
+    ObjectId binder_id FK
+    ObjectId tournament_id FK
+    Number   expected
+    Number   counted
+    String   severity "GREEN | YELLOW | RED"
+    String   status "open justified partially_recovered recovered closed voided"
+    Object   history "trilha completa"
   }
 
   TournamentEntry {
     ObjectId _id PK
-    ObjectId tournament_id FK "required – ref Tournament"
-    String   type "buy-in | re-entry"
-    ObjectId stack_model_id FK "ref StackModel"
-    String   player_name
-    Date     timestamp
-    Date     createdAt
-    Date     updatedAt
+    ObjectId tournament_id FK
+    ObjectId session_id FK
+    Number   number "Entrada #n (sequência do torneio)"
+    String   type "buy-in | re-entry | add-on"
+    String   status "active | cancelled (com motivo)"
   }
 
-  ChipRace {
+  Elimination {
     ObjectId _id PK
-    ObjectId tournament_id FK "required – ref Tournament"
-    String   type "chip-race | color-up"
-    Number   active_tables "required"
-    Number   num_players
-    Number   chips_per_player
-    ObjectId from_chip FK "required – ref ChipModel"
-    Number   from_quantity "calculated: num_players x chips_per_player"
-    ObjectId to_chip FK "required – ref ChipModel"
-    Number   to_quantity "calculated"
-    Number   total_value "calculated"
-    String   status "confirmed | cancelled"
-    Date     createdAt
-    Date     updatedAt
+    ObjectId tournament_id FK
+    ObjectId entry_id FK "a ENTRADA eliminada"
+    Number   position
+    String   status "active | cancelled (com motivo)"
   }
 
-  ActivityLog {
+  Seat {
     ObjectId _id PK
-    String   action "required"
-    String   category "inventory | tournament | chip_race | chip_case | system"
-    String   details
-    String   user_name
-    String   user_email
-    String   related_id
-    Date     createdAt
-    Date     updatedAt
+    ObjectId tournament_id FK
+    ObjectId session_id FK
+    ObjectId entry_id FK "quem ocupa o lugar: a ENTRADA"
   }
 
+  PayoutTemplate {
+    ObjectId _id PK
+    String   name
+  }
+  BlindStructureTemplate {
+    ObjectId _id PK
+    String   name
+  }
+  Setting {
+    String key PK "severity (semáforo)"
+    Object value
+  }
   ChatMessage {
     ObjectId _id PK
-    String   message "required"
-    String   sender_name
-    String   sender_email
-    String   sender_role "admin | material | salao"
-    String   channel "general | material | salao"
+    String   channel
     Boolean  is_urgent
-    Date     createdAt
-    Date     updatedAt
+  }
+  ActivityLog {
+    ObjectId _id PK
+    String   category
+    String   action
+    String   user_name
   }
 
-  %% ── Relacionamentos ────────────────────────────────────────────
-
-  StackModel              ||--o{ StackModel_Composition      : "tem composição"
-  ChipModel               ||--o{ StackModel_Composition      : "usado em"
-
-  ChipCase                ||--o{ ChipCase_Chips              : "contém fichas"
-  ChipModel               ||--o{ ChipCase_Chips              : "presente em"
-
-  Tournament              }o--o| StackModel                  : "modelo de stack"
-  Tournament              ||--o{ Tournament_BlindStructure   : "estrutura de blinds"
-  Tournament              ||--o{ Tournament_AllocatedCases   : "maletas alocadas"
-  ChipCase                ||--o{ Tournament_AllocatedCases   : "alocada em"
-  Tournament              ||--o{ Tournament_StackComposition : "composição do stack"
-  ChipModel               ||--o{ Tournament_StackComposition : "compõe stack"
-
-  Tournament              ||--o{ TournamentEntry             : "inscrições"
-  StackModel              ||--o{ TournamentEntry             : "modelo aplicado"
-
-  Tournament              ||--o{ ChipRace                    : "chip races"
-  ChipModel               ||--o{ ChipRace                    : "from_chip"
-  ChipModel               ||--o{ ChipRace                    : "to_chip"
+  BinderModel ||--o{ BinderModel_Composition : "composição"
+  Chip ||--o{ BinderModel_Composition : ""
+  BinderModel ||--o{ Binder : "segue"
+  Binder ||--o{ Movement : "saldo = Σ movimentos"
+  Chip ||--o{ Movement : ""
+  Tournament ||--o{ Movement : "em jogo"
+  Movement ||--o| Movement : "estorno (reverses)"
+  Event ||--o{ Tournament : ""
+  Tournament ||--o{ TournamentSession : "sessões"
+  Tournament }o--o| StackModel : "modelo padrão"
+  StackModel ||--o{ StackModel_Composition : ""
+  Chip ||--o{ StackModel_Composition : ""
+  Binder ||--o{ Allocation : ""
+  Tournament ||--o{ Allocation : "reserva (teto de envio)"
+  Allocation ||--o{ Allocation_Chips : ""
+  Chip ||--o{ Allocation_Chips : ""
+  Tournament ||--o{ Conversion : "chip race / color up"
+  Chip ||--o{ Occurrence : ""
+  Binder ||--o{ Occurrence : "divergência de fichário"
+  Tournament ||--o{ Occurrence : "divergência em jogo"
+  Occurrence ||--o{ Movement : "LOSS / FOUND / RECOVERY (meta.occurrence_id)"
+  Tournament ||--o{ TournamentEntry : ""
+  TournamentSession ||--o{ TournamentEntry : ""
+  Tournament ||--o{ Elimination : ""
+  TournamentEntry ||--o| Elimination : "eliminada"
+  Tournament ||--o{ Seat : ""
+  TournamentEntry ||--o| Seat : "ocupa"
+  User }o--o{ Tournament : "allowed_tournament_ids"

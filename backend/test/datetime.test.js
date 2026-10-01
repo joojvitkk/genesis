@@ -22,7 +22,7 @@ test('computeStartsAt usa 00:00 quando não há horário', () => {
 });
 
 test('POST /tournaments deriva starts_at', async () => {
-  const { token } = await makeUser('salao');
+  const { token } = await makeUser('admin');
   const res = await request(app).post('/api/tournaments').set('Authorization', `Bearer ${token}`)
     .send({ name: 'X', date: '2026-10-01', start_time: '20:00', timezone: 'America/Sao_Paulo' });
   assert.equal(res.status, 201);
@@ -30,7 +30,7 @@ test('POST /tournaments deriva starts_at', async () => {
 });
 
 test('trava otimista: blind_version desatualizado → 409', async () => {
-  const { token } = await makeUser('salao');
+  const { token } = await makeUser('admin');
   const H = { Authorization: `Bearer ${token}` };
   const t = await Tournament.create({ name: 'X', date: new Date() });
 

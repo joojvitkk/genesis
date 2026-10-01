@@ -102,7 +102,7 @@ export default function PayoutTemplatesModal({ open, onClose, onChanged }) {
                       <input type="number" min="1" value={b.min_players} onChange={(e) => updBracket(bi, { min_players: Number(e.target.value) })} className="w-16 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-center dark:border-zinc-700 dark:bg-zinc-900" />
                       <span>até</span>
                       <input type="number" min="1" placeholder="∞" value={b.max_players ?? ''} onChange={(e) => updBracket(bi, { max_players: e.target.value === '' ? null : Number(e.target.value) })} className="w-16 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-center dark:border-zinc-700 dark:bg-zinc-900" />
-                      <span>jogadores</span>
+                      <span>entradas</span>
                       <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-black ${Math.abs(bracketTotal(b) - 100) < 0.5 ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500'}`}>{bracketTotal(b)}%</span>
                       {form.brackets.length > 1 && <button onClick={() => setForm((f) => ({ ...f, brackets: f.brackets.filter((_, i) => i !== bi) }))} className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>}
                     </div>

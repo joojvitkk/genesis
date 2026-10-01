@@ -14,6 +14,8 @@ async function connect() {
       socketTimeoutMS: 20000,
       maxPoolSize: 5,
     });
+    // o banco de teste é persistente: descarta índices antigos (ex.: Seat sem sessão, pré-G4) e cria os atuais
+    await require('../models').Seat.syncIndexes();
   }
 }
 
@@ -46,4 +48,27 @@ async function makeUser(role = 'admin', overrides = {}) {
   return { user, token: tokenFor(user) };
 }
 
-module.exports = { connect, clearDb, disconnect, tokenFor, makeUser, TEST_URI };
+/** Cria uma ficha (cadastro mestre, sem quantidade). */
+async function makeChip({ value = 25, color = '#ff0000' } = {}) {
+  const { Chip } = require('../models');
+  return new Chip({ value, color }).save();
+}
+
+/**
+ * Cria um fichário físico e o MONTA (ASSEMBLY externo → fichário) com `content`:
+ * [{ chip, quantity }]. O estoque físico só existe por movimentação.
+ */
+async function makeBinder(name = 'Maleta', content = [], extra = {}) {
+  const { Binder } = require('../models');
+  const { postBatch } = require('../lib/movements');
+  const binder = await new Binder({ name, ...extra }).save();
+  if (content.length) {
+    await postBatch(content.map(({ chip, quantity }) => ({
+      type: 'ASSEMBLY', chip_id: chip._id, quantity, reason: 'Montagem inicial',
+      from: { kind: 'external' }, to: { kind: 'binder', id: binder._id },
+    })), { user: { name: 'Teste' } });
+  }
+  return Binder.findById(binder._id);
+}
+
+module.exports = { connect, clearDb, disconnect, tokenFor, makeUser, makeChip, makeBinder, TEST_URI };

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
 import { Trophy, Coins, Briefcase, Activity, PlayCircle, CheckCircle2, Clock, PlusCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { apiGet } from '../lib/api';
+import { useDashboard } from '../lib/useDashboard';
+import { AlertStrip, ChipSummary, BinderMatrix, InPlayPanel, FlowsPanel, OccurrencePanel, ConflictsPanel, Timeline } from '../components/DashboardPanels';
 
 function formatTimeAgo(dateString) {
   const diff = Date.now() - new Date(dateString).getTime();
@@ -60,34 +60,17 @@ const cardAnim = {
 };
 
 export default function Dashboard() {
-  const [data, setData] = useState({
-    metrics: { activeTournamentsCount: 0, totalChipsInStock: 0, availableCases: 0, chipRacesToday: 0 },
-    recentTournaments: [],
-    recentActivities: []
-  });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setData(await apiGet('/dashboard/stats'));
-      } catch (e) {
-        if (e.status !== 401) console.error('Error fetching dashboard data:', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const { metrics, recentTournaments, recentActivities } = data;
+  // Tudo vem dos MOVIMENTOS (GET /dashboard/stats); o painel refaz só o bloco afetado por cada evento em tempo real.
+  const { data, loading } = useDashboard();
+  const metrics = data.metrics || { activeTournamentsCount: 0, totalChipsInStock: 0, stockValue: 0, availableCases: 0, chipsInPlay: 0, chipRacesToday: 0 };
+  const recentTournaments = data.recentTournaments || [];
+  const recentActivities = data.recentActivities || [];
 
   const SUMMARY_METRICS = [
     { label: 'Torneios Ativos', value: metrics.activeTournamentsCount, icon: <Trophy size={24} />, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-500/10', border: 'border-emerald-200 dark:border-emerald-500/20' },
-    { label: 'Fichas no Estoque', value: metrics.totalChipsInStock.toLocaleString('pt-BR'), icon: <Coins size={24} />, color: 'text-genesis-red', bg: 'bg-red-50 dark:bg-genesis-red/10', border: 'border-red-200 dark:border-genesis-red/20' },
-    { label: 'Valor em Fichas', value: (metrics.stockValue || 0).toLocaleString('pt-BR'), icon: <Activity size={24} />, color: 'text-violet-500', bg: 'bg-violet-50 dark:bg-violet-500/10', border: 'border-violet-200 dark:border-violet-500/20' },
+    { label: 'Fichas nos Fichários', value: (metrics.totalChipsInStock || 0).toLocaleString('pt-BR'), icon: <Coins size={24} />, color: 'text-genesis-red', bg: 'bg-red-50 dark:bg-genesis-red/10', border: 'border-red-200 dark:border-genesis-red/20' },
+    { label: 'Fichas em Jogo', value: (metrics.chipsInPlay || 0).toLocaleString('pt-BR'), icon: <PlayCircle size={24} />, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-500/10', border: 'border-teal-200 dark:border-teal-500/20' },
+    { label: 'Valor em Fichários', value: (metrics.stockValue || 0).toLocaleString('pt-BR'), icon: <Activity size={24} />, color: 'text-violet-500', bg: 'bg-violet-50 dark:bg-violet-500/10', border: 'border-violet-200 dark:border-violet-500/20' },
     { label: 'Fichários Livres', value: metrics.availableCases, icon: <Briefcase size={24} />, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10', border: 'border-blue-200 dark:border-blue-500/20' },
     { label: 'Chip Races Hoje', value: metrics.chipRacesToday, icon: <Activity size={24} />, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-500/10', border: 'border-amber-200 dark:border-amber-500/20' }
   ];
@@ -102,11 +85,13 @@ export default function Dashboard() {
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <h1 className="text-3xl md:text-4xl font-extrabold mb-2 text-gray-900 dark:text-white">Dashboard Overview</h1>
-        <p className="text-gray-500 dark:text-gray-400">Visão macro do ecossistema Genesis em tempo real.</p>
+        <p className="text-gray-500 dark:text-gray-400">Onde estão as fichas e o que acontece agora — calculado das movimentações, em tempo real.</p>
       </motion.div>
 
+      <AlertStrip occurrences={data.occurrences} conflicts={data.conflicts} />
+
       {/* Top Metrics Cards */}
-      <motion.div variants={containerAnim} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-5">
+      <motion.div variants={containerAnim} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 md:gap-5">
         {SUMMARY_METRICS.map((metric, idx) => (
           <motion.div variants={cardAnim} key={idx} className={`bg-white dark:bg-[#141414] p-6 rounded-3xl border ${metric.border} shadow-sm hover:shadow-lg transition-shadow`}>
             <div className="flex items-center justify-between mb-4">
@@ -121,6 +106,23 @@ export default function Dashboard() {
           </motion.div>
         ))}
       </motion.div>
+
+      <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Onde estão as fichas?</h2>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <ChipSummary inventory={data.inventory} />
+        <InPlayPanel inPlay={data.in_play} />
+      </div>
+      <BinderMatrix matrix={data.inventory?.matrix} />
+
+      <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">O que acontece agora?</h2>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <FlowsPanel flows={data.flows} />
+        <div className="space-y-6">
+          <OccurrencePanel occurrences={data.occurrences} />
+          <ConflictsPanel conflicts={data.conflicts} />
+        </div>
+      </div>
+      <Timeline items={data.timeline} />
 
       {/* Split Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

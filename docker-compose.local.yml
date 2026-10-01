@@ -1,0 +1,10 @@
+# Override LOCAL (não versionar): a porta 3000 desta máquina está ocupada por outro projeto (minhaentrega-backend).
+# Uso: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+services:
+  genesis-backend:
+    ports: !override
+      - "3001:3000"
+  genesis-frontend:
+    environment:
+      - VITE_PORT=5173
+      - VITE_BACKEND_URL=http://localhost:3001

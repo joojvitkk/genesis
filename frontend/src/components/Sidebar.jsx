@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Package, Briefcase, Trophy, Coins,
   MessageSquare, Layers, BarChart, MonitorPlay, ClipboardList,
-  Users, UserCheck, BookOpen, X, LogOut, KeyRound, ShieldOff, Sun, Moon, ChevronRight
+  Users, BookOpen, ShieldAlert, Boxes, CalendarRange, X, LogOut, KeyRound, ShieldOff, Sun, Moon, ChevronRight
 } from 'lucide-react';
 import { can } from '../config';
 import { useAlert } from '../contexts/AlertContext';
@@ -12,12 +12,14 @@ import { useT } from '../lib/i18n.jsx';
 // `area` refere-se à matriz de permissões em config.js (PERMISSIONS)
 const NAV_ITEMS = [
   { to: '/dashboard',    icon: LayoutDashboard, key: 'nav.dashboard',    area: 'dashboard' },
-  { to: '/salao',        icon: MonitorPlay,     key: 'nav.salao',        area: 'torneios' },
+  { to: '/salao',        icon: MonitorPlay,     key: 'nav.salao',        area: 'mesas' },
+  { to: '/eventos',      icon: CalendarRange,   key: 'nav.eventos',      area: 'torneios' },
   { to: '/torneios',     icon: Trophy,          key: 'nav.torneios',     area: 'torneios' },
-  { to: '/jogadores',    icon: UserCheck,       key: 'nav.jogadores',    area: 'torneios' },
   { to: '/chip-race',    icon: Coins,           key: 'nav.chipRace',     area: 'chip_race' },
   { to: '/estoque',      icon: Package,         key: 'nav.estoque',      area: 'estoque' },
   { to: '/livro-estoque',icon: BookOpen,        key: 'nav.livroEstoque', area: 'estoque' },
+  { to: '/ocorrencias',  icon: ShieldAlert,     key: 'nav.ocorrencias',  area: 'estoque' },
+  { to: '/modelos-ficharios', icon: Boxes,      key: 'nav.modelosFicharios', area: 'ficharios' },
   { to: '/ficharios',    icon: Briefcase,       key: 'nav.ficharios',    area: 'ficharios' },
   { to: '/chat',         icon: MessageSquare,   key: 'nav.chat',         area: 'chat' },
   { to: '/modelos-stack',icon: Layers,          key: 'nav.stacks',       area: 'modelos_stack' },
