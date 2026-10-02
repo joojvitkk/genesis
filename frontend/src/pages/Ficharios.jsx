@@ -1,25 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, Plus, Trash2, Edit2, X, AlertCircle, Link2, PackageCheck, PackagePlus, Boxes, Grid3x3 } from 'lucide-react';
+import { Briefcase, Plus, Trash2, X, Link2, PackageCheck, PackagePlus, Boxes, Grid3x3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
-import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
+import { apiGet, apiPost } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 import CustomSelect from '../components/CustomSelect';
 import AllocationMatrix from '../components/AllocationMatrix';
 
 export default function Ficharios() {
-  const { showAlert, showConfirm } = useAlert();
+  const { showAlert } = useAlert();
   // Criar/editar/excluir fichário é cadastro estrutural: só admin (o backend também barra).
   const isAdmin = getStoredUser()?.role === 'admin';
   const [cases, setCases] = useState([]);
   const [availableChips, setAvailableChips] = useState([]);
-  const [binderModels, setBinderModels] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingCase, setEditingCase] = useState(null);
   // O CONTEÚDO do fichário não é digitado: é derivado das movimentações (montagem, retiradas, conferências).
-  const [form, setForm] = useState({ name: '', code: '', model_id: '', assemble_now: true });
 
   // Montagem (admin): lança ASSEMBLY no fichário
   const [assembleCase, setAssembleCase] = useState(null);
@@ -69,10 +65,9 @@ export default function Ficharios() {
 
   const fetchInitialData = async () => {
     try {
-      const [casesData, chipsData, modelsData] = await Promise.all([apiGet('/binders'), apiGet('/chips'), apiGet('/binder-models')]);
+      const [casesData, chipsData] = await Promise.all([apiGet('/binders'), apiGet('/chips')]);
       setCases(casesData);
       setAvailableChips(chipsData);
-      setBinderModels(modelsData);
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao carregar fichários', 'error');
     } finally {
@@ -81,32 +76,6 @@ export default function Ficharios() {
   };
 
   useEffect(() => { fetchInitialData(); }, []);
-
-  // ── SAVE CASE ────────────────────────────────────────────────
-  const handleSaveCase = async (e) => {
-    e.preventDefault();
-    if (!form.name.trim()) return showAlert('Informe o nome do fichário.', 'error');
-
-    const payload = { name: form.name.trim(), code: form.code.trim(), model_id: form.model_id || null };
-    try {
-      if (editingCase) {
-        await apiPut(`/binders/${editingCase._id}`, payload);
-        showAlert('Fichário salvo com sucesso!', 'success');
-      } else {
-        const created = await apiPost('/binders', payload);
-        if (form.model_id && form.assemble_now) {
-          await apiPost(`/binders/${created._id}/assemble`, { from_model: true });
-          showAlert('Fichário criado e montado a partir do modelo!', 'success');
-        } else {
-          showAlert('Fichário criado (vazio). Use "Montar" para lançar as fichas.', 'success');
-        }
-      }
-      setIsModalOpen(false);
-      await fetchInitialData();
-    } catch (e) {
-      if (e.status !== 401) showAlert(e.message || 'Erro ao salvar fichário', 'error');
-    }
-  };
 
   // ── MONTAGEM (ASSEMBLY) ──────────────────────────────────────
   const openAssemble = (c) => {
@@ -135,35 +104,6 @@ export default function Ficharios() {
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao montar fichário', 'error');
     }
-  };
-
-  const handleDeleteCase = async (id) => {
-    const confirmed = await showConfirm('Tem certeza que deseja excluir este fichário?');
-    if (!confirmed) return;
-    try {
-      await apiDelete(`/binders/${id}`);
-      showAlert('Fichário excluído', 'success');
-      await fetchInitialData();
-    } catch (e) {
-      if (e.status !== 401) showAlert(e.message || 'Erro ao excluir fichário', 'error');
-    }
-  };
-
-  const openCreateModal = () => {
-    setEditingCase(null);
-    setForm({ name: '', code: '', model_id: '', assemble_now: true });
-    setIsModalOpen(true);
-  };
-
-  const openEditModal = (c) => {
-    setEditingCase(c);
-    setForm({ name: c.name, code: c.code || '', model_id: c.model_id?._id || c.model_id || '', assemble_now: false });
-    setIsModalOpen(true);
-  };
-
-  const selectModel = (modelId) => {
-    const model = binderModels.find((m) => m._id === modelId);
-    setForm({ ...form, model_id: modelId || '', name: !editingCase && model && !form.name ? model.name : form.name });
   };
 
   const chipOptions = () => availableChips
@@ -198,13 +138,8 @@ export default function Ficharios() {
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl md:text-4xl font-extrabold mb-1 text-gray-900 dark:text-white">Fichários físicos</h1>
-          <p className="text-gray-500 dark:text-gray-400">Cada fichário é uma unidade real, criada a partir de um modelo. O estoque fica separado por fichário.</p>
+          <p className="text-gray-500 dark:text-gray-400">O Modelo de Fichário é o próprio fichário: cadastre-o em Modelos de Fichário. Aqui você monta, confere e acompanha o estoque de cada um.</p>
         </div>
-        {isAdmin && (
-          <button onClick={openCreateModal} className="w-full md:w-auto px-6 py-3 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 transition-all flex justify-center items-center gap-2 shadow-lg shadow-red-500/20">
-            <Plus size={18} /> Novo Fichário
-          </button>
-        )}
       </motion.div>
 
       {loading ? (
@@ -254,10 +189,6 @@ export default function Ficharios() {
                     {c.chips.length > 0 && (
                       <button onClick={() => setCountCase(c)} title="Conferência física" className="p-2 text-gray-400 hover:text-genesis-red bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><PackageCheck size={16} /></button>
                     )}
-                    {isAdmin && <button onClick={() => openEditModal(c)} title="Editar" className="p-2 text-gray-400 hover:text-blue-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Edit2 size={16} /></button>}
-                    {isAdmin && c.status !== 'allocated' && allocs.length === 0 && (
-                      <button onClick={() => handleDeleteCase(c._id)} className="p-2 text-gray-400 hover:text-red-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Trash2 size={16} /></button>
-                    )}
                   </div>
                 </div>
 
@@ -297,99 +228,6 @@ export default function Ficharios() {
           })}
         </motion.div>
       )}
-
-      {/* ── Modal Criar/Editar ──────────────────────────────────── */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
-            onClick={() => setIsModalOpen(false)}
-          >
-            <div className="min-h-full flex items-center justify-center">
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.95, opacity: 0, y: 20 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.4 }}
-                onClick={(e) => e.stopPropagation()}
-                className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-3xl w-full max-w-xl shadow-2xl flex flex-col relative my-8"
-              >
-                {/* Header */}
-                <div className="p-6 border-b border-gray-100 dark:border-zinc-800/50 flex justify-between items-center bg-gray-50 dark:bg-[#111111] shrink-0 rounded-t-3xl">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                    <Briefcase className="text-genesis-red" size={20} />
-                    {editingCase ? 'Editar Fichário' : 'Novo Fichário'}
-                  </h2>
-                  <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-genesis-red transition-colors"><X size={24} /></button>
-                </div>
-
-                {/* Body */}
-                <div className="p-6 overflow-y-auto flex-1 space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Identificação do fichário</label>
-                      <input
-                        type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
-                        className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white"
-                        required placeholder="Ex: LISA 1"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Código</label>
-                      <input
-                        type="text" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
-                        className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white"
-                        placeholder="Opcional"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300 flex items-center gap-2"><Boxes size={14} /> Modelo de fichário</label>
-                    <CustomSelect
-                      options={[{ value: '', label: 'Sem modelo (fichário avulso)' }, ...binderModels.map(m => ({ value: m._id, label: m.name }))]}
-                      value={form.model_id}
-                      onChange={selectModel}
-                      placeholder="Selecione o modelo..."
-                    />
-                    <p className="mt-2 text-xs text-gray-500">
-                      {editingCase
-                        ? 'O modelo é a montagem padrão; alterá-lo aqui não recompõe o conteúdo.'
-                        : 'Ao escolher um modelo, o conteúdo abaixo é preenchido com a montagem padrão. Vários fichários podem seguir o mesmo modelo.'}
-                    </p>
-                  </div>
-
-                  {!editingCase && form.model_id && (
-                    <label className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-[#111111] cursor-pointer">
-                      <input type="checkbox" checked={form.assemble_now} onChange={e => setForm({ ...form, assemble_now: e.target.checked })} className="mt-1 accent-red-600" />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">
-                        <b>Montar agora</b> com a composição do modelo.
-                        <span className="block text-xs text-gray-500 mt-0.5">Lança as fichas do modelo no fichário (uma movimentação de montagem, com histórico e estorno).</span>
-                      </span>
-                    </label>
-                  )}
-                  <p className="text-xs text-gray-500">
-                    O conteúdo do fichário não é digitado: ele vem das movimentações (montagem, retiradas, perdas e conferências).
-                  </p>
-
-                  {editingCase?.status === 'allocated' && (
-                    <div className="p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl flex gap-3 text-amber-700 dark:text-amber-500 text-sm font-medium">
-                      <AlertCircle className="shrink-0 mt-0.5" size={18} />
-                      <p>Este fichário está atualmente alocado no torneio <b>{(editingCase.allocations || []).map((a) => a.tournament_name).join(', ')}</b>. Edite as quantidades com cuidado.</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer */}
-                <div className="p-6 border-t border-gray-100 dark:border-zinc-800/50 bg-gray-50 dark:bg-[#111111] shrink-0 rounded-b-3xl">
-                  <button onClick={handleSaveCase} className="w-full py-4 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 active:scale-95 transition-all shadow-lg">
-                    Salvar Fichário
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Conferência física */}
       <AnimatePresence>

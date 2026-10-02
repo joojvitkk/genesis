@@ -432,6 +432,15 @@ router.post('/binder-models', verifyToken, requirePageAccess('ficharios'), admin
     await assertUniqueBinderModelName(name);
     const composition = await normalizeComposition(req.body?.composition);
     const model = await new BinderModel({ name, composition, notes: req.body?.notes }).save();
+    // O modelo É o fichário: nasce junto com a sua única unidade, já montada com a composição do modelo.
+    const binder = await new Binder({ name, model_id: model._id }).save();
+    if (composition.length) {
+      await postBatch(composition.map((l) => ({
+        type: 'ASSEMBLY', chip_id: l.chip_id, quantity: l.quantity,
+        from: { kind: 'external' }, to: { kind: 'binder', id: binder._id }, reason: `Montagem inicial do fichário "${name}"`,
+      })), { user: req.user });
+      req.app.get('io')?.emit('balancesChanged', { binder_id: binder._id });
+    }
     await logActivity('Modelo de Fichário Criado', 'chip_case', `Nome: ${model.name} | ${composition.length} ficha(s)`, req.user);
     res.status(201).json(await BinderModel.findById(model._id).populate('composition.chip_id'));
   } catch (err) {
@@ -448,6 +457,7 @@ router.put('/binder-models/:id', verifyToken, requirePageAccess('ficharios'), ad
       if (!name) throw new HttpError(400, 'Nome do modelo é obrigatório.');
       await assertUniqueBinderModelName(name, model._id);
       model.name = name;
+      await Binder.updateMany({ model_id: model._id }, { $set: { name } }); // o fichário acompanha o nome do modelo
     }
     if (req.body?.composition !== undefined) {
       model.composition = await normalizeComposition(req.body.composition, { keepIds: model.composition.map((l) => l.chip_id) });
@@ -465,8 +475,12 @@ router.delete('/binder-models/:id', verifyToken, requirePageAccess('ficharios'),
   try {
     const model = await BinderModel.findById(req.params.id);
     if (!model) throw new HttpError(404, 'Modelo de fichário não encontrado.');
-    const used = await Binder.countDocuments({ model_id: model._id });
-    if (used > 0) throw new HttpError(409, `${used} fichário(s) físico(s) seguem este modelo. Exclua ou desvincule-os antes.`);
+    const binders = await Binder.find({ model_id: model._id });
+    for (const b of binders) {
+      const held = (await balances({ binder_id: b._id })).filter((r) => r.quantity > 0);
+      if (held.length) throw new HttpError(409, 'Este fichário ainda tem fichas: esvazie-o (descarte/retirada) antes de excluir.');
+    }
+    for (const b of binders) await b.softDelete();
     await model.softDelete();
     await logActivity('Modelo de Fichário Excluído', 'chip_case', `ID: ${req.params.id} | Nome: ${model.name}`, req.user);
     res.json({ message: 'Modelo de fichário excluído com sucesso' });
@@ -492,6 +506,8 @@ router.get(BINDER_PATHS, verifyToken, requirePageAccess('ficharios'), async (req
 
 router.post(BINDER_PATHS, verifyToken, requirePageAccess('ficharios'), adminOnly, async (req, res) => {
   try {
+    // O modelo de fichário É o fichário: não se criam unidades avulsas (use POST /binder-models).
+    throw new HttpError(410, 'Fichários não são criados à parte: cadastre o Modelo de Fichário (ele já é o fichário).');
     const data = pick(req.body, BINDER_FIELDS);
     data.name = String(data.name || '').trim();
     if (!data.name) throw new HttpError(400, 'Nome é obrigatório.');

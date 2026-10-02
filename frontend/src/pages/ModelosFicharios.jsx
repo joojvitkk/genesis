@@ -116,7 +116,7 @@ export default function ModelosFicharios() {
         <div>
           <h1 className="text-3xl md:text-4xl font-extrabold mb-1 text-gray-900 dark:text-white">Modelos de Fichário</h1>
           <p className="text-gray-500 dark:text-gray-400">
-            Definem <b>quanto de cada ficha</b> compõe um fichário. Um modelo pode originar vários fichários físicos.
+            Definem <b>quanto de cada ficha</b> compõe um fichário. O modelo é o próprio fichário: ao cadastrá-lo ele já nasce montado com essa composição.
           </p>
         </div>
         {isAdmin && (
@@ -146,7 +146,7 @@ export default function ModelosFicharios() {
                       <Boxes className="text-genesis-red shrink-0" size={20} />
                       <span className="truncate">{m.name}</span>
                     </h3>
-                    <p className="text-xs text-gray-500">{used} fichário(s) físico(s)</p>
+                    <p className="text-xs text-gray-500">{used > 0 ? 'Fichário montado' : 'Ainda sem fichário montado'}</p>
                   </div>
                   {isAdmin && (
                     <div className="flex gap-2 shrink-0">
