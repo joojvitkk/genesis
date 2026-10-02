@@ -3,7 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import {
   Trophy, Plus, Clock,
   ChevronRight, Trash2, Edit2,
-  Play, Pause, CheckCircle2, Users,
+  Play, Pause, CheckCircle2, Users, Copy,
   Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, Minus, History, Package
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -62,6 +62,8 @@ export default function Torneios() {
   const [loading, setLoading] = useState(true);
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [duplicateOf, setDuplicateOf] = useState(null);       // torneio de origem enquanto o modal de criação é uma duplicação
+  const [copyExtra, setCopyExtra] = useState({});             // blinds/stack copiados (não aparecem no formulário)
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'logistica');
   const [blindTplOpen, setBlindTplOpen] = useState(false);
 
@@ -226,6 +228,32 @@ export default function Torneios() {
     }
   };
 
+  // Duplicar: abre o modal de criação pré-preenchido com a configuração do torneio aberto.
+  const openDuplicate = () => {
+    const t = selectedTournament;
+    const stripId = (rows) => (rows || []).map(({ _id, ...row }) => row);
+    setForm({
+      name: `${t.name} (cópia)`,
+      date: t.starts_at
+        ? new Date(t.starts_at).toLocaleDateString('en-CA', { timeZone: t.timezone || 'America/Sao_Paulo' })
+        : String(t.date || '').slice(0, 10),
+      start_time: t.start_time || '20:00',
+      estimated_players: t.estimated_players ?? 0,
+      seats_per_table: t.seats_per_table ?? 9,
+      timezone: t.timezone || 'America/Sao_Paulo',
+      stack_model_id: t.stack_model_id || '',
+      event_id: t.event_id || '',
+      number: '',
+      sessions_text: sessions.map((x) => x.name).join(', '),
+      notes: t.notes || '',
+    });
+    setCopyExtra({ stack_models: stripId(t.stack_models), blind_structure: stripId(t.blind_structure) });
+    setDuplicateOf(t);
+    setIsCreateModalOpen(true);
+  };
+
+  const closeCreateModal = () => { setIsCreateModalOpen(false); setDuplicateOf(null); setCopyExtra({}); };
+
   const handleCreateTournament = async (e) => {
     e.preventDefault();
     try {
@@ -233,11 +261,11 @@ export default function Torneios() {
       const { sessions_text, ...rest } = form;
       const names = isAdmin ? sessions_text.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) : [];
       await apiPost('/tournaments', {
-        ...rest, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
+        ...rest, ...copyExtra, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
         sessions: names.length ? names : undefined,
       });
-      showAlert('Torneio criado!', 'success');
-      setIsCreateModalOpen(false);
+      showAlert(duplicateOf ? 'Torneio duplicado!' : 'Torneio criado!', 'success');
+      closeCreateModal();
       fetchTournaments();
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao criar torneio', 'error');
@@ -382,7 +410,7 @@ export default function Torneios() {
           <p className="text-gray-500 dark:text-gray-400">Gerenciamento central de eventos e logística de fichas.</p>
         </div>
         {canManage && (
-          <button onClick={() => setIsCreateModalOpen(true)} className="px-6 py-3 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 transition-all flex items-center gap-2 shadow-lg shadow-red-500/20">
+          <button onClick={() => { setDuplicateOf(null); setCopyExtra({}); setIsCreateModalOpen(true); }} className="px-6 py-3 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 transition-all flex items-center gap-2 shadow-lg shadow-red-500/20">
             <Plus size={18} /> Novo Torneio
           </button>
         )}
@@ -508,6 +536,7 @@ export default function Torneios() {
                     {['running', 'paused'].includes(selectedTournament.status) && (
                       <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'finished' })} className="px-3 md:px-5 py-2 rounded-xl bg-gray-600 text-white font-bold text-xs flex items-center gap-1.5"><CheckCircle2 size={14} /> <span className="hidden sm:inline">Finalizar</span></button>
                     )}
+                    {canManage && <button onClick={openDuplicate} title="Duplicar torneio" className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all"><Copy size={16} /></button>}
                     {canManage && <button onClick={() => handleDeleteTournament(selectedTournament._id).then(() => setSelectedTournament(null))} title="Excluir torneio" className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"><Trash2 size={16} /></button>}
                   </div>
                 </div>
@@ -1016,7 +1045,7 @@ export default function Torneios() {
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={() => setIsCreateModalOpen(false)}
+            onClick={closeCreateModal}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
@@ -1024,8 +1053,8 @@ export default function Torneios() {
               onClick={e => e.stopPropagation()}
             >
               <div className="p-6 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-[#111111] flex justify-between items-center">
-                <h2 className="text-xl font-bold">Novo Torneio</h2>
-                <button onClick={() => setIsCreateModalOpen(false)}><X /></button>
+                <h2 className="text-xl font-bold">{duplicateOf ? 'Duplicar Torneio' : 'Novo Torneio'}</h2>
+                <button onClick={closeCreateModal}><X /></button>
               </div>
               <form onSubmit={handleCreateTournament} className="p-6 space-y-4">
                 <div className="grid grid-cols-[1fr_90px] gap-4">
