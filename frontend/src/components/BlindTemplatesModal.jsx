@@ -53,7 +53,7 @@ export default function BlindTemplatesModal({ open, onClose, currentRows = [], o
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="relative w-full max-w-lg overflow-hidden rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]"
+        className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]"
       >
         <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
           <h2 className="text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">Templates de blinds</h2>

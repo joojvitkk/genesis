@@ -1047,7 +1047,7 @@ export default function Torneios() {
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-[#141414] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+              className="bg-white dark:bg-[#141414] w-full max-w-lg rounded-3xl shadow-2xl max-h-[92dvh] overflow-y-auto"
               onClick={e => e.stopPropagation()}
             >
               <div className="p-6 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-[#111111] flex justify-between items-center">

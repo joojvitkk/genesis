@@ -177,7 +177,7 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
   return (
       <div className="min-h-screen flex bg-gray-50 dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 transition-colors duration-300">
         {pwOpen && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
             <ChangePassword onDone={(t) => { onPasswordChanged(t); setPwOpen(false); showAlert('Senha alterada.', 'success'); }} onCancel={() => setPwOpen(false)} />
           </div>
         )}

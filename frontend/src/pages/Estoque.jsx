@@ -241,7 +241,7 @@ export default function Estoque() {
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
               transition={{ type: 'spring', bounce: 0.3, duration: 0.4 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden"
+              className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-3xl w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto"
             >
               <div className="p-6 border-b border-gray-100 dark:border-zinc-800/50 flex justify-between items-center bg-gray-50 dark:bg-[#111111]">
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">{editingChip ? 'Editar Ficha' : 'Nova Ficha'}</h2>

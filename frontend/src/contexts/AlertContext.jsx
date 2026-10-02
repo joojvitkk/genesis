@@ -126,7 +126,7 @@ export const AlertProvider = ({ children }) => {
               role={dialog.kind === 'confirm' ? 'alertdialog' : 'dialog'}
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-[#141414]"
+              className="relative w-full max-w-sm max-h-[92vh] overflow-y-auto rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-[#141414]"
             >
               <div className={`absolute left-0 top-0 h-1 w-full ${tone.bar}`} />
               <button onClick={() => close(cancelResult)} className="absolute right-4 top-4 text-gray-300 hover:text-gray-500" aria-label="Fechar"><X size={18} /></button>

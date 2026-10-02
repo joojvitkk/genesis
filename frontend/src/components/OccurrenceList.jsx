@@ -30,7 +30,7 @@ function RecoverModal({ occurrence: o, binders, onClose, onDone }) {
   };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-label="Recuperar fichas">
-      <div className="w-full max-w-md space-y-4 rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-[#141414]">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto space-y-4 rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-[#141414]">
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-bold">Recuperar fichas</h3>

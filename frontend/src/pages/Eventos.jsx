@@ -142,7 +142,7 @@ export default function Eventos() {
         {modal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setModal(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-            <motion.form onSubmit={save} initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]">
+            <motion.form onSubmit={save} initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]">
               <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
                 <h2 className="text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">{editing ? 'Editar evento' : 'Novo evento'}</h2>
                 <button type="button" onClick={() => setModal(false)} className="text-gray-400 hover:text-gray-600"><X /></button>
