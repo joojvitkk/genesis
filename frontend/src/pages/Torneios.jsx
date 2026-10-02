@@ -11,7 +11,6 @@ import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import CustomSelect from '../components/CustomSelect';
 import TournamentClock from '../components/TournamentClock';
-import SeatingMap from '../components/SeatingMap';
 import SessionBar from '../components/SessionBar';
 import AllocationModal from '../components/AllocationModal';
 import MaterialPanel from '../components/MaterialPanel';
@@ -488,12 +487,6 @@ export default function Torneios() {
                       <Monitor size={13} /> Salão
                     </button>
                     <button
-                      onClick={() => setActiveTab('mesas')}
-                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'mesas' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
-                    >
-                      <Users size={13} /> Mesas
-                    </button>
-                    <button
                       onClick={() => setActiveTab('material')}
                       className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'material' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
                     >
@@ -523,7 +516,7 @@ export default function Torneios() {
               {/* Scrollable content */}
               <div className="overflow-y-auto flex-1">
 
-              {['salao', 'mesas', 'material'].includes(activeTab) && (
+              {['salao', 'material'].includes(activeTab) && (
                 <div className="px-4 md:px-8 pt-6">
                   <SessionBar
                     tournamentId={selectedTournament._id}
@@ -816,14 +809,6 @@ export default function Torneios() {
                   refreshKey={allocations.length}
                   onChanged={() => { fetchAllocations(selectedTournament._id); fetchFloorData(selectedTournament._id); }}
                 />
-              ) : activeTab === 'mesas' ? (
-                <div className="p-4 md:p-8">
-                  <SeatingMap
-                    tournamentId={selectedTournament._id}
-                    sessionId={selectedSessionId}
-                    canEdit={!entriesLocked}
-                  />
-                </div>
               ) : (
                 <div className="p-4 md:p-8 space-y-8">
                   {(selectedTournament.status === 'finished' || selectedTournament.status === 'finalized') && (
