@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
-  Trophy, Plus, Clock, DollarSign,
+  Trophy, Plus, Clock,
   ChevronRight, Trash2, Edit2,
   Play, Pause, CheckCircle2, Users,
   Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, Minus, History, Package
@@ -11,7 +11,6 @@ import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import CustomSelect from '../components/CustomSelect';
 import TournamentClock from '../components/TournamentClock';
-import TournamentFinance from '../components/TournamentFinance';
 import SeatingMap from '../components/SeatingMap';
 import SessionBar from '../components/SessionBar';
 import AllocationModal from '../components/AllocationModal';
@@ -500,12 +499,6 @@ export default function Torneios() {
                     >
                       <Package size={13} /> Material
                     </button>
-                    <button
-                      onClick={() => setActiveTab('financeiro')}
-                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'financeiro' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
-                    >
-                      <DollarSign size={13} /> Financeiro
-                    </button>
                   </div>
 
                   {/* Action buttons */}
@@ -808,15 +801,8 @@ export default function Torneios() {
                     </div>
                   </div>
                 </div>
-              ) : activeTab === 'financeiro' ? (
-                <div className="p-4 md:p-8">
-                  <TournamentFinance
-                    tournament={selectedTournament}
-                    canEdit={selectedTournament.status !== 'finalized' && canManage}
-                    onTournamentChange={(t) => { setSelectedTournament((prev) => ({ ...prev, ...t })); fetchTournaments(); }}
-                  />
-                </div>
-              ) : activeTab === 'material' ? (
+              )
+              : activeTab === 'material' ? (
                 <MaterialPanel
                   tournament={selectedTournament}
                   sessions={sessions}
@@ -842,7 +828,7 @@ export default function Torneios() {
                     <div className="bg-gray-100 dark:bg-zinc-800/50 p-4 rounded-2xl flex items-center justify-center gap-3 border border-dashed border-gray-200 dark:border-zinc-700">
                       <CheckCircle2 className="text-gray-400" size={20} />
                       <span className="text-sm font-black text-gray-400 uppercase tracking-widest">
-                        {selectedTournament.status === 'finalized' ? 'Torneio Finalizado — veja o resultado na aba Financeiro' : 'Torneio Finalizado - Auditoria Apenas'}
+                        {selectedTournament.status === 'finalized' ? 'Torneio Finalizado' : 'Torneio Finalizado - Auditoria Apenas'}
                       </span>
                     </div>
                   )}
