@@ -459,3 +459,16 @@ test('§18.8: stack e fichários são do TORNEIO e valem para todas as sessões'
   const r = (await get(admin, `/api/tournaments/${t._id}/chips-in-play`)).body;
   assert.equal(r.rows[0].quantity, 10, 'as duas sessões usam o mesmo modelo do torneio');
 });
+
+test('sessão aceita horário de início (date + start_time no fuso do torneio) e permite limpar', async () => {
+  const H = await as('admin');
+  const t = await Tournament.create({ name: 'Horário', date: new Date('2026-10-01T00:00:00Z'), timezone: 'America/Sao_Paulo' });
+  let r = await request(app).post(`/api/tournaments/${t._id}/sessions`).set(H).send({ name: 'Dia 1A', date: '2026-10-01', start_time: '20:00' });
+  assert.equal(r.status, 201);
+  assert.equal(new Date(r.body.starts_at).toISOString(), '2026-10-01T23:00:00.000Z');
+  r = await request(app).put(`/api/tournaments/${t._id}/sessions/${r.body._id}`).set(H).send({ starts_at: null });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.starts_at, null);
+  r = await request(app).put(`/api/tournaments/${t._id}/sessions/${r.body._id}`).set(H).send({ starts_at: 'lixo' });
+  assert.equal(r.status, 400);
+});

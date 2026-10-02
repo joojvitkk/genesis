@@ -527,6 +527,8 @@ export default function Torneios() {
                 <div className="px-4 md:px-8 pt-6">
                   <SessionBar
                     tournamentId={selectedTournament._id}
+                    timezone={selectedTournament.timezone}
+                    defaultDate={selectedTournament.starts_at ? new Date(selectedTournament.starts_at).toLocaleDateString('en-CA', { timeZone: selectedTournament.timezone || 'America/Sao_Paulo' }) : ''}
                     sessions={sessions}
                     selectedId={selectedSessionId}
                     onSelect={selectSession}

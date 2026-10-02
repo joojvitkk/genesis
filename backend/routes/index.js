@@ -1484,12 +1484,28 @@ router.get('/tournaments/:id/sessions', verifyToken, async (req, res) => {
   }
 });
 
+/** Início da sessão: `date` + `start_time` (no fuso do torneio) ou `starts_at` (ISO / null p/ limpar). undefined = não mexer. */
+function resolveSessionStart(body, tournament) {
+  if (body?.start_time) {
+    const instant = computeStartsAt(body.date || tournament.date, body.start_time, tournament.timezone);
+    if (!instant) throw new HttpError(400, 'Data/horário de início inválidos.');
+    return instant;
+  }
+  if (body?.starts_at === null || body?.starts_at === '') return null;
+  if (body?.starts_at !== undefined) {
+    const d = new Date(body.starts_at);
+    if (Number.isNaN(d.getTime())) throw new HttpError(400, 'Horário de início inválido.');
+    return d;
+  }
+  return undefined;
+}
+
 router.post('/tournaments/:id/sessions', verifyToken, requirePageAccess('torneios'), adminOnly, async (req, res) => {
   try {
     const t = await Tournament.findById(req.params.id);
     if (!t) throw new HttpError(404, 'Torneio não encontrado.');
     if (CLOSED_STATES.includes(t.status)) throw new HttpError(409, 'O torneio está encerrado: não aceita novas sessões.');
-    const session = await sessionsLib.createSession(t._id, pick(req.body, ['name', 'starts_at', 'notes']));
+    const session = await sessionsLib.createSession(t._id, { ...pick(req.body, ['name', 'notes']), starts_at: resolveSessionStart(req.body, t) });
     await logActivity('Sessão Criada', 'tournament', `${t.name} | ${session.name}`, req.user);
     res.status(201).json(session);
   } catch (err) {
@@ -1502,7 +1518,10 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
     const session = await TournamentSession.findOne({ _id: req.params.sid, tournament_id: req.params.tid });
     if (!session) throw new HttpError(404, 'Sessão não encontrada.');
     const isAdmin = req.user.role === 'admin';
-    const structural = pick(req.body, ['name', 'starts_at', 'notes']);
+    const structural = pick(req.body, ['name', 'notes']);
+    const tournament = await Tournament.findById(session.tournament_id);
+    const startsAt = resolveSessionStart(req.body, tournament || {});
+    if (startsAt !== undefined) structural.starts_at = startsAt;
     if (Object.keys(structural).length && !isAdmin) throw new HttpError(403, 'Apenas administradores renomeiam ou reagendam sessões.');
     if (structural.name !== undefined) {
       structural.name = String(structural.name).trim();
