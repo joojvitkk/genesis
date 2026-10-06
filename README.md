@@ -25,7 +25,7 @@ auditoria de operações.
 | **Descarte de stack** | Um stack é abandonado: as fichas informadas (não precisam ser a composição original) saem do **jogo** e voltam ao fichário na hora; reduz o esperado em jogo. Valor total calculado no servidor; imutável (só estorno, admin); atualiza o painel em tempo real por socket. |
 | **Ocorrências e semáforo** | Divergência física (falta/sobra) vira **ocorrência**: verde/amarelo/vermelho pela faixa do valor nominal (configurável), justificativa, recuperação parcial ou total e histórico completo — nunca é apagada. Ocorrência vermelha dispara alerta urgente para todos. A quebra matemática do Chip Race **não** gera ocorrência. |
 | **Dashboard e relatórios** | Respondem "onde estão as fichas / o que acontece agora" **só pelos movimentos** (nenhum cache legado): estoque por denominação, matriz fichário × denominação, em jogo por torneio/sessão, fluxos, ocorrências por semáforo, conflitos de alocação e linha do tempo. O painel atualiza **por bloco** em tempo real (`movementsPosted`, `occurrenceOpened`…). Relatórios e comparativo trazem descartes, perdas, recuperações e a quebra do chip race; CSV de logs e de fichas. |
-| **Chat** | Canais `geral`, `material`, `salao` via WebSocket + alertas urgentes globais. |
+| **Chat** | Chat por **evento** (o usuário escolhe o evento) com os canais `geral`, `material`, `salao` dentro de cada um, via WebSocket + alertas urgentes globais. |
 | **Relatórios / Auditoria** | Gráficos (Recharts) e log paginado de todas as ações do sistema. |
 | **Usuários** | CRUD de membros e papéis (somente admin). |
 | **PWA** | Instalável em Android/iOS; tema claro/escuro. |
@@ -310,6 +310,7 @@ Não existe campo de alocação gravado no torneio nem no fichário: o estado ve
 | GET · POST · PUT · DELETE | `/blind-templates[/:id]` — estruturas de blind reutilizáveis |
 | GET | `/reports/comparison` — métricas lado a lado dos torneios (*relatorios*) |
 | GET | `/chat/urgent` · POST `/chat/:id/ack` — alertas urgentes + confirmação de leitura |
+| POST | `/chat/:id/react` `{kind}` (uma reação por usuário; repetir remove) · POST `/chat/read` `{ids}` (marca visualização) · GET `/chat/:id/readers` (só remetente e admin) — reações e visualizações do chat; respostas via `reply_to` no `sendMessage` |
 
 `PUT /tournaments/:id` aceita `blind_version` — se enviado e desatualizado, responde **409**
 (trava otimista da estrutura de blinds).
@@ -410,12 +411,12 @@ também abre ocorrência. Sockets: `occurrenceOpened` (as vermelhas viram alerta
 | GET | `/dashboard/stats` (`?blocks=`) — painel derivado dos **movimentos**; blocos: `metrics`, `recent`, `inventory` (por ficha + matriz fichário × denominação), `in_play` (torneio/sessão), `flows` (enviadas, devolvidas, descartadas, chip race/color up com a quebra, perdidas, recuperadas), `occurrences` (abertas por semáforo, recuperadas), `conflicts` (alocações sem saldo), `timeline`, `binders` | autenticado |
 | GET | `/inventory/by-chip` — em fichários, reservado, livre, em jogo, em divergência por ficha (Estoque) | *estoque* |
 | GET | `/reports/data` — estoque/valor/distribuição/descartes/perdas/recuperações pelo saldo derivado | *relatorios* |
-| GET | `/chat/:channel` | autenticado |
+| GET | `/chat/event/:eventId?channel=` | autenticado |
 
 ### WebSocket (Socket.io, porta 3000)
 Handshake exige `auth.token` (mesmo JWT do REST) — conexões sem token são recusadas.
 
-- **Chat**: `joinChannel` / `leaveChannel` / `sendMessage` → `newMessage`,
+- **Chat**: `joinEvent` / `leaveEvent` / `sendMessage` (`{ event_id, message, image, is_urgent }`) → `newMessage`,
   `urgentNotification`, `onlineCount` / `getOnlineCount`
 - **Relógio de torneio**: `joinTournament` / `leaveTournament` (entra na sala e recebe o
   estado atual) → `tournamentClock` (1×/s enquanto rodando), `tournamentLevelChanged`,

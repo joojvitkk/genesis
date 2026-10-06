@@ -18,6 +18,7 @@ const {
 const logActivity = require('../services/activityLogger');
 const { diffFields } = require('../services/activityLogger');
 const { escapeRegex, toInt, pick } = require('../utils/sanitize');
+const { REACTION_KINDS, publicMessage } = require('../lib/chat');
 const { paginate } = require('../lib/pagination');
 const { applyAction, clockPayload } = require('../lib/tournamentClock');
 const { entryContribution, summarize, payoutTable, validateTemplate } = require('../lib/tournamentFinance');
@@ -2449,7 +2450,7 @@ router.get('/reports/comparison', verifyToken, requirePageAccess('relatorios'), 
 router.get('/chat/urgent', verifyToken, async (req, res) => {
   try {
     const msgs = await ChatMessage.find({ is_urgent: true }).sort({ createdAt: -1 }).limit(30);
-    res.json(msgs);
+    res.json(msgs.map((m) => publicMessage(m, req.user)));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2464,7 +2465,7 @@ router.post('/chat/:id/ack', verifyToken, async (req, res) => {
       await msg.save();
       req.app.get('io').emit('urgentAck', { message_id: String(msg._id), user_name: req.user.name });
     }
-    res.json(msg);
+    res.json(publicMessage(msg, req.user));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -2480,14 +2481,62 @@ router.get('/chat/avatars', verifyToken, async (req, res) => {
   }
 });
 
-router.get('/chat/:channel', verifyToken, async (req, res) => {
+router.get('/chat/event/:eventId', verifyToken, async (req, res) => {
   try {
-    const messages = await ChatMessage.find({ channel: req.params.channel })
+    if (!mongoose.isValidObjectId(req.params.eventId)) return res.status(400).json({ error: 'Evento inválido.' });
+    const messages = await ChatMessage.find({ event_id: req.params.eventId, channel: req.query.channel || 'general' })
       .sort({ createdAt: -1 })
       .limit(50);
-    res.json(messages.reverse());
+    res.json(messages.reverse().map((m) => publicMessage(m, req.user)));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Reagir: uma reação por usuário e mensagem (repetir a mesma remove; outra troca) — todos da sala veem
+router.post('/chat/:id/react', verifyToken, async (req, res) => {
+  try {
+    const { kind } = req.body || {};
+    if (!REACTION_KINDS.includes(kind)) return res.status(400).json({ error: 'Reação inválida.' });
+    const msg = await ChatMessage.findById(req.params.id);
+    if (!msg) return res.status(404).json({ error: 'Mensagem não encontrada.' });
+    const had = msg.reactions.find((r) => r.user_email === req.user.email)?.kind;
+    msg.reactions = msg.reactions.filter((r) => r.user_email !== req.user.email);
+    if (had !== kind) msg.reactions.push({ kind, user_name: req.user.name, user_email: req.user.email });
+    await msg.save();
+    req.app.get('io').to(`chat:${msg.event_id}:${msg.channel}`).emit('messageReactions', { message_id: String(msg._id), reactions: msg.reactions });
+    res.json({ reactions: msg.reactions });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Marca como visualizadas (ignora as próprias e as já registradas); avisa só a contagem
+router.post('/chat/read', verifyToken, async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).filter((id) => mongoose.isValidObjectId(id)).slice(0, 100);
+    const pending = await ChatMessage.find({ _id: { $in: ids }, sender_email: { $ne: req.user.email }, 'read_by.user_email': { $ne: req.user.email } }).select('_id event_id channel');
+    if (pending.length) {
+      await ChatMessage.updateMany({ _id: { $in: pending.map((m) => m._id) } }, { $push: { read_by: { user_name: req.user.name, user_email: req.user.email, at: new Date() } } });
+      const io = req.app.get('io');
+      for (const m of pending) io.to(`chat:${m.event_id}:${m.channel}`).emit('messageRead', { message_id: String(m._id) });
+    }
+    res.json({ marked: pending.length });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Quem visualizou: só o remetente e o administrador
+router.get('/chat/:id/readers', verifyToken, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Mensagem inválida.' });
+    const msg = await ChatMessage.findById(req.params.id).select('sender_email read_by');
+    if (!msg) return res.status(404).json({ error: 'Mensagem não encontrada.' });
+    if (req.user.role !== 'admin' && req.user.email !== msg.sender_email) return res.status(403).json({ error: 'Sem permissão.' });
+    res.json(msg.read_by);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

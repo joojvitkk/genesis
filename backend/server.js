@@ -6,7 +6,9 @@ const { Server } = require('socket.io');
 
 const app = require('./app');
 const logger = require('./lib/logger');
-const { User, ChatMessage, Tournament } = require('./models');
+const CHANNELS = ['general', 'material', 'salao'];
+const { User, ChatMessage, Tournament, Event } = require('./models');
+const { publicMessage } = require('./lib/chat');
 const { decodeToken } = require('./middlewares/authMiddleware');
 const logActivity = require('./services/activityLogger');
 const { autoAdvance, clockPayload, levelNumber } = require('./lib/tournamentClock');
@@ -39,7 +41,6 @@ io.use((socket, next) => {
   next();
 });
 
-const CHANNELS = ['general', 'material', 'salao'];
 const onlineUsers = new Map(); // socket.id -> userId
 
 function broadcastOnlineCount() {
@@ -60,8 +61,11 @@ io.on('connection', (socket) => {
   };
 
   socket.on('getOnlineCount', () => socket.emit('onlineCount', new Set(onlineUsers.values()).size));
-  socket.on('joinChannel', (channel) => { if (CHANNELS.includes(channel)) socket.join(channel); });
-  socket.on('leaveChannel', (channel) => socket.leave(channel));
+  // Chat por evento e canal: cada par é uma sala `chat:<evento>:<canal>`
+  socket.on('joinEvent', (id) => {
+    if (mongoose.isValidObjectId(id)) CHANNELS.forEach((c) => socket.join(`chat:${id}:${c}`));
+  });
+  socket.on('leaveEvent', (id) => CHANNELS.forEach((c) => socket.leave(`chat:${id}:${c}`)));
 
   // Relógio do torneio: cliente entra na sala e recebe o estado atual na hora
   socket.on('joinTournament', async (id) => {
@@ -82,6 +86,11 @@ io.on('connection', (socket) => {
         socket.emit('chatError', 'Muitas mensagens. Aguarde um momento.');
         return;
       }
+      if (!mongoose.isValidObjectId(data.event_id) || !(await Event.exists({ _id: data.event_id }))) {
+        socket.emit('chatError', 'Escolha um evento válido para conversar.');
+        return;
+      }
+      const event_id = String(data.event_id);
       const channel = CHANNELS.includes(data.channel) ? data.channel : 'general';
       const message = String(data.message || '').trim().slice(0, 2000);
 
@@ -93,23 +102,38 @@ io.on('connection', (socket) => {
       }
       if (!message && !image) return;
 
+      // resposta: a mensagem original precisa ser do mesmo evento e canal
+      let reply = {};
+      if (data.reply_to) {
+        const orig = mongoose.isValidObjectId(data.reply_to) && await ChatMessage.findOne({ _id: data.reply_to, event_id, channel });
+        if (orig) {
+          reply = {
+            reply_to: orig._id,
+            reply_preview: { sender_name: orig.sender_name, message: (orig.message || '').slice(0, 120), has_image: !!orig.image },
+          };
+        }
+      }
+
       const newMessage = new ChatMessage({
+        ...reply,
         message,
         image,
         sender_name: socket.user.name,
         sender_email: socket.user.email,
         sender_role: socket.user.role,
+        event_id,
         channel,
         is_urgent: !!data.is_urgent,
       });
       await newMessage.save();
-      io.to(channel).emit('newMessage', newMessage);
+      io.to(`chat:${event_id}:${channel}`).emit('newMessage', publicMessage(newMessage, null));
 
       if (newMessage.is_urgent) {
         socket.broadcast.emit('urgentNotification', {
           _id: String(newMessage._id),
           sender_name: newMessage.sender_name,
           message: newMessage.message || '(imagem)',
+          event_id,
           channel,
         });
       }
