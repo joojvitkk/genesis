@@ -46,7 +46,7 @@ afterEach(() => { act(() => root.unmount()); container.remove(); });
 describe('Estoque (G10)', () => {
   it('colunas derivadas: em fichários, reservado, livre, em jogo — e o cache legado não aparece', () => {
     const head = container.querySelector('thead').textContent;
-    for (const h of ['Em fichários', 'Reservado', 'Livre', 'Em jogo']) expect(head).toContain(h);
+    for (const h of ['Em fichários', 'Reservado', 'Livre', 'No Salão']) expect(head).toContain(h);
     expect(head).not.toContain('*');
     const cells = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent.includes('Ficha 100')).querySelectorAll('td');
     expect([...cells].slice(3, 7).map((c) => c.textContent)).toEqual(['1.000', '200', '800', '250']);

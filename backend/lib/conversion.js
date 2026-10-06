@@ -27,13 +27,25 @@ function normalizeSide(list, label) {
   });
 }
 
-/** Valida as duas pontas: ambas preenchidas e nenhuma ficha dos dois lados (não faz sentido tirar e pôr a mesma). */
+/**
+ * Valida as duas pontas: ambas preenchidas. A MESMA ficha pode estar nos dois lados (ex.: retirar 500 e devolver parte
+ * delas aos jogadores): o valor é calculado sobre o bruto e o movimento físico é o LÍQUIDO por ficha (`netSides`).
+ */
 function normalize(outs, ins) {
-  const o = normalizeSide(outs, 'Retirado');
-  const i = normalizeSide(ins, 'Colocado');
-  const out = new Set(o.map((l) => l.chip_id));
-  if (i.some((l) => out.has(l.chip_id))) throw new Error('Uma mesma ficha não pode estar em "Retirado" e "Colocado".');
-  return { outs: o, ins: i };
+  return { outs: normalizeSide(outs, 'Retirado'), ins: normalizeSide(ins, 'Colocado') };
+}
+
+/**
+ * Líquido por ficha: retirado − colocado. >0 sai de jogo (OUT), <0 entra em jogo (IN), 0 não move nada.
+ * @returns {{ netOuts: Array, netIns: Array }}
+ */
+function netSides(outs, ins) {
+  const net = new Map();
+  for (const l of outs) net.set(l.chip_id, (net.get(l.chip_id) || 0) + l.quantity);
+  for (const l of ins) net.set(l.chip_id, (net.get(l.chip_id) || 0) - l.quantity);
+  const netOuts = []; const netIns = [];
+  for (const [chip_id, q] of net) { if (q > 0) netOuts.push({ chip_id, quantity: q }); else if (q < 0) netIns.push({ chip_id, quantity: -q }); }
+  return { netOuts, netIns };
 }
 
 /**
@@ -54,4 +66,4 @@ function compute(outs, ins, chipsById) {
   return { outs: o, ins: i, value_out, value_in, math_breakage: value_in - value_out };
 }
 
-module.exports = { TYPES, OUT_TYPE, IN_TYPE, normalizeSide, normalize, compute };
+module.exports = { TYPES, OUT_TYPE, IN_TYPE, normalizeSide, normalize, netSides, compute };

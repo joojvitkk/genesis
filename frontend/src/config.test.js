@@ -31,10 +31,11 @@ describe('permissões (config.js) — área × nível', () => {
     expect([can('material', 'estoque', 'view'), can('material', 'estoque', 'operate'), can('material', 'estoque', 'manage')]).toEqual([true, true, false]);
   });
 
-  it('modelos de fichário: admin e material veem; salão não', () => {
-    expect(can('admin', ROUTE_AREA['/modelos-ficharios'])).toBe(true);
-    expect(can('material', ROUTE_AREA['/modelos-ficharios'])).toBe(true);
-    expect(can('salao', ROUTE_AREA['/modelos-ficharios'])).toBe(false);
+  it('fichários: admin e material veem; salão não (não há mais modelo de fichário)', () => {
+    expect(can('admin', ROUTE_AREA['/ficharios'])).toBe(true);
+    expect(can('material', ROUTE_AREA['/ficharios'])).toBe(true);
+    expect(can('salao', ROUTE_AREA['/ficharios'])).toBe(false);
+    expect(ROUTE_AREA['/modelos-ficharios']).toBeUndefined();
   });
 
   it('papel desconhecido ou área desconhecida não acessa nada', () => {
@@ -47,7 +48,6 @@ describe('permissões (config.js) — área × nível', () => {
     expect(homeRoute('admin')).toBe('/dashboard');
     expect(homeRoute('salao')).toBe('/salao');
     expect(ROUTE_AREA['/usuarios']).toBe('usuarios');
-    expect(ROUTE_AREA['/modelos-ficharios']).toBe('ficharios');
     expect(ROUTE_AREA['/eventos']).toBe('torneios');
     expect(ROUTE_AREA['/salao']).toBe('mesas');
     const areas = new Set(Object.keys(PERMISSIONS.admin));

@@ -20,7 +20,7 @@ const data = {
   '/chips': [c100, c500],
   '/tournaments/t1/sessions': [{ _id: 's1', name: 'Dia Único', status: 'running' }],
   '/allocations': [{ _id: 'a1', binder_id: { _id: 'b1', name: 'LISA 1' }, chips: [{ chip_id: c500, remaining: 300 }, { chip_id: c100, remaining: 0 }] }],
-  '/tournaments/t1/material': { rows: [{ chip: c100, on_table: 2000 }, { chip: c500, on_table: 0 }] },
+  '/tournaments/t1/material': { rows: [{ chip: c100, on_table: 2000, in_play: 2000 }, { chip: c500, on_table: 0, in_play: 0 }] },
   '/conversions': [
     { _id: 'v1', type: 'CHIP_RACE', status: 'active', outs: [{ chip_id: c100, quantity: 100 }], ins: [{ chip_id: c500, quantity: 20 }], value_out: 10000, value_in: 10000, math_breakage: 0, createdAt: '2026-10-01T12:00:00Z', user_name: 'Maria', binder_id: { name: 'LISA 1' } },
     { _id: 'v2', type: 'COLOR_UP', status: 'reversed', reverse_reason: 'erro', outs: [{ chip_id: c100, quantity: 50 }], ins: [{ chip_id: c500, quantity: 10 }], value_out: 5000, value_in: 5500, math_breakage: 500, createdAt: '2026-10-01T13:00:00Z', user_name: 'João' },

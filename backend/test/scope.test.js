@@ -41,7 +41,8 @@ test('restrito a A: acessa os endpoints de A, é barrado nos de B (403), e a lis
   assert.equal((await post(h, `/api/tournaments/${B._id}/entries`, { type: 'buy-in' })).status, 403);
   assert.equal((await post(h, `/api/tournaments/${B._id}/sends`, { chips: [] })).status, 403);
   assert.equal((await post(h, `/api/tournaments/${B._id}/count`, { counts: [] })).status, 403);
-  assert.equal((await post(h, `/api/tournaments/${A._id}/entries`, { type: 'buy-in' })).status, 201, 'no A funciona');
+  assert.equal((await post(h, `/api/tournaments/${A._id}/entries`, { type: 'buy-in' })).status, 403, 'material não lança entradas (MEL-03)');
+  assert.equal((await get(h, `/api/tournaments/${A._id}/entries`)).status, 200, 'mas consulta as de A');
 
   const list = (await get(h, '/api/tournaments')).body;
   assert.deepEqual(list.map((t) => t.name), ['Torneio A']);

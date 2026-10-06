@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket, connectSocket } from '../lib/socket';
+import { apiGet } from '../lib/api';
 
 /**
  * Assina o relógio de um torneio via socket e mantém a contagem local
@@ -20,16 +21,24 @@ export function useTournamentClock(tournamentId, { onLevel, onMarker, onEnded } 
     if (!tournamentId) return;
     connectSocket();
 
-    const onClock = (p) => {
-      if (String(p.tournament_id) !== String(tournamentId)) return;
+    const apply = (p) => {
       offsetRef.current = p.server_time - Date.now();
       setState(p);
       setRemainingMs(p.remaining_ms);
     };
+    const onClock = (p) => {
+      if (String(p.tournament_id) !== String(tournamentId)) return;
+      apply(p);
+    };
+    // estado inicial por REST (parado/pausado não recebem pulso do socket) + reserva a cada 5 s se o socket cair
+    let alive = true;
+    const fetchNow = () => apiGet(`/tournaments/${tournamentId}/clock`).then((p) => { if (alive && p && p.server_time) apply(p); }).catch(() => {});
+    fetchNow();
+    const fallback = setInterval(() => { if (!socket.connected) fetchNow(); }, 5000);
     const onLevelChanged = (p) => { if (String(p.tournament_id) === String(tournamentId)) cbs.current.onLevel?.(p); };
     const onMk = (p) => { if (String(p.tournament_id) === String(tournamentId)) cbs.current.onMarker?.(p); };
     const onEnd = (p) => { if (String(p.tournament_id) === String(tournamentId)) cbs.current.onEnded?.(p); };
-    const onConnect = () => { setConnected(true); socket.emit('joinTournament', tournamentId); };
+    const onConnect = () => { setConnected(true); socket.emit('joinTournament', tournamentId); fetchNow(); };
     const onDisconnect = () => setConnected(false);
 
     socket.on('tournamentClock', onClock);
@@ -41,6 +50,8 @@ export function useTournamentClock(tournamentId, { onLevel, onMarker, onEnded } 
     socket.emit('joinTournament', tournamentId);
 
     return () => {
+      alive = false;
+      clearInterval(fallback);
       socket.emit('leaveTournament', tournamentId);
       socket.off('tournamentClock', onClock);
       socket.off('tournamentLevelChanged', onLevelChanged);
@@ -56,8 +67,8 @@ export function useTournamentClock(tournamentId, { onLevel, onMarker, onEnded } 
     if (!state || state.clock_status !== 'running') return;
     const endsAt = state.server_time + state.remaining_ms; // instante do fim, no relógio do servidor
     const id = setInterval(() => {
-      setRemainingMs(endsAt - (Date.now() + offsetRef.current));
-    }, 250);
+      setRemainingMs(Math.max(0, endsAt - (Date.now() + offsetRef.current)));
+    }, 200);
     return () => clearInterval(id);
   }, [state]);
 

@@ -53,19 +53,19 @@ export default function Ocorrencias() {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-5xl space-y-6">
       <header className="flex flex-wrap items-center gap-4">
-        <h1 className="flex items-center gap-3 text-2xl font-black"><ShieldAlert className="text-genesis-red" /> Ocorrências</h1>
+        <h1 className="page-title flex items-center gap-2"><ShieldAlert className="text-brand-fg" /> Ocorrências</h1>
         {summary && (
-          <div className="ml-auto flex gap-2 text-[11px] font-black uppercase tracking-widest">
-            <span data-testid="red-open" className={`rounded-lg px-3 py-1.5 ${summary.red_open > 0 ? 'bg-red-50 text-red-600 dark:bg-red-500/10' : 'bg-gray-100 text-gray-400 dark:bg-zinc-800'}`}>{summary.red_open} vermelha(s) em aberto</span>
+          <div className="ml-auto flex gap-2 text-xs font-bold uppercase tracking-wide">
+            <span data-testid="red-open" className={`rounded-lg px-3 py-1.5 ${summary.red_open > 0 ? 'bg-red-50 text-red-600 dark:bg-red-500/10' : 'bg-raised text-fg-subtle dark:bg-zinc-800'}`}>{summary.red_open} vermelha(s) em aberto</span>
             <span className="rounded-lg bg-amber-50 px-3 py-1.5 text-amber-600 dark:bg-amber-500/10">{summary.pending_justification} sem justificativa</span>
           </div>
         )}
       </header>
 
-      <nav className="flex gap-2 border-b border-gray-200 dark:border-zinc-800" role="tablist">
+      <nav className="flex gap-2 border-b border-line" role="tablist">
         {tabs.map(([key, label]) => (
           <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
-            className={`-mb-px border-b-2 px-4 py-2 text-xs font-black uppercase tracking-widest ${tab === key ? 'border-genesis-red text-genesis-red' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>{label}</button>
+            className={`-mb-px border-b-2 px-4 py-2 text-xs font-bold uppercase tracking-wide ${tab === key ? 'border-brand text-brand-fg' : 'border-transparent text-fg-subtle hover:text-gray-600'}`}>{label}</button>
         ))}
       </nav>
 

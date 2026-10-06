@@ -1,10 +1,11 @@
+import { locale } from '../lib/i18n';
 import { useEffect, useState } from 'react';
 import { PackageCheck } from 'lucide-react';
 import { apiGet, apiPost } from '../lib/api';
 import CustomSelect from './CustomSelect';
 import SeverityBadge from './SeverityBadge';
 
-const fmt = (n) => (n ?? 0).toLocaleString('pt-BR');
+const fmt = (n) => (n ?? 0).toLocaleString(locale());
 const SCOPES = [{ value: 'binder', label: 'Fichário' }, { value: 'tournament', label: 'Jogo (torneio)' }];
 
 /**
@@ -68,14 +69,14 @@ export default function CountPanel({ onDone }) {
     } finally { setBusy(false); }
   };
 
-  const numCls = 'w-24 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-700 dark:bg-zinc-900';
+  const numCls = 'w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-brand ';
   const targets = scope === 'binder' ? binders.map((b) => ({ value: b._id, label: b.name })) : tournaments.map((t) => ({ value: t._id, label: t.name }));
 
   return (
-    <section className="space-y-4 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-[#141414]">
+    <section className="card space-y-4 p-6">
       <div>
-        <h3 className="flex items-center gap-2 text-lg font-bold"><PackageCheck size={18} className="text-genesis-red" /> Conferência física</h3>
-        <p className="mt-1 text-xs text-gray-500">Conte e informe. O sistema compara com o saldo e abre uma ocorrência para cada diferença — nada é sobrescrito. A quebra matemática do Chip Race não é perda: a conferência é por quantidade.</p>
+        <h3 className="flex items-center gap-2 text-lg font-bold"><PackageCheck size={18} className="text-brand-fg" /> Conferência física</h3>
+        <p className="mt-1 text-xs text-fg-muted">Conte e informe. O sistema compara com o saldo e abre uma ocorrência para cada diferença — nada é sobrescrito. A quebra matemática do Chip Race não é perda: a conferência é por quantidade.</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
@@ -86,13 +87,13 @@ export default function CountPanel({ onDone }) {
         )}
       </div>
 
-      {targetId && rows.length === 0 && <p className="text-sm italic text-gray-400">Nada esperado {scope === 'binder' ? 'neste fichário' : 'em jogo'}.</p>}
+      {targetId && rows.length === 0 && <p className="text-sm italic text-fg-subtle">Nada esperado {scope === 'binder' ? 'neste fichário' : 'em jogo'}.</p>}
       {rows.length > 0 && (
         <div className="flex flex-wrap gap-3">
           {rows.map((r) => (
-            <label key={r.chip._id} className="flex items-center gap-2 text-xs font-bold text-gray-500">
-              <span className="h-3 w-3 rounded-full border border-gray-200" style={{ backgroundColor: r.chip.color }} /> {fmt(r.chip.value)}
-              <span className="text-gray-400">(esperado {fmt(r.expected)})</span>
+            <label key={r.chip._id} className="flex items-center gap-2 text-xs font-bold text-fg-muted">
+              <span className="h-3 w-3 rounded-full border border-line" style={{ backgroundColor: r.chip.color }} /> {fmt(r.chip.value)}
+              <span className="text-fg-subtle">(esperado {fmt(r.expected)})</span>
               <input type="number" min="0" step="1" placeholder="contado" aria-label={`Contado ${r.chip.value}`} value={counted[r.chip._id] ?? ''}
                 onChange={(e) => setCounted((s) => ({ ...s, [r.chip._id]: e.target.value }))} className={numCls} />
             </label>
@@ -101,16 +102,16 @@ export default function CountPanel({ onDone }) {
       )}
 
       <div>
-        <label className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">Justificativa (obrigatória para diferenças de severidade alta)</label>
+        <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Justificativa (obrigatória para diferenças de severidade alta)</label>
         <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex.: contagem do fim do turno"
-          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-800 dark:bg-[#0f0f0f]" />
+          className="input w-full" />
       </div>
 
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-bold text-red-600 dark:bg-red-500/10">{error}</p>}
-      <button onClick={submit} disabled={busy} className="rounded-xl bg-genesis-red px-6 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-red-700 disabled:opacity-40">{busy ? 'Registrando…' : 'Registrar conferência'}</button>
+      <button onClick={submit} disabled={busy} className="btn btn-primary disabled:opacity-40">{busy ? 'Registrando…' : 'Registrar conferência'}</button>
 
       {result && (
-        <div data-testid="count-result" className="space-y-2 rounded-2xl border border-gray-200 p-4 text-sm dark:border-zinc-800">
+        <div data-testid="count-result" className="space-y-2 rounded-2xl border border-line p-4 text-sm">
           {result.diffs.length === 0 ? <p className="font-bold text-emerald-600">Conferência OK — sem diferenças.</p> : (
             <>
               <p className="font-bold">{result.diffs.length} diferença(s) registrada(s):</p>
@@ -121,7 +122,7 @@ export default function CountPanel({ onDone }) {
                     <li key={d.occurrence_id} className="flex flex-wrap items-center gap-2 text-xs">
                       <SeverityBadge level={d.severity} />
                       <span className="font-bold">{fmt(row?.chip.value)}</span>
-                      <span className="text-gray-500">esperado {fmt(d.expected)} · contado {fmt(d.counted)} · {d.diff < 0 ? 'faltam' : 'sobram'} {fmt(Math.abs(d.diff))}</span>
+                      <span className="text-fg-muted">esperado {fmt(d.expected)} · contado {fmt(d.counted)} · {d.diff < 0 ? 'faltam' : 'sobram'} {fmt(Math.abs(d.diff))}</span>
                     </li>
                   );
                 })}
@@ -129,9 +130,9 @@ export default function CountPanel({ onDone }) {
             </>
           )}
           {result.value && (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-fg-muted">
               Valor esperado {fmt(result.value.expected)} · contado {fmt(result.value.counted)}
-              {result.value.math_breakage !== 0 && <> · quebra matemática das conversões {fmt(result.value.math_breakage)} <span className="text-gray-400">(não é perda física)</span></>}
+              {result.value.math_breakage !== 0 && <> · quebra matemática das conversões {fmt(result.value.math_breakage)} <span className="text-fg-subtle">(não é perda física)</span></>}
             </p>
           )}
         </div>

@@ -7,12 +7,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret_genesis_key';
 //   view    — consultar
 //   operate — operar (lançar movimentos, conferir, justificar, registrar entradas/mesas…)
 //   manage  — administrar (cadastros estruturais, estornos, configurações, usuários)
-// Áreas: `mesas` = operação do salão (entradas, eliminações, mesas, relógio); `torneios` = estrutura do torneio e
+// Áreas: `mesas` = operação do SALÃO (entradas, reentradas, jogadores ativos, eliminações, mesas, relógio, pausar/encerrar sessão) —
+// o Material só consulta; `auditoria` = módulo administrativo de auditoria (só admin; consultar o livro-razão é outra coisa); `torneios` = estrutura do torneio e
 // o material (envio, retorno, descarte, conferência, KO). O papel `salao` só consulta o restante (D3).
 const LEVELS = ['view', 'operate', 'manage'];
 const PERMISSIONS = {
-  admin:    { dashboard: 'manage', estoque: 'manage', ficharios: 'manage', torneios: 'manage', mesas: 'manage', chip_race: 'manage', chat: 'manage', relatorios: 'manage', usuarios: 'manage', modelos_stack: 'manage' },
-  material: { dashboard: 'view', estoque: 'operate', ficharios: 'operate', torneios: 'operate', mesas: 'operate', chip_race: 'operate', chat: 'operate', relatorios: 'view', modelos_stack: 'view' },
+  admin:    { dashboard: 'manage', estoque: 'manage', ficharios: 'manage', torneios: 'manage', mesas: 'manage', chip_race: 'manage', chat: 'manage', relatorios: 'manage', usuarios: 'manage', modelos_stack: 'manage', auditoria: 'manage' },
+  material: { dashboard: 'view', estoque: 'operate', ficharios: 'operate', torneios: 'operate', mesas: 'view', chip_race: 'operate', chat: 'operate', relatorios: 'view', modelos_stack: 'view' },
   salao:    { dashboard: 'view', estoque: 'view', torneios: 'view', mesas: 'operate', chip_race: 'view', chat: 'operate', modelos_stack: 'view' },
 };
 

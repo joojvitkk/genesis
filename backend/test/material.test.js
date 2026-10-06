@@ -410,7 +410,6 @@ test('conversão: validações de corpo, tipo, fichário e torneio', async () =>
   const ok = { outs: [{ chip_id: c[100]._id, quantity: 10 }], ins: [{ chip_id: c[500]._id, quantity: 2 }] };
   const bad = [
     { ...ok, type: 'OUTRO' }, { ...ok, outs: [] }, { ...ok, ins: [] }, { ...ok, outs: [{ chip_id: c[100]._id, quantity: 0 }] },
-    { ...ok, ins: [{ chip_id: c[100]._id, quantity: 1 }] },   // mesma ficha nos dois lados
     { ...ok, outs: [{ chip_id: '64b000000000000000000000', quantity: 1 }] },
   ];
   for (const body of bad) assert.equal((await race(s, body)).status, 400, JSON.stringify(body));
@@ -675,4 +674,55 @@ test('dashboard e relatórios contam as conversões ativas', async () => {
   const rep = (await get(s.admin, '/api/reports/data')).body;
   assert.equal(rep.stats.totalChipRaces, 1);
   assert.equal(rep.charts.racesByTournament[0].count, 1);
+});
+
+// ─── BUG-06 (relatório fase 1): enviado ≠ em jogo ────────────────────────────
+test('BUG-06: 200 fichas enviadas para reentradas NÃO são "em jogo"; consumir 10 reentradas leva 20 fichas ao jogo e sobram 180 (90 stacks)', async () => {
+  const { c, admin, mat, tournament, t } = await scene();
+  // reentrada do cenário: 5 × 100 por stack → enviar 200 stacks seria muito; usa avulso: 200 fichas de 100 + modelo de 2 por stack
+  const stack2 = (await post(admin, '/api/stacks', { name: 'Reent 2x', composition: [{ chip_id: c[100]._id, quantities: { buy_in: 1, re_entry: 2 } }] })).body;
+  await put(admin, `/api/tournaments/${t._id}`, { stack_model_id: stack2._id });
+
+  // 100 reentradas "enviadas" = 200 fichas
+  assert.equal((await send(mat, tournament, { items: [{ action: 're_entry', count: 100 }] })).status, 201);
+  let s = (await get(mat, `/api/tournaments/${t._id}/material`)).body;
+  let row = s.rows.find((r) => r.chip._id === String(c[100]._id));
+  assert.equal(row.sent, 200);
+  assert.equal(row.on_table, 200, 'no Salão');
+  assert.equal(row.in_play, 0, 'enviado não é em jogo: ainda não entrou no Chip Count');
+  assert.equal(row.available, 200);
+  assert.equal(s.stacks.find((x) => x.action === 're_entry').stacks, 100, '100 stacks disponíveis (2 fichas por stack)');
+
+  // o Salão consome 10 reentradas
+  assert.equal((await post(admin, `/api/tournaments/${t._id}/entries`, { type: 're-entry', quantity: 10 })).status, 201);
+  s = (await get(mat, `/api/tournaments/${t._id}/material`)).body;
+  row = s.rows.find((r) => r.chip._id === String(c[100]._id));
+  assert.equal(row.in_play, 20, '10 reentradas × 2 fichas');
+  assert.equal(row.available, 180);
+  assert.equal(s.stacks.find((x) => x.action === 're_entry').stacks, 90);
+
+  // devolve a sobra: no Salão fica 20 (as que estão com os jogadores)
+  const binderId = (await Allocation.findOne({ tournament_id: t._id, open: true })).binder_id;
+  assert.equal((await post(mat, `/api/tournaments/${t._id}/returns`, { binder_id: binderId, chips: [{ chip_id: c[100]._id, quantity: 180 }] })).status, 201);
+  s = (await get(mat, `/api/tournaments/${t._id}/material`)).body;
+  row = s.rows.find((r) => r.chip._id === String(c[100]._id));
+  assert.equal(row.on_table, 20);
+  assert.equal(row.available, 0);
+  assert.equal(row.in_play, 20);
+});
+
+test('conversão com a MESMA ficha nos dois lados: bruto no registro, líquido no movimento, Chip Count coerente', async () => {
+  const s = await raceScene();
+  const { c } = s;
+  await send(s.mat, s.tournament, { chips: [{ chip_id: c[100]._id, quantity: 100 }, { chip_id: c[500]._id, quantity: 30 }] });
+  const before = await onTable(s.tournament, c[500]);
+  // retira 100×100 e 10×500; devolve 4×500 aos jogadores e coloca 2×5000
+  const res = await race(s, { outs: [{ chip_id: c[100]._id, quantity: 100 }, { chip_id: c[500]._id, quantity: 10 }], ins: [{ chip_id: c[500]._id, quantity: 4 }, { chip_id: c[5000]._id, quantity: 2 }] });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.value_out, 10000 + 5000);
+  assert.equal(res.body.value_in, 2000 + 10000);
+  assert.equal(res.body.math_breakage, -3000);
+  assert.equal(await onTable(s.tournament, c[500]), before - 6, 'só o líquido (10 − 4) saiu do jogo');
+  // sem diferença em nenhuma denominação: nada a mover → recusado
+  assert.equal((await race(s, { outs: [{ chip_id: c[500]._id, quantity: 3 }], ins: [{ chip_id: c[500]._id, quantity: 3 }] })).status, 400);
 });

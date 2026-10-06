@@ -15,12 +15,19 @@ function levelDurationMs(row) {
   return (Number(row.duration) || 0) * 60_000;
 }
 
+/** Nº do nível de JOGO na linha `idx` (1, 2, 3…): só linhas `level` contam — intervalos e marcadores não. null = não é nível. */
+function levelNumber(rows, idx) {
+  if (!rows[idx] || (rows[idx].row_type && rows[idx].row_type !== 'level')) return null;
+  return rows.slice(0, idx + 1).filter((r) => !r.row_type || r.row_type === 'level').length;
+}
+
 /** Tempo restante no nível atual em ms (pode ser negativo se estourou). */
 function remainingMs(t, now = Date.now()) {
   const rows = t.blind_structure || [];
   const row = rows[t.current_level || 0];
   const dur = levelDurationMs(row);
-  if (!t.level_started_at) return dur + (t.clock_adjust_seconds || 0) * 1000;
+  // parado: mostra a duração cheia do nível (não há tempo correndo; level_started_at antigo não pode virar 00:00)
+  if (!t.level_started_at || t.clock_status === 'stopped') return dur + (t.clock_adjust_seconds || 0) * 1000;
   const effectiveNow = t.paused_at ? ms(t.paused_at) : now;
   const elapsed = effectiveNow - ms(t.level_started_at);
   return dur + (t.clock_adjust_seconds || 0) * 1000 - elapsed;
@@ -45,6 +52,8 @@ function gotoLevel(t, index, now) {
 function applyAction(t, action, { seconds = 0, now = Date.now() } = {}) {
   switch (action) {
     case 'start':
+      // idempotente: já rodando/pausado não reinicia (Iniciar clicado de novo, ou de outra tela, não zera o nível)
+      if (t.clock_status === 'running' || t.clock_status === 'paused') return {};
       return {
         clock_status: 'running',
         level_started_at: new Date(now),
@@ -112,6 +121,14 @@ function autoAdvance(t, now = Date.now()) {
   };
 }
 
+/** Próximo nível de JOGO depois da linha `idx` (pula intervalos e marcadores) — para o telão mostrar "volta no nível 6". */
+function nextPlayLevel(rows, idx) {
+  for (let i = idx + 1; i < rows.length; i += 1) {
+    if (levelNumber(rows, i) !== null) return { level_number: levelNumber(rows, i), small_blind: rows[i].small_blind, big_blind: rows[i].big_blind, ante: rows[i].ante || 0, duration: rows[i].duration };
+  }
+  return null;
+}
+
 /** Payload enviado aos clientes via socket. */
 function clockPayload(t, now = Date.now()) {
   const rows = t.blind_structure || [];
@@ -125,16 +142,23 @@ function clockPayload(t, now = Date.now()) {
     clock_status: t.clock_status || 'stopped',
     current_level: cur,
     level: rows[cur] || null,
+    // nº do nível de JOGO conforme a estrutura (intervalos/marcadores não contam; current_level é só o índice da linha)
+    level_number: levelNumber(rows, cur),
+    next_play_level: nextPlayLevel(rows, cur),
+    is_break: rows[cur]?.row_type === 'break',
     next_level: rows[cur + 1] || null,
     remaining_ms: remainingMs(t, now),
     server_time: now,
-    actual_players: players,
+    actual_players: players, // jogadores ATIVOS (não o acumulado de inscrições)
+    entries_initial: t.entries_initial || 0,
+    entries_reentries: t.entries_reentries || 0,
+    entries_total: (t.entries_initial || 0) + (t.entries_reentries || 0),
     starting_stack: stack,
     // valor nominal das fichas em jogo: DERIVADO no servidor (entradas × modelo de stack por ação, com reentradas e
     // add-ons — lib/tournamentChips). Torneios ainda não recalculados caem em jogadores × stack inicial.
     total_chips_in_play: chipsValue,
-    avg_stack: players > 0 ? Math.round(chipsValue / players) : stack,
+    avg_stack: players > 0 ? Math.round(chipsValue / players) : null, // sem ativos: não aplicável (sem divisão por zero)
   };
 }
 
-module.exports = { MARKER_TYPES, levelDurationMs, remainingMs, applyAction, gotoLevel, autoAdvance, clockPayload };
+module.exports = { levelNumber, MARKER_TYPES, levelDurationMs, remainingMs, applyAction, gotoLevel, autoAdvance, clockPayload };

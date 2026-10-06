@@ -8,7 +8,7 @@ export const SEVERITY = {
 export default function SeverityBadge({ level }) {
   const s = SEVERITY[level] || SEVERITY.GREEN;
   return (
-    <span data-severity={level} className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-widest ${s.cls}`}>
+    <span data-severity={level} className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold uppercase tracking-wide ${s.cls}`}>
       <span className={`h-2 w-2 rounded-full ${s.dot}`} /> {s.label}
     </span>
   );

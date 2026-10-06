@@ -10,12 +10,16 @@ import { apiGet } from '../lib/api';
 export default function Telao() {
   const { id } = useParams();
   const [name, setName] = useState('');
+  const [running, setRunning] = useState([]); // sessões em andamento (Dia 1A, 1B…): a TV mostra QUAL sessão está no ar
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     apiGet(`/tournaments/${id}`)
       .then((t) => setName(t.name))
       .catch((e) => { if (e.status === 404) setNotFound(true); });
+    apiGet(`/tournaments/${id}/sessions`)
+      .then((list) => setRunning((list || []).filter((x) => x.status === 'running').map((x) => x.name)))
+      .catch(() => {});
   }, [id]);
 
   const goFullscreen = () => {
@@ -24,27 +28,27 @@ export default function Telao() {
 
   if (notFound) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#0A0A0A] text-white">
-        <p className="text-2xl font-black uppercase tracking-widest">Torneio não encontrado</p>
-        <Link to="/torneios" className="text-genesis-red underline">Voltar</Link>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-canvas text-white">
+        <p className="text-2xl font-bold">Torneio não encontrado</p>
+        <Link to="/torneios" className="text-brand-fg underline">Voltar</Link>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] p-4 md:p-10">
+    <div className="dark min-h-screen bg-canvas p-4 text-fg md:p-10">
       <div className="mx-auto flex max-w-6xl items-center justify-between pb-4">
         <Link
           to={`/torneios?id=${id}&tab=salao`}
-          className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-black uppercase tracking-widest text-zinc-400 hover:text-white"
+          className="inline-flex items-center gap-2 btn btn-secondary btn-sm"
         >
           <ArrowLeft size={14} /> Painel
         </Link>
-        <span className="text-lg font-black uppercase tracking-[0.3em] text-genesis-red">GENESIS</span>
+        <span className="inline-flex items-center gap-2 text-lg font-bold tracking-[0.18em] text-fg">GENESIS</span>
         <button
           type="button"
           onClick={goFullscreen}
-          className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-black uppercase tracking-widest text-zinc-400 hover:text-white"
+          className="inline-flex items-center gap-2 btn btn-secondary btn-sm"
         >
           <Maximize2 size={14} /> Tela cheia
         </button>
@@ -55,7 +59,7 @@ export default function Telao() {
       </div>
 
       {name && (
-        <p className="mt-6 text-center text-xs font-bold uppercase tracking-[0.4em] text-zinc-700">{name}</p>
+        <p className="mt-6 text-center text-xs font-bold uppercase tracking-[0.4em] text-zinc-500">{name}{running.length ? ` · ${running.join(' + ')}` : ''}</p>
       )}
     </div>
   );

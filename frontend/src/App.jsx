@@ -7,14 +7,13 @@ import { Menu, Moon, Sun } from 'lucide-react';
 import { can, homeRoute, ROUTE_AREA } from './config';
 import { socket, connectSocket, disconnectSocket } from './lib/socket';
 import { getToken, getStoredUser, saveSession, clearSession, setUnauthorizedHandler } from './lib/auth';
-import { apiGet, apiPost } from './lib/api';
+import { apiGet } from './lib/api';
 import { useAlert } from './contexts/AlertContext';
 
 // Pages
 import Dashboard from './pages/Dashboard';
 import Estoque from './pages/Estoque';
 import Ficharios from './pages/Ficharios';
-import ModelosFicharios from './pages/ModelosFicharios';
 import Torneios from './pages/Torneios';
 import Eventos from './pages/Eventos';
 import ChipRace from './pages/ChipRace';
@@ -28,6 +27,7 @@ import Ocorrencias from './pages/Ocorrencias';
 import LivroEstoque from './pages/LivroEstoque';
 import Telao from './pages/Telao';
 import ChangePassword from './pages/ChangePassword';
+import Conta from './pages/Conta';
 import { flushOfflineQueue } from './lib/offlineQueue';
 import { occurrenceAlertText } from './lib/occurrenceAlert';
 
@@ -133,6 +133,13 @@ function App() {
     setAuth({ token, user });
   };
 
+  // foto de perfil: atualiza o usuário da sessão (menu e Minha conta mudam na hora)
+  const handleAvatarChanged = (avatar) => {
+    const user = { ...auth.user, avatar };
+    saveSession(auth.token, user);
+    setAuth({ token: auth.token, user });
+  };
+
   if (!auth) {
     return <Login onLogin={handleLogin} theme={theme} onToggleTheme={toggleTheme} />;
   }
@@ -150,15 +157,14 @@ function App() {
         <Route path="/torneios/:id/telao" element={<Telao />} />
         <Route path="*" element={<Shell role={role} auth={auth} theme={theme} toggleTheme={toggleTheme}
           sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} handleLogout={handleLogout}
-          onPasswordChanged={handlePasswordChanged} onLoggedOut={() => setAuth(null)} />} />
+          onPasswordChanged={handlePasswordChanged} onAvatarChanged={handleAvatarChanged} />} />
       </Routes>
     </Router>
   );
 }
 
-function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, handleLogout, onPasswordChanged, onLoggedOut }) {
+function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, handleLogout, onPasswordChanged, onAvatarChanged }) {
   const { showAlert } = useAlert();
-  const [pwOpen, setPwOpen] = useState(false);
 
   useEffect(() => {
     flushOfflineQueue();
@@ -167,37 +173,13 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
     return () => window.removeEventListener('online', onOnline);
   }, [showAlert]);
 
-  const logoutAll = async () => {
-    try { await apiPost('/me/logout-all'); } catch { /* ignore */ }
-    clearSession();
-    disconnectSocket();
-    onLoggedOut();
-  };
-
   return (
-      <div className="min-h-screen flex bg-gray-50 dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 transition-colors duration-300">
-        {pwOpen && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-            <ChangePassword onDone={(t) => { onPasswordChanged(t); setPwOpen(false); showAlert('Senha alterada.', 'success'); }} onCancel={() => setPwOpen(false)} />
-          </div>
-        )}
-        <header className="md:hidden fixed top-0 left-0 right-0 h-14 bg-white dark:bg-[#111111] border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between px-4 z-50 shadow-sm"
+      <div className="min-h-screen flex bg-canvas text-fg">
+        <header className="md:hidden fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-line bg-surface px-3"
                 style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="p-2 -ml-1 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all active:scale-95"
-            aria-label="Abrir menu"
-          >
-            <Menu size={22} />
-          </button>
-          <span className="font-black text-lg tracking-[0.2em] text-genesis-red">GENESIS</span>
-          <button
-            onClick={toggleTheme}
-            className="p-2 -mr-1 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all active:scale-95"
-            aria-label="Alternar tema"
-          >
-            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-          </button>
+          <button onClick={() => setSidebarOpen(true)} className="btn btn-ghost btn-icon" aria-label="Abrir menu"><Menu size={22} /></button>
+          <span className="inline-flex items-center gap-2 text-base font-bold tracking-[0.18em]"><span className="inline-block h-3 w-3 rounded-sm bg-brand" aria-hidden="true" />GENESIS</span>
+          <button onClick={toggleTheme} className="btn btn-ghost btn-icon" aria-label="Alternar tema">{theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}</button>
         </header>
 
         <Sidebar
@@ -205,29 +187,17 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
           onOpen={() => setSidebarOpen(true)}
           onClose={() => setSidebarOpen(false)}
           onLogout={handleLogout}
-          onChangePassword={() => setPwOpen(true)}
-          onLogoutAll={logoutAll}
           user={auth.user}
           theme={theme}
           onToggleTheme={toggleTheme}
         />
 
-        <div className="flex-1 flex flex-col md:ml-64 min-h-screen overflow-x-hidden">
-          <div className="hidden md:flex justify-end p-4 absolute top-0 right-0 z-10 pointer-events-none">
-            <button
-              onClick={toggleTheme}
-              className="pointer-events-auto p-2.5 rounded-full bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 shadow-lg border border-gray-200 dark:border-zinc-700 hover:ring-2 hover:ring-genesis-red transition-all"
-              aria-label="Alternar tema"
-            >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-          </div>
-
-          <main className="flex-1 p-3 md:p-8 overflow-y-auto
-                           pt-[calc(3.5rem+0.75rem)] md:pt-8
-                           pb-[calc(68px+env(safe-area-inset-bottom,0px)+0.75rem)] md:pb-8">
+        <div className="flex-1 flex flex-col md:ml-60 min-h-screen overflow-x-hidden">
+          <main className="flex-1 p-4 md:p-6 overflow-y-auto pt-[calc(3.5rem+1rem)] md:pt-6
+                           pb-[calc(60px+env(safe-area-inset-bottom,0px)+1rem)] md:pb-6">
             <Routes>
               <Route path="/" element={<Navigate to={homeRoute(role)} replace />} />
+              <Route path="/conta" element={<Conta user={auth.user} onPasswordChanged={onPasswordChanged} onAvatarChanged={onAvatarChanged} />} />
               {Object.entries({
                 '/salao': <Salao />,
                 '/eventos': <Eventos />,
@@ -237,7 +207,6 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
                 '/estoque': <Estoque />,
                 '/livro-estoque': <LivroEstoque />,
                 '/ocorrencias': <Ocorrencias />,
-                '/modelos-ficharios': <ModelosFicharios />,
                 '/ficharios': <Ficharios />,
                 '/modelos-stack': <ModelosStack />,
                 '/dashboard': <Dashboard />,
@@ -260,11 +229,14 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
 }
 
 import { AlertProvider } from './contexts/AlertContext';
+import { useT } from './lib/i18n.jsx';
 
 export default function AppWrapper() {
+  const { lang } = useT();
   return (
     <AlertProvider>
-      <App />
+      {/* trocar o idioma remonta a árvore: todo texto passa por tr() com o idioma novo */}
+      <App key={lang} />
     </AlertProvider>
   );
 }

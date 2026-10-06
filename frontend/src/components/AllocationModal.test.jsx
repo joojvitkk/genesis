@@ -27,7 +27,7 @@ const tournament = { _id: 't1', name: 'Torneio B', status: 'scheduled' };
 let root; let container;
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 30)); });
 const button = (label) => [...container.querySelectorAll('button')].find((b) => b.textContent.includes(label));
-const option = (label) => [...container.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
+const option = (label) => [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
 // linhas da matriz em ordem de valor: [0] = ficha 100, [1] = ficha 5.000
 const qtyInput = (i) => container.querySelectorAll('input[type="number"]')[i];
 const setValue = (el, v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };

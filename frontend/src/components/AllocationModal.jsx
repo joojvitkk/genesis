@@ -1,3 +1,4 @@
+import { locale } from '../lib/i18n';
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Boxes, AlertCircle } from 'lucide-react';
@@ -11,7 +12,7 @@ const MODES = [
   { v: 'denominations', label: 'Por denominação', hint: 'Escolha as denominações (ex.: só ≥ 5.000). Reserva o saldo inteiro delas.' },
   { v: 'quantities', label: 'Quantidade', hint: 'Informe quanto de cada ficha. Não pode passar do livre.' },
 ];
-const fmt = (n) => (n ?? 0).toLocaleString('pt-BR');
+const fmt = (n) => (n ?? 0).toLocaleString(locale());
 
 /**
  * Aloca fichas de um fichário a um torneio (ou edita uma alocação existente).
@@ -89,27 +90,27 @@ export default function AllocationModal({ tournament, editing, onClose, onDone }
       return (
         <input type="number" min="0" max={Math.max(0, freeForMe)} step="1" placeholder="0" value={qtys[row.chip._id] ?? ''}
           onChange={(e) => setQtys((q) => ({ ...q, [row.chip._id]: e.target.value }))}
-          className={`w-24 rounded-lg border bg-white px-2 py-1 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-genesis-red dark:bg-zinc-900 ${Number(qtys[row.chip._id]) > freeForMe ? 'border-red-400' : 'border-gray-300 dark:border-zinc-700'}`} />
+          className={`w-24 rounded-lg border bg-surface px-2 py-1 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-brand  ${Number(qtys[row.chip._id]) > freeForMe ? 'border-red-400' : 'border-line'}`} />
       );
     }
-    return <span className="text-xs text-gray-400">{fmt(row.balance)}</span>;
+    return <span className="text-xs text-fg-subtle">{fmt(row.balance)}</span>;
   };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]">
-        <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
-          <h2 className="flex items-center gap-2 text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">
-            <Boxes size={20} className="text-genesis-red" /> {editing ? 'Editar alocação' : 'Alocar fichas'} — {tournament.name}
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={onClose} className="absolute inset-0 bg-[var(--overlay)]" />
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="card relative flex max-h-[92vh] w-full max-w-3xl flex-col shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between border-b border-line-soft p-6">
+          <h2 className="flex items-center gap-2 text-xl font-bold text-fg">
+            <Boxes size={20} className="text-brand-fg" /> {editing ? 'Editar alocação' : 'Alocar fichas'} — {tournament.name}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X /></button>
+          <button onClick={onClose} className="text-fg-subtle hover:text-gray-600"><X /></button>
         </div>
 
         <div className="space-y-5 overflow-y-auto p-6">
           {!editing && (
             <div>
-              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-gray-400">Fichário</label>
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Fichário</label>
               <CustomSelect options={binderOptions} value={binderId} onChange={(v) => { setBinderId(v); setMatrix(null); setError(null); }} placeholder="Selecione o fichário..." />
             </div>
           )}
@@ -121,19 +122,19 @@ export default function AllocationModal({ tournament, editing, onClose, onDone }
                   <div className="grid grid-cols-3 gap-2">
                     {MODES.map((m) => (
                       <button key={m.v} type="button" onClick={() => { setMode(m.v); setError(null); }}
-                        className={`rounded-xl border p-3 text-xs font-bold transition-all ${mode === m.v ? 'border-genesis-red bg-red-50 text-genesis-red dark:bg-red-500/10' : 'border-gray-200 text-gray-500 dark:border-zinc-700'}`}>{m.label}</button>
+                        className={`rounded-xl border p-3 text-xs font-bold transition-all ${mode === m.v ? 'border-brand bg-red-50 text-brand-fg dark:bg-red-500/10' : 'border-line text-fg-muted'}`}>{m.label}</button>
                     ))}
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">{MODES.find((m) => m.v === mode).hint}</p>
+                  <p className="mt-2 text-xs text-fg-muted">{MODES.find((m) => m.v === mode).hint}</p>
                 </div>
               )}
 
               {mode === 'denominations' && !editing && (
                 <div className="flex flex-wrap items-center gap-3 text-xs">
-                  <span className="font-bold text-gray-500">Faixa de valor:</span>
-                  <input type="number" min="0" placeholder="de" value={range.min} onChange={(e) => setRange({ ...range, min: e.target.value })} className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900" />
-                  <input type="number" min="0" placeholder="até" value={range.max} onChange={(e) => setRange({ ...range, max: e.target.value })} className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900" />
-                  <span className="text-gray-400">ou marque as denominações abaixo</span>
+                  <span className="font-bold text-fg-muted">Faixa de valor:</span>
+                  <input type="number" min="0" placeholder="de" value={range.min} onChange={(e) => setRange({ ...range, min: e.target.value })} className="input w-24" />
+                  <input type="number" min="0" placeholder="até" value={range.max} onChange={(e) => setRange({ ...range, max: e.target.value })} className="input w-24" />
+                  <span className="text-fg-subtle">ou marque as denominações abaixo</span>
                 </div>
               )}
 
@@ -162,9 +163,9 @@ export default function AllocationModal({ tournament, editing, onClose, onDone }
           )}
         </div>
 
-        <div className="flex gap-3 border-t border-gray-100 p-4 dark:border-zinc-800">
-          <button onClick={onClose} className="flex-1 rounded-xl bg-gray-100 py-3 text-xs font-black uppercase text-gray-600 dark:bg-zinc-800 dark:text-gray-300">Cancelar</button>
-          <button onClick={submit} disabled={busy || !matrix} className="flex-1 rounded-xl bg-genesis-red py-3 text-xs font-black uppercase text-white hover:bg-red-700 disabled:opacity-40">
+        <div className="flex gap-3 border-t border-line-soft p-4">
+          <button onClick={onClose} className="flex-1 rounded-xl bg-raised py-3 text-xs font-bold text-fg-muted dark:bg-zinc-800">Cancelar</button>
+          <button onClick={submit} disabled={busy || !matrix} className="flex-1 rounded-xl bg-brand py-3 text-xs font-bold text-white hover:bg-brand-hover disabled:opacity-40">
             {busy ? 'Alocando…' : editing ? 'Salvar alocação' : 'Alocar'}
           </button>
         </div>

@@ -82,7 +82,6 @@ test('ACEITE: material tenta CRIAR ficha, torneio, evento, stack, modelo, fichá
     ['post', '/api/tournaments', { name: 'X', date: '2026-10-01' }],
     ['post', '/api/events', { name: 'E', start_date: '2026-10-01', end_date: '2026-10-02' }],
     ['post', '/api/stacks', { name: 'S', composition: [] }],
-    ['post', '/api/binder-models', { name: 'M', composition: [] }],
     ['post', '/api/binders', { name: 'B' }],
     ['post', '/api/blind-templates', { name: 'x', rows: [] }],
     ['post', '/api/payout-templates', { name: 'x', rows: [] }],
@@ -106,7 +105,15 @@ test('salão: não altera a ESTRUTURA do torneio nem opera o material; opera ent
 
   // operação de salão continua funcionando
   assert.equal((await call('put', sal, `/api/tournaments/${t._id}`, { status: 'running' })).status, 200, 'iniciar torneio');
-  assert.equal((await call('put', mat, `/api/tournaments/${t._id}`, { notes: 'ok' })).status, 200);
+  // MEL-03: o Material só CONSULTA entradas, jogadores ativos, relógio e sessões
+  assert.equal((await call('put', mat, `/api/tournaments/${t._id}`, { notes: 'ok' })).status, 403);
+  assert.equal((await call('post', mat, `/api/tournaments/${t._id}/entries`, { type: 'buy-in' })).status, 403);
+  assert.equal((await call('put', mat, `/api/tournaments/${t._id}/active-players`, { active_players: 3 })).status, 403);
+  assert.equal((await call('post', mat, `/api/tournaments/${t._id}/clock`, { action: 'pause' })).status, 403);
+  assert.equal((await call('get', mat, `/api/tournaments/${t._id}/headcount`)).status, 200);
+  assert.equal((await call('put', sal, `/api/tournaments/${t._id}/active-players`, { active_players: 1 })).status, 200, 'salão informa os ativos');
+  assert.equal((await call('get', mat, '/api/inventory/logs')).status, 403, 'auditoria administrativa: só admin');
+  assert.equal((await call('get', admin, '/api/inventory/logs')).status, 200);
   assert.equal((await call('post', sal, `/api/tournaments/${t._id}/entries`, { type: 'buy-in' })).status, 201, 'registrar entrada');
   assert.equal((await call('post', sal, `/api/tournaments/${t._id}/clock`, { action: 'pause' })).status < 500, true);
 

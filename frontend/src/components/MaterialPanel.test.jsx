@@ -17,10 +17,11 @@ const c100 = { _id: 'c100', value: 100, color: '#000' };
 const c500 = { _id: 'c500', value: 500, color: '#f00' };
 const summary = {
   rows: [
-    { chip: c100, expected: 1000, sent: 600, returned: 100, discarded: 25, conversion_in: 0, conversion_out: 0, on_table: 500, pending: 500 },
-    { chip: c500, expected: 400, sent: 500, returned: 0, conversion_in: 0, conversion_out: 0, on_table: 500, pending: -100 },
+    { chip: c100, expected: 1000, sent: 600, returned: 100, discarded: 25, conversion_in: 0, conversion_out: 0, on_table: 500, in_play: 1000, available: 0, pending: 500 },
+    { chip: c500, expected: 400, sent: 500, returned: 0, conversion_in: 0, conversion_out: 0, on_table: 500, in_play: 400, available: 100, pending: -100 },
   ],
-  totals: { expected_value: 300000, on_table_value: 300000, pending_value: 0 }, uncovered: [],
+  totals: { expected_value: 300000, on_table_value: 300000, in_play_value: 300000, available_value: 50000, pending_value: 0 }, uncovered: [],
+  stacks: [{ action: 're_entry', label: 'Reentrada', stacks: 90, composition: [{ chip: c500, quantity: 2 }] }],
 };
 const data = {
   '/tournaments/t1/material': summary,
@@ -32,7 +33,7 @@ let root; let container;
 const flush = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 const buttons = () => [...container.querySelectorAll('button')];
 const button = (label) => [...container.querySelectorAll('button')].find((b) => b.textContent.includes(label));
-const option = (label) => [...container.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
+const option = (label) => [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
 const setValue = (el, v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
 
 async function mount(props = {}) {
@@ -59,12 +60,11 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 
 describe('MaterialPanel', () => {
-  it('mostra esperado × enviado × devolvido × em jogo × pendente e o histórico de movimentos', async () => {
+  it('separa enviado (acumulado) × no Salão × em jogo × disponível × falta enviar, com os stacks disponíveis', async () => {
     await mount();
     const t = container.textContent;
-    for (const h of ['Esperado', 'Enviado', 'Devolvido', 'Em jogo', 'Pendente']) expect(t).toContain(h);
-    expect(t).toContain('+500');   // falta enviar 500 fichas de 100
-    expect(t).toContain('-100');   // sobra 100 fichas de 500 na mesa
+    for (const h of ['Enviado (acum.)', 'Devolvido', 'No Salão', 'Em jogo', 'Disponível no Salão', 'Falta enviar']) expect(t).toContain(h);
+    expect(t).toContain('90 stacks disponíveis de Reentrada');
     expect(t).toContain('Envio · buy-in');
     expect(t).toContain('Ana');
   });

@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
-  Trophy, Plus, Clock, DollarSign,
+  Trophy, Plus, Clock,
   ChevronRight, Trash2, Edit2,
-  Play, Pause, CheckCircle2, Users,
-  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, Minus, History, Package
-} from 'lucide-react';
+  Play, Pause, CheckCircle2, Users, Copy,
+  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, History, Package, Coffee, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import CustomSelect from '../components/CustomSelect';
+import { timezoneOptions } from '../lib/timezones';
 import TournamentClock from '../components/TournamentClock';
-import TournamentFinance from '../components/TournamentFinance';
-import SeatingMap from '../components/SeatingMap';
 import SessionBar from '../components/SessionBar';
 import AllocationModal from '../components/AllocationModal';
 import MaterialPanel from '../components/MaterialPanel';
@@ -27,7 +25,7 @@ const StatusBadge = ({ status }) => {
     scheduled: 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-500',
     running: 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500',
     paused: 'bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-500',
-    finished: 'bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400'
+    finished: 'bg-raised text-fg-muted'
   };
   const labels = {
     scheduled: 'Agendado',
@@ -50,12 +48,15 @@ export default function Torneios() {
   const [allocModal, setAllocModal] = useState(null);     // null | { editing? }
   const [stackModels, setStackModels] = useState([]);
   const [entries, setEntries] = useState([]);
+  const [counts, setCounts] = useState(null);             // inscrições × ativos do torneio (servidor)
+  const [activeInput, setActiveInput] = useState('');
   const [chipsInPlay, setChipsInPlay] = useState(null); // fichas em jogo do TORNEIO: calculado no servidor
   const role = getStoredUser()?.role;
   const isAdmin = role === 'admin';
   // permissões por AÇÃO (matriz área × nível): estrutura do torneio é 'manage'; o material opera
   const canManage = can(role, 'torneios', 'manage');
   const canOperateMaterial = can(role, 'torneios', 'operate');
+  const canOperateFloor = can(role, 'mesas', 'operate');
   const [events, setEvents] = useState([]);
   const [sessions, setSessions] = useState([]);           // sessões/fases (Dia 1A, 1B…) do torneio aberto
   const [selectedSessionId, setSelectedSessionId] = useState(null);
@@ -64,6 +65,9 @@ export default function Torneios() {
   const [loading, setLoading] = useState(true);
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);             // torneio AGENDADO em edição (o mesmo modal de criação, pré-preenchido)
+  const [duplicateOf, setDuplicateOf] = useState(null);       // torneio de origem enquanto o modal de criação é uma duplicação
+  const [copyExtra, setCopyExtra] = useState({});             // blinds/stack copiados (não aparecem no formulário)
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'logistica');
   const [blindTplOpen, setBlindTplOpen] = useState(false);
 
@@ -79,7 +83,6 @@ export default function Torneios() {
     name: '',
     date: new Date().toISOString().split('T')[0],
     start_time: '20:00',
-    estimated_players: 50,
     seats_per_table: 9,
     timezone: 'America/Sao_Paulo',
     stack_model_id: '',
@@ -138,8 +141,31 @@ export default function Torneios() {
       ]);
       setEntries(entriesData);
       setSessionInPlay(sessionData);
+      fetchTournamentCounts(id);
     } catch (e) {
       if (e.status !== 401) console.error(e);
+    }
+  };
+
+  const fetchTournamentCounts = async (id) => {
+    try {
+      const c = await apiGet(`/tournaments/${id}/headcount`);
+      setCounts(c);
+      setActiveInput(String(c.active));
+    } catch (e) {
+      if (e.status !== 401) console.error(e);
+    }
+  };
+
+  const handleSetActive = async () => {
+    try {
+      const c = await apiPut(`/tournaments/${selectedTournament._id}/active-players`, { active_players: Number(activeInput) });
+      setCounts(c);
+      setActiveInput(String(c.active));
+      setSelectedTournament((prev) => ({ ...prev, actual_players: c.active }));
+      showAlert('Ativos atualizados.', 'success');
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao atualizar jogadores ativos', 'error');
     }
   };
 
@@ -214,9 +240,7 @@ export default function Torneios() {
       setForm(f => ({ ...f, entry_quantity: 1 }));
       fetchFloorData(selectedTournament._id);
       fetchTournaments();
-      if (type === 'buy-in') {
-        setSelectedTournament(prev => ({ ...prev, actual_players: (prev.actual_players || 0) + quantity }));
-      }
+      fetchTournamentCounts(selectedTournament._id);
     } catch (e) {
       if (e.status === 0) {
         enqueue(path, body);
@@ -228,18 +252,75 @@ export default function Torneios() {
     }
   };
 
+  // Duplicar: abre o modal de criação pré-preenchido com a configuração do torneio aberto.
+  const openDuplicate = () => {
+    const t = selectedTournament;
+    const stripId = (rows) => (rows || []).map(({ _id, ...row }) => row);
+    setForm({
+      name: `${t.name} (cópia)`,
+      date: t.starts_at
+        ? new Date(t.starts_at).toLocaleDateString('en-CA', { timeZone: t.timezone || 'America/Sao_Paulo' })
+        : String(t.date || '').slice(0, 10),
+      start_time: t.start_time || '20:00',
+      seats_per_table: t.seats_per_table ?? 9,
+      timezone: t.timezone || 'America/Sao_Paulo',
+      stack_model_id: t.stack_model_id || '',
+      event_id: t.event_id || '',
+      number: '',
+      sessions_text: sessions.map((x) => x.name).join(', '),
+      notes: t.notes || '',
+    });
+    setCopyExtra({ stack_models: stripId(t.stack_models), blind_structure: stripId(t.blind_structure) });
+    setDuplicateOf(t);
+    setIsCreateModalOpen(true);
+  };
+
+  // Editar: só torneios AGENDADOS (depois de iniciado, nome/data/horário/fuso ficam fixos — o servidor também barra).
+  const openEdit = () => {
+    const t = selectedTournament;
+    setForm({
+      name: t.name,
+      date: t.starts_at
+        ? new Date(t.starts_at).toLocaleDateString('en-CA', { timeZone: t.timezone || 'America/Sao_Paulo' })
+        : String(t.date || '').slice(0, 10),
+      start_time: t.start_time || '20:00',
+      seats_per_table: t.seats_per_table ?? 9,
+      timezone: t.timezone || 'America/Sao_Paulo',
+      stack_model_id: t.stack_model_id || '',
+      event_id: t.event_id || '',
+      number: t.number ?? '',
+      sessions_text: '',
+      notes: t.notes || '',
+    });
+    setEditing(t);
+    setIsCreateModalOpen(true);
+  };
+
+  const closeCreateModal = () => { setIsCreateModalOpen(false); setDuplicateOf(null); setEditing(null); setCopyExtra({}); };
+
   const handleCreateTournament = async (e) => {
     e.preventDefault();
+    if (editing) {
+      const { sessions_text, ...rest } = form; // sessões não mudam por aqui
+      void sessions_text;
+      const ok = await handleUpdateTournament(editing._id, {
+        name: rest.name.trim(), date: rest.date, start_time: rest.start_time, timezone: rest.timezone,
+        seats_per_table: Number(rest.seats_per_table), stack_model_id: rest.stack_model_id || null,
+        event_id: rest.event_id || null, number: rest.number ? Number(rest.number) : null, notes: rest.notes,
+      });
+      if (ok) { showAlert('Torneio atualizado!', 'success'); closeCreateModal(); }
+      return;
+    }
     try {
       // sessões/fases: uma por linha ou separadas por vírgula (só o admin as define; sem isso nasce "Dia Único")
       const { sessions_text, ...rest } = form;
       const names = isAdmin ? sessions_text.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) : [];
       await apiPost('/tournaments', {
-        ...rest, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
+        ...rest, ...copyExtra, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
         sessions: names.length ? names : undefined,
       });
-      showAlert('Torneio criado!', 'success');
-      setIsCreateModalOpen(false);
+      showAlert(duplicateOf ? 'Torneio duplicado!' : 'Torneio criado!', 'success');
+      closeCreateModal();
       fetchTournaments();
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao criar torneio', 'error');
@@ -254,6 +335,11 @@ export default function Torneios() {
       return true;
     } catch (e) {
       // o torneio só fecha com as sessões encerradas: oferece encerrá-las junto
+      if (e.status === 409 && Array.isArray(e.data?.details) && ['finished', 'finalized'].includes(updates.status) && !opts.finishSessions && !isAdmin) {
+        const names = e.data.details.map((x) => x.name).join(', ');
+        showAlert(`Há sessões pendentes (${names}). Encerre cada sessão; encerrar todas de uma vez é exclusivo do administrador.`, 'error');
+        return false;
+      }
       if (e.status === 409 && Array.isArray(e.data?.details) && ['finished', 'finalized'].includes(updates.status) && !opts.finishSessions) {
         const names = e.data.details.map((x) => x.name).join(', ');
         if (await showConfirm(`Há sessões pendentes (${names}). Encerrá-las e finalizar o torneio?`)) {
@@ -374,24 +460,25 @@ export default function Torneios() {
   const eventName = (id) => events.find((ev) => ev._id === id)?.name;
   const sessionClosed = sessions.find((x) => x._id === selectedSessionId)?.status === 'finished';
   // entradas: bloqueadas com o torneio encerrado OU a sessão encerrada
-  const entriesLocked = ['finished', 'finalized'].includes(selectedTournament?.status) || sessionClosed;
+  // o Material só consulta as entradas: quem lança é o Salão (ou o admin)
+  const entriesLocked = ['finished', 'finalized'].includes(selectedTournament?.status) || sessionClosed || !canOperateFloor;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold mb-1 text-gray-900 dark:text-white">Torneios</h1>
-          <p className="text-gray-500 dark:text-gray-400">Gerenciamento central de eventos e logística de fichas.</p>
+          <h1 className="page-title">Torneios</h1>
+          <p className="page-sub">Gerenciamento central de eventos e logística de fichas.</p>
         </div>
         {canManage && (
-          <button onClick={() => setIsCreateModalOpen(true)} className="px-6 py-3 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 transition-all flex items-center gap-2 shadow-lg shadow-red-500/20">
+          <button onClick={() => { setDuplicateOf(null); setCopyExtra({}); setIsCreateModalOpen(true); }} className="px-6 py-3 rounded-xl font-bold bg-brand text-white hover:bg-brand-hover transition-all flex items-center gap-2">
             <Plus size={18} /> Novo Torneio
           </button>
         )}
       </div>
 
       {loading ? (
-        <div className="text-center py-20 text-gray-400 animate-pulse">Carregando eventos...</div>
+        <div className="text-center py-20 text-fg-subtle animate-pulse">Carregando eventos...</div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
           <AnimatePresence>
@@ -402,20 +489,20 @@ export default function Torneios() {
                 onClick={() => {
                   fetchTournamentDetails(t._id);
                 }}
-                className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-2xl p-5 hover:border-genesis-red transition-all cursor-pointer group shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
+                className="card p-5 hover:border-brand transition-all cursor-pointer group flex flex-col md:flex-row md:items-center justify-between gap-4"
               >
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-xl ${t.status === 'running' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500' : 'bg-gray-100 dark:bg-zinc-800 text-gray-400'}`}>
+                  <div className={`p-3 rounded-xl ${t.status === 'running' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500' : 'bg-raised text-fg-subtle'}`}>
                     <Trophy size={24} />
                   </div>
                   <div>
-                    <h3 className="font-bold text-lg text-gray-900 dark:text-white">
-                      {t.number ? <span className="text-genesis-red mr-1">#{String(t.number).padStart(2, '0')}</span> : null}{t.name}
+                    <h3 className="font-bold text-lg text-fg">
+                      {t.number ? <span className="text-brand-fg mr-1">#{String(t.number).padStart(2, '0')}</span> : null}{t.name}
                     </h3>
-                    {eventName(t.event_id) && <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">{eventName(t.event_id)}</p>}
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                    {eventName(t.event_id) && <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">{eventName(t.event_id)}</p>}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-fg-muted">
                       <span className="flex items-center gap-1"><Clock size={14} /> {tournamentWhen(t)}</span>
-                      <span className="flex items-center gap-1"><Users size={14} /> {t.actual_players || 0} / {t.estimated_players} entradas</span>
+                      <span className="flex items-center gap-1"><Users size={14} /> {t.actual_players || 0} jogando · {(t.entries_initial || 0) + (t.entries_reentries || 0)} inscrições</span>
                       <span className="flex items-center gap-1"><Layers size={14} /> Stack: {t.starting_stack.toLocaleString()}</span>
                     </div>
                   </div>
@@ -427,7 +514,7 @@ export default function Torneios() {
               </motion.div>
             ))}
           </AnimatePresence>
-          {tournaments.length === 0 && <div className="text-center py-10 text-gray-500 italic">Nenhum torneio agendado.</div>}
+          {tournaments.length === 0 && <div className="text-center py-10 text-fg-muted italic">Nenhum torneio agendado.</div>}
         </div>
       )}
 
@@ -451,77 +538,67 @@ export default function Torneios() {
             <motion.div
               initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '100%', opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 35 }}
-              className="bg-gray-50 dark:bg-[#0A0A0A] w-full max-w-6xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+              className="bg-sunken dark:bg-canvas w-full max-w-6xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
               style={{ maxHeight: '92dvh' }}
               onClick={e => e.stopPropagation()}
             >
               {/* Modal Header */}
-              <div className="p-4 md:p-6 bg-white dark:bg-[#111111] border-b border-gray-200 dark:border-zinc-800 sticky top-0 z-10">
+              <div className="p-4 md:p-6 bg-surface border-b border-line sticky top-0 z-10">
                 {/* Row 1: Title + close */}
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3">
-                    <button onClick={() => setSelectedTournament(null)} className="md:hidden p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-zinc-800 shrink-0"><X size={18} /></button>
+                    <button onClick={() => setSelectedTournament(null)} className="md:hidden p-1.5 rounded-lg text-fg-muted hover:bg-sunken shrink-0"><X size={18} /></button>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h2 className="text-lg md:text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight leading-tight">{selectedTournament.name}</h2>
+                        <h2 className="text-lg md:text-2xl font-bold text-fg leading-tight">{selectedTournament.name}</h2>
                         <StatusBadge status={selectedTournament.status} />
                       </div>
-                      <p className="text-xs text-gray-500 font-medium mt-0.5">{tournamentWhen(selectedTournament)}</p>
+                      <p className="text-xs text-fg-muted font-medium mt-0.5">{tournamentWhen(selectedTournament)}</p>
                     </div>
                   </div>
-                  <button onClick={() => setSelectedTournament(null)} className="hidden md:flex p-2 rounded-xl text-gray-400 hover:text-gray-600 transition-all shrink-0"><X size={22} /></button>
+                  <button onClick={() => setSelectedTournament(null)} className="hidden md:flex p-2 rounded-xl text-fg-subtle hover:text-gray-600 transition-all shrink-0"><X size={22} /></button>
                 </div>
 
                 {/* Row 2: Tabs + Action buttons */}
                 <div className="flex items-center justify-between gap-3">
                   {/* Tab switcher — visible on all sizes */}
-                  <div className="flex bg-gray-100 dark:bg-zinc-800 p-1 rounded-xl flex-1 md:flex-none">
+                  <div className="flex bg-raised p-1 rounded-xl flex-1 md:flex-none">
                     <button
                       onClick={() => setActiveTab('logistica')}
-                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'logistica' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'logistica' ? 'bg-surface dark:bg-zinc-700 text-brand-fg ' : 'text-fg-muted'}`}
                     >
                       <Layout size={13} /> Logística
                     </button>
                     <button
                       onClick={() => setActiveTab('salao')}
-                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'salao' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'salao' ? 'bg-surface dark:bg-zinc-700 text-brand-fg ' : 'text-fg-muted'}`}
                     >
                       <Monitor size={13} /> Salão
                     </button>
                     <button
-                      onClick={() => setActiveTab('mesas')}
-                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'mesas' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
-                    >
-                      <Users size={13} /> Mesas
-                    </button>
-                    <button
                       onClick={() => setActiveTab('material')}
-                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'material' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'material' ? 'bg-surface dark:bg-zinc-700 text-brand-fg ' : 'text-fg-muted'}`}
                     >
                       <Package size={13} /> Material
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('financeiro')}
-                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'financeiro' ? 'bg-white dark:bg-zinc-700 text-genesis-red shadow-sm' : 'text-gray-500'}`}
-                    >
-                      <DollarSign size={13} /> Financeiro
                     </button>
                   </div>
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-2 shrink-0">
-                    {selectedTournament.status === 'scheduled' && (
-                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="px-3 md:px-5 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"><Play size={14} /> <span className="hidden sm:inline">Iniciar</span></button>
+                    {canOperateFloor && selectedTournament.status === 'scheduled' && (
+                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="btn btn-success md:px-5 flex items-center"><Play size={14} /> <span className="hidden sm:inline">Iniciar</span></button>
                     )}
-                    {selectedTournament.status === 'running' && (
-                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'paused' })} className="px-3 md:px-5 py-2 rounded-xl bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20"><Pause size={14} /> <span className="hidden sm:inline">Pausar</span></button>
+                    {canOperateFloor && selectedTournament.status === 'running' && (
+                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'paused' })} className="btn btn-warn md:px-5 flex items-center"><Pause size={14} /> <span className="hidden sm:inline">Pausar</span></button>
                     )}
-                    {selectedTournament.status === 'paused' && (
-                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="px-3 md:px-5 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"><Play size={14} /> <span className="hidden sm:inline">Retomar</span></button>
+                    {canOperateFloor && selectedTournament.status === 'paused' && (
+                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="btn btn-success md:px-5 flex items-center"><Play size={14} /> <span className="hidden sm:inline">Retomar</span></button>
                     )}
-                    {['running', 'paused'].includes(selectedTournament.status) && (
-                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'finished' })} className="px-3 md:px-5 py-2 rounded-xl bg-gray-600 text-white font-bold text-xs flex items-center gap-1.5"><CheckCircle2 size={14} /> <span className="hidden sm:inline">Finalizar</span></button>
+                    {canOperateFloor && ['running', 'paused'].includes(selectedTournament.status) && (
+                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'finished' })} className="btn btn-neutral md:px-5 flex items-center"><CheckCircle2 size={14} /> <span className="hidden sm:inline">Finalizar</span></button>
                     )}
+                    {canManage && selectedTournament.status === 'scheduled' && <button onClick={openEdit} title="Editar torneio" aria-label="Editar torneio" className="btn btn-ghost btn-icon"><Pencil size={16} /></button>}
+                    {canManage && <button onClick={openDuplicate} title="Duplicar torneio" className="p-2 rounded-xl text-fg-muted hover:bg-sunken transition-all"><Copy size={16} /></button>}
                     {canManage && <button onClick={() => handleDeleteTournament(selectedTournament._id).then(() => setSelectedTournament(null))} title="Excluir torneio" className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"><Trash2 size={16} /></button>}
                   </div>
                 </div>
@@ -530,15 +607,18 @@ export default function Torneios() {
               {/* Scrollable content */}
               <div className="overflow-y-auto flex-1">
 
-              {['salao', 'mesas', 'material'].includes(activeTab) && (
+              {['salao', 'material'].includes(activeTab) && (
                 <div className="px-4 md:px-8 pt-6">
                   <SessionBar
                     tournamentId={selectedTournament._id}
+                    timezone={selectedTournament.timezone}
+                    defaultDate={selectedTournament.starts_at ? new Date(selectedTournament.starts_at).toLocaleDateString('en-CA', { timeZone: selectedTournament.timezone || 'America/Sao_Paulo' }) : ''}
                     sessions={sessions}
                     selectedId={selectedSessionId}
                     onSelect={selectSession}
                     onChanged={() => fetchFloorData(selectedTournament._id)}
                     isAdmin={isAdmin}
+                    canOperate={canOperateFloor}
                     tournamentClosed={['finished', 'finalized'].includes(selectedTournament.status)}
                   />
                 </div>
@@ -548,53 +628,61 @@ export default function Torneios() {
                 <div className="p-4 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
                   {/* (Existing Logistics View Content) */}
                   <div className="lg:col-span-2 space-y-8">
-                    {/* Entries Section */}
-                    <div className="bg-white dark:bg-[#141414] rounded-3xl p-6 border border-gray-200 dark:border-zinc-800 shadow-sm">
-                      <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-lg font-bold flex items-center gap-2"><Users className="text-genesis-red" /> Entradas</h3>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm text-gray-400 font-bold uppercase tracking-tight">Total:</span>
-                          <div className="text-2xl font-black text-genesis-red">{selectedTournament.actual_players}</div>
+                    {/* Inscrições × jogadores ativos (BUG-04/05): números distintos, cada um com a sua regra */}
+                    <div className="card p-6">
+                      <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><Users className="text-brand-fg" /> Inscrições e jogadores</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 text-center">
+                        {[
+                          ['Entradas iniciais', counts?.entries_initial],
+                          ['Reentradas', counts?.entries_reentries],
+                          ['Inscrições totais', counts?.entries_total],
+                          ['Eliminados', counts?.eliminated],
+                        ].map(([label, v]) => (
+                          <div key={label} className="rounded-2xl bg-sunken dark:bg-sunken border border-line p-3">
+                            <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">{label}</p>
+                            <p className="text-2xl font-bold text-fg">{v ?? '—'}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-fg-subtle mb-4">Inscrições totais = entradas iniciais + reentradas (acumulado, não muda ao eliminar). Jogando = quem ainda está na mesa.</p>
+                      <div className="flex items-center gap-4 bg-sunken dark:bg-sunken p-4 rounded-2xl border border-line">
+                        <div className="flex-1">
+                          <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">Jogando (jogadores ativos)</p>
+                          <input
+                            aria-label="Ativos"
+                            disabled={!canOperateFloor || selectedTournament.status === 'finished'}
+                            type="number" min="0"
+                            value={activeInput}
+                            onChange={(e) => setActiveInput(e.target.value)}
+                            className="w-full bg-transparent text-3xl font-bold text-fg focus:outline-none disabled:opacity-50"
+                          />
                         </div>
+                        {canOperateFloor && (
+                          <button
+                            onClick={handleSetActive}
+                            disabled={selectedTournament.status === 'finished' || activeInput === '' || Number(activeInput) === counts?.active}
+                            className="btn btn-primary disabled:opacity-30"
+                          >
+                            Atualizar jogando
+                          </button>
+                        )}
                       </div>
-                      <div className="flex items-center gap-4 bg-gray-50 dark:bg-[#0F0F0F] p-4 rounded-2xl border border-gray-200 dark:border-zinc-800">
-                        <button 
-                          disabled={selectedTournament.status === 'finished'}
-                          onClick={() => handleUpdateTournament(selectedTournament._id, { actual_players: Math.max(0, selectedTournament.actual_players - 1) })} 
-                          className="p-4 bg-white dark:bg-zinc-800 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          <Minus />
-                        </button>
-                        <input
-                          disabled={selectedTournament.status === 'finished'}
-                          type="number"
-                          value={selectedTournament.actual_players}
-                          onChange={(e) => handleUpdateTournament(selectedTournament._id, { actual_players: parseInt(e.target.value) || 0 })}
-                          className="flex-1 bg-transparent text-center text-3xl font-black text-gray-900 dark:text-white focus:outline-none disabled:opacity-50"
-                        />
-                        <button 
-                          disabled={selectedTournament.status === 'finished'}
-                          onClick={() => handleUpdateTournament(selectedTournament._id, { actual_players: selectedTournament.actual_players + 1 })} 
-                          className="p-4 bg-genesis-red rounded-xl shadow-lg shadow-red-500/20 hover:scale-105 active:scale-95 transition-all text-white disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
-                        >
-                          <Plus />
-                        </button>
-                      </div>
+                      {!canOperateFloor && <p className="mt-2 text-xs text-fg-subtle">Quem informa os jogadores ativos é o Salão (ou o administrador); o Material só consulta.</p>}
                     </div>
 
                     {/* Blinds Section */}
-                    <div className={`bg-white dark:bg-[#141414] rounded-3xl p-6 border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden ${canManage ? '' : 'pointer-events-none opacity-70'}`} aria-disabled={!canManage}>
+                    <div className={`bg-surface rounded-3xl p-6 border border-line  overflow-hidden ${canManage ? '' : 'pointer-events-none opacity-70'}`} aria-disabled={!canManage}>
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-bold flex items-center gap-2"><History className="text-blue-500" /> Estrutura de Blinds</h3>
                         {canManage && (
-                          <button onClick={() => setBlindTplOpen(true)} className="text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-genesis-red">
+                          <button onClick={() => setBlindTplOpen(true)} className="text-xs font-bold uppercase tracking-wide text-fg-subtle hover:text-brand-fg">
                             Templates
                           </button>
                         )}
                       </div>
                       {/* Add-row buttons (estrutura: só quem administra) */}
                       <div className={`flex flex-wrap gap-2 mb-3 ${canManage ? '' : 'hidden'}`}>
-                        <button onClick={addBlindLevel} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 dark:bg-zinc-800 hover:bg-genesis-red hover:text-white transition-all flex items-center gap-1">
+                        <button onClick={addBlindLevel} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-raised hover:bg-brand hover:text-white transition-all flex items-center gap-1">
                           <Plus size={12} /> Nível
                         </button>
                         {[15, 45, 60, 90].map(d => (
@@ -613,7 +701,7 @@ export default function Torneios() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
                           <thead>
-                            <tr className="text-gray-400 font-bold border-b border-gray-100 dark:border-zinc-800">
+                            <tr className="text-fg-subtle font-bold border-b border-line-soft">
                               <th className="py-3 pr-4">Nível</th>
                               <th className="py-3 px-2">SB</th>
                               <th className="py-3 px-2">BB</th>
@@ -627,25 +715,25 @@ export default function Torneios() {
                               const isBreak = lvl.row_type === 'break';
                               const isSpecial = lvl.row_type === 'end_registration' || lvl.row_type === 'end_day';
                               if (isSpecial) return (
-                                <tr key={idx} className="border-b border-gray-50 dark:border-zinc-900/50 group">
+                                <tr key={idx} className="border-b border-line-soft group">
                                   <td colSpan={5} className="py-2 pr-4">
-                                    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${
                                       lvl.row_type === 'end_registration' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
                                     }`}>
-                                      ● {lvl.label}
+                                      <span className="dot" aria-hidden="true" /> {lvl.label}
                                     </span>
                                   </td>
                                   <td className="py-2 pl-4 text-right">
-                                    <button onClick={() => removeBlindLevel(idx)} className="p-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
+                                    <button onClick={() => removeBlindLevel(idx)} className="p-2 text-fg-subtle hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
                                   </td>
                                 </tr>
                               );
                               if (isBreak) return (
-                                <tr key={idx} className="border-b border-gray-50 dark:border-zinc-900/50 group bg-amber-50/30 dark:bg-amber-500/5">
+                                <tr key={idx} className="border-b border-line-soft group bg-amber-50/30 dark:bg-amber-500/5">
                                   <td className="py-2 pr-4">
-                                    <span className="inline-flex items-center gap-1 text-xs font-black text-amber-600 dark:text-amber-400 uppercase">☕ Break</span>
+                                    <span className="badge badge-warn"><Coffee size={14} aria-hidden="true" /> Intervalo</span>
                                   </td>
-                                  <td colSpan={3} className="py-2 px-2 text-gray-400 text-xs">—</td>
+                                  <td colSpan={3} className="py-2 px-2 text-fg-subtle text-xs">—</td>
                                   <td className="py-2 px-2">
                                     <select
                                       value={lvl.duration}
@@ -656,20 +744,20 @@ export default function Torneios() {
                                     </select>
                                   </td>
                                   <td className="py-2 pl-4 text-right">
-                                    <button onClick={() => removeBlindLevel(idx)} className="p-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
+                                    <button onClick={() => removeBlindLevel(idx)} className="p-2 text-fg-subtle hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
                                   </td>
                                 </tr>
                               );
                               // Normal level row
                               const levelNum = (selectedTournament.blind_structure || []).slice(0, idx + 1).filter(r => !r.row_type || r.row_type === 'level').length;
                               return (
-                                <tr key={idx} className="border-b border-gray-50 dark:border-zinc-900/50 hover:bg-gray-50/50 dark:hover:bg-zinc-800/30 transition-colors group">
-                                  <td className="py-2 pr-4 font-bold text-gray-400">{levelNum}</td>
+                                <tr key={idx} className="border-b border-line-soft hover:bg-sunken/50 dark:hover:bg-zinc-800/30 transition-colors group">
+                                  <td className="py-2 pr-4 font-bold text-fg-subtle">{levelNum}</td>
                                   <td className="py-2 px-2"><input type="number" value={lvl.small_blind} onChange={(e) => handleUpdateBlind(idx, 'small_blind', e.target.value)} className="w-20 bg-transparent font-bold focus:text-genesis-red outline-none" /></td>
                                   <td className="py-2 px-2"><input type="number" value={lvl.big_blind} onChange={(e) => handleUpdateBlind(idx, 'big_blind', e.target.value)} className="w-20 bg-transparent font-bold focus:text-genesis-red outline-none" /></td>
-                                  <td className="py-2 px-2 text-gray-500"><input type="number" value={lvl.ante} onChange={(e) => handleUpdateBlind(idx, 'ante', e.target.value)} className="w-16 bg-transparent focus:text-genesis-red outline-none" /></td>
-                                  <td className="py-2 px-2 text-gray-500"><input type="number" value={lvl.duration} onChange={(e) => handleUpdateBlind(idx, 'duration', e.target.value)} className="w-12 bg-transparent focus:text-genesis-red outline-none" /></td>
-                                  <td className="py-2 pl-4 text-right"><button onClick={() => removeBlindLevel(idx)} className="p-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button></td>
+                                  <td className="py-2 px-2 text-fg-muted"><input type="number" value={lvl.ante} onChange={(e) => handleUpdateBlind(idx, 'ante', e.target.value)} className="w-16 bg-transparent focus:text-genesis-red outline-none" /></td>
+                                  <td className="py-2 px-2 text-fg-muted"><input type="number" value={lvl.duration} onChange={(e) => handleUpdateBlind(idx, 'duration', e.target.value)} className="w-12 bg-transparent focus:text-genesis-red outline-none" /></td>
+                                  <td className="py-2 pl-4 text-right"><button onClick={() => removeBlindLevel(idx)} className="p-2 text-fg-subtle hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button></td>
                                 </tr>
                               );
                             })}
@@ -681,17 +769,17 @@ export default function Torneios() {
 
                   <div className="space-y-8">
                     {/* Fichas necessárias (calculadas no servidor) × fichários alocados */}
-                    <div className="bg-white dark:bg-[#141414] rounded-3xl p-6 border border-gray-200 dark:border-zinc-800 shadow-sm">
+                    <div className="card p-6">
                       <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Settings className="text-emerald-500" size={20} /> Fichas necessárias</h3>
-                      <p className="text-xs text-gray-500 mb-5">Ações registradas × modelo de stack de cada ação. Calculado automaticamente.</p>
+                      <p className="text-xs text-fg-muted mb-5">Ações registradas × modelo de stack de cada ação. Calculado automaticamente.</p>
 
                       {!chipsInPlay || chipsInPlay.rows.length === 0 ? (
-                        <p className="text-sm text-gray-400 italic mb-4">
+                        <p className="text-sm text-fg-subtle italic mb-4">
                           Ainda não há fichas calculadas. Escolha o modelo de stack e registre as entradas na aba Salão.
                         </p>
                       ) : (
                         <div className="space-y-4">
-                          <div className="grid grid-cols-3 text-[10px] uppercase font-bold text-gray-400 px-1">
+                          <div className="grid grid-cols-3 text-xs uppercase font-bold text-fg-subtle px-1">
                             <div>Ficha</div>
                             <div className="text-center">Necessário</div>
                             <div className="text-right">Nos fichários</div>
@@ -705,24 +793,24 @@ export default function Torneios() {
                                 <div className="grid grid-cols-3 items-center gap-2">
                                   <div className="flex items-center gap-2">
                                     <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: row.chip.color }}></div>
-                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{row.chip.value?.toLocaleString()}</span>
+                                    <span className="text-sm font-bold text-fg">{row.chip.value?.toLocaleString()}</span>
                                   </div>
-                                  <div className={`text-center text-xs font-black ${isShort ? 'text-red-500' : 'text-emerald-500'}`}>{needed.toLocaleString()}</div>
-                                  <div className="text-right text-xs font-bold text-gray-500">{available.toLocaleString()}</div>
+                                  <div className={`text-center text-xs font-bold ${isShort ? 'text-red-500' : 'text-emerald-500'}`}>{needed.toLocaleString()}</div>
+                                  <div className="text-right text-xs font-bold text-fg-muted">{available.toLocaleString()}</div>
                                 </div>
-                                <div className="w-full h-1 bg-gray-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                                <div className="w-full h-1 bg-raised rounded-full overflow-hidden">
                                   <div className={`h-full transition-all duration-500 ${isShort ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, (available / (needed || 1)) * 100)}%` }}></div>
                                 </div>
                               </div>
                             );
                           })}
-                          <div className="pt-4 border-t border-gray-100 dark:border-zinc-800 space-y-2">
+                          <div className="pt-4 border-t border-line-soft space-y-2">
                             <div className="flex justify-between text-xs">
-                              <span className="text-gray-500">Valor em jogo</span>
+                              <span className="text-fg-muted">Valor em jogo</span>
                               <span className="font-bold">{chipsInPlay.totals.value.toLocaleString()}</span>
                             </div>
                             <div className="flex justify-between text-xs">
-                              <span className="text-gray-500">Valor nos fichários alocados</span>
+                              <span className="text-fg-muted">Valor nos fichários alocados</span>
                               <span className="font-bold text-emerald-600">{casesValue.toLocaleString()}</span>
                             </div>
                           </div>
@@ -734,8 +822,8 @@ export default function Torneios() {
                         </p>
                       )}
 
-                      <div className="mt-6 pt-5 border-t border-gray-100 dark:border-zinc-800 space-y-3">
-                        <h4 className="text-xs font-black uppercase tracking-widest text-gray-400">Modelo de stack</h4>
+                      <div className="mt-6 pt-5 border-t border-line-soft space-y-3">
+                        <h4 className="text-xs font-bold uppercase tracking-wide text-fg-subtle">Modelo de stack</h4>
                         <CustomSelect
                           disabled={selectedTournament.status === 'finished' || !canManage}
                           options={[{ value: '', label: 'Nenhum' }, ...stackModels.map((m) => ({ value: m._id, label: m.name }))]}
@@ -745,11 +833,11 @@ export default function Torneios() {
                         />
                         {stackActions().length > 0 && (
                           <details className="text-xs">
-                            <summary className="cursor-pointer font-bold text-gray-500">Usar outro modelo em uma ação específica</summary>
+                            <summary className="cursor-pointer font-bold text-fg-muted">Usar outro modelo em uma ação específica</summary>
                             <div className="mt-3 space-y-3">
                               {stackActions().map((a) => (
                                 <div key={a.key} className="grid grid-cols-[110px_1fr] items-center gap-2">
-                                  <span className="font-bold text-gray-500 truncate" title={a.label}>{a.label}</span>
+                                  <span className="font-bold text-fg-muted truncate" title={a.label}>{a.label}</span>
                                   <CustomSelect
                                     disabled={selectedTournament.status === 'finished'}
                                     options={[{ value: '', label: '(modelo padrão)' }, ...stackModels.map((m) => ({ value: m._id, label: m.name }))]}
@@ -765,28 +853,28 @@ export default function Torneios() {
                     </div>
 
                     {/* Alocação de fichas (por denominação e quantidade) */}
-                    <div className="bg-white dark:bg-[#141414] rounded-3xl p-6 border border-gray-200 dark:border-zinc-800 shadow-sm overflow-visible">
+                    <div className="card p-6 overflow-visible">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-bold flex items-center gap-2"><Package className="text-amber-500" size={20} /> Fichas Alocadas</h3>
                         {isAdmin && !['finished', 'finalized'].includes(selectedTournament.status) && (
-                          <button onClick={() => setAllocModal({})} className="text-xs font-black uppercase tracking-widest text-genesis-red hover:text-red-700 flex items-center gap-1"><Plus size={14} /> Alocar</button>
+                          <button onClick={() => setAllocModal({})} className="text-xs font-bold uppercase tracking-wide text-brand-fg hover:text-red-700 flex items-center gap-1"><Plus size={14} /> Alocar</button>
                         )}
                       </div>
                       <div className="space-y-3">
                         {allocations.length === 0 && (
-                          <p className="text-sm text-gray-400 italic">
+                          <p className="text-sm text-fg-subtle italic">
                             Nenhuma ficha alocada.{isAdmin ? '' : ' O administrador define as alocações.'}
                           </p>
                         )}
                         {allocations.map((a) => (
-                          <div key={a._id} className="p-3 bg-gray-50 dark:bg-[#0F0F0F] rounded-xl border border-gray-200 dark:border-zinc-800 space-y-2">
+                          <div key={a._id} className="p-3 bg-sunken dark:bg-sunken rounded-xl border border-line space-y-2">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-bold text-gray-700 dark:text-gray-300 truncate">{a.binder_id?.name}</span>
+                              <span className="text-sm font-bold text-fg truncate">{a.binder_id?.name}</span>
                               <div className="flex items-center gap-1 shrink-0">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${a.status === 'active' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10' : 'bg-amber-100 text-amber-600 dark:bg-amber-500/10'}`}>{a.status === 'active' ? 'ativa' : 'planejada'}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${a.status === 'active' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10' : 'bg-amber-100 text-amber-600 dark:bg-amber-500/10'}`}>{a.status === 'active' ? 'ativa' : 'planejada'}</span>
                                 {isAdmin && (
                                   <>
-                                    <button onClick={() => setAllocModal({ editing: a })} title="Editar" className="p-1 text-gray-400 hover:text-blue-500 rounded-lg"><Edit2 size={14} /></button>
+                                    <button onClick={() => setAllocModal({ editing: a })} title="Editar" className="p-1 text-fg-subtle hover:text-blue-500 rounded-lg"><Edit2 size={14} /></button>
                                     <button onClick={() => releaseAllocation(a)} title="Liberar" className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg"><X size={16} /></button>
                                   </>
                                 )}
@@ -794,29 +882,22 @@ export default function Torneios() {
                             </div>
                             <div className="flex flex-wrap gap-1.5">
                               {a.chips.map((l) => (
-                                <span key={l.chip_id?._id} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold ${l.shortfall > 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/10' : 'bg-gray-100 text-gray-600 dark:bg-zinc-800 dark:text-gray-300'}`}
+                                <span key={l.chip_id?._id} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-bold ${l.shortfall > 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/10' : 'bg-raised text-fg-muted dark:bg-zinc-800 '}`}
                                   title={l.shortfall > 0 ? `Faltam ${l.shortfall}: o saldo do fichário é ${l.balance}` : undefined}>
                                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: l.chip_id?.color }}></span>
                                   {l.chip_id?.value?.toLocaleString()} × {l.quantity.toLocaleString()}
                                 </span>
                               ))}
                             </div>
-                            {a.has_shortfall && <p className="text-[11px] text-red-500 font-bold">Falta de fichas: o saldo físico ficou abaixo do alocado (perda apurada?).</p>}
+                            {a.has_shortfall && <p className="text-xs text-red-500 font-bold">Falta de fichas: o saldo físico ficou abaixo do alocado (perda apurada?).</p>}
                           </div>
                         ))}
                       </div>
                     </div>
                   </div>
                 </div>
-              ) : activeTab === 'financeiro' ? (
-                <div className="p-4 md:p-8">
-                  <TournamentFinance
-                    tournament={selectedTournament}
-                    canEdit={selectedTournament.status !== 'finalized' && canManage}
-                    onTournamentChange={(t) => { setSelectedTournament((prev) => ({ ...prev, ...t })); fetchTournaments(); }}
-                  />
-                </div>
-              ) : activeTab === 'material' ? (
+              )
+              : activeTab === 'material' ? (
                 <MaterialPanel
                   tournament={selectedTournament}
                   sessions={sessions}
@@ -828,21 +909,13 @@ export default function Torneios() {
                   refreshKey={allocations.length}
                   onChanged={() => { fetchAllocations(selectedTournament._id); fetchFloorData(selectedTournament._id); }}
                 />
-              ) : activeTab === 'mesas' ? (
-                <div className="p-4 md:p-8">
-                  <SeatingMap
-                    tournamentId={selectedTournament._id}
-                    sessionId={selectedSessionId}
-                    canEdit={!entriesLocked}
-                  />
-                </div>
               ) : (
                 <div className="p-4 md:p-8 space-y-8">
                   {(selectedTournament.status === 'finished' || selectedTournament.status === 'finalized') && (
-                    <div className="bg-gray-100 dark:bg-zinc-800/50 p-4 rounded-2xl flex items-center justify-center gap-3 border border-dashed border-gray-200 dark:border-zinc-700">
-                      <CheckCircle2 className="text-gray-400" size={20} />
-                      <span className="text-sm font-black text-gray-400 uppercase tracking-widest">
-                        {selectedTournament.status === 'finalized' ? 'Torneio Finalizado — veja o resultado na aba Financeiro' : 'Torneio Finalizado - Auditoria Apenas'}
+                    <div className="bg-raised/50 p-4 rounded-2xl flex items-center justify-center gap-3 border border-dashed border-line">
+                      <CheckCircle2 className="text-fg-subtle" size={20} />
+                      <span className="text-sm font-bold text-fg-subtle uppercase tracking-wide">
+                        {selectedTournament.status === 'finalized' ? 'Torneio Finalizado' : 'Torneio Finalizado - Auditoria Apenas'}
                       </span>
                     </div>
                   )}
@@ -850,77 +923,77 @@ export default function Torneios() {
                   {/* Relógio do torneio */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">Relógio</h3>
+                      <h3 className="text-sm font-bold uppercase tracking-wide text-fg-subtle">Relógio</h3>
                       <Link
                         to={`/torneios/${selectedTournament._id}/telao`}
                         target="_blank"
                         rel="noopener"
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-gray-600 hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-raised px-3 py-1.5 text-xs font-bold text-fg-muted hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
                       >
                         <Monitor size={13} /> Abrir telão
                       </Link>
                     </div>
                     {(selectedTournament.blind_structure || []).length === 0 ? (
-                      <p className="rounded-2xl border border-dashed border-gray-200 p-4 text-center text-sm text-gray-400 dark:border-zinc-800">
+                      <p className="rounded-2xl border border-dashed border-line p-4 text-center text-sm text-fg-subtle">
                         Monte a estrutura de blinds na aba <b>Logística</b> para usar o relógio.
                       </p>
                     ) : (
                       <TournamentClock
                         tournamentId={selectedTournament._id}
                         variant="panel"
-                        canControl={selectedTournament.status !== 'finished'}
+                        canControl={selectedTournament.status !== 'finished' && canOperateFloor}
                       />
                     )}
                   </div>
 
                   {/* Visão do Salão View */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="bg-white dark:bg-[#141414] p-6 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm">
-                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Entradas Totais</p>
-                      <h4 className="text-3xl font-black text-gray-900 dark:text-white">{entries.length}</h4>
+                    <div className="card p-6">
+                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Entradas Totais</p>
+                      <h4 className="text-3xl font-bold text-fg">{entries.length}</h4>
                     </div>
-                    <div className="bg-white dark:bg-[#141414] p-6 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm">
-                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Buy-ins</p>
-                      <h4 className="text-3xl font-black text-emerald-500">{entries.filter(e => e.type === 'buy-in').length}</h4>
+                    <div className="card p-6">
+                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Buy-ins</p>
+                      <h4 className="text-3xl font-bold text-emerald-500">{entries.filter(e => e.type === 'buy-in').length}</h4>
                     </div>
-                    <div className="bg-white dark:bg-[#141414] p-6 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm">
-                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Re-entries</p>
-                      <h4 className="text-3xl font-black text-blue-500">{entries.filter(e => e.type === 're-entry').length}</h4>
+                    <div className="card p-6">
+                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Re-entries</p>
+                      <h4 className="text-3xl font-bold text-blue-500">{entries.filter(e => e.type === 're-entry').length}</h4>
                     </div>
-                    <div className="bg-white dark:bg-[#141414] p-6 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm">
-                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Fichas em Jogo{sessions.length > 1 ? ' (sessão)' : ''}</p>
-                      <h4 className="text-3xl font-black text-amber-500">{(sessionInPlay?.totals.value ?? 0).toLocaleString()}</h4>
-                      {sessions.length > 1 && <p className="text-[11px] text-gray-400 mt-1">torneio: {(chipsInPlay?.totals.value ?? 0).toLocaleString()}</p>}
+                    <div className="card p-6">
+                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Fichas em Jogo{sessions.length > 1 ? ' (sessão)' : ''}</p>
+                      <h4 className="text-3xl font-bold text-amber-500">{(sessionInPlay?.totals.value ?? 0).toLocaleString()}</h4>
+                      {sessions.length > 1 && <p className="text-xs text-fg-subtle mt-1">torneio: {(chipsInPlay?.totals.value ?? 0).toLocaleString()}</p>}
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Entry Registration Form */}
                     <div className="lg:col-span-1 space-y-6">
-                      <div className="bg-white dark:bg-[#141414] p-6 rounded-3xl border border-gray-200 dark:border-zinc-800 shadow-sm">
+                      <div className="card p-6">
                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><ArrowUpCircle className="text-emerald-500" /> Registrar Entrada</h3>
                         <div className="space-y-4">
                           <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Quantidade de ações</label>
+                            <label className="text-xs font-bold text-fg-subtle uppercase mb-2 block">Quantidade de ações</label>
                             <input
                               type="number" min="1" max="500" value={form.entry_quantity ?? 1}
                               onChange={(e) => setForm({ ...form, entry_quantity: e.target.value })}
-                              className="w-full bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-genesis-red"
+                              className="input w-full"
                             />
-                            <p className="mt-1 text-[11px] text-gray-400">Mais de 1 registra várias de uma vez; cada uma é numerada ("Entrada #n"). O stack vem do modelo da ação.</p>
+                            <p className="mt-1 text-xs text-fg-subtle">Mais de 1 registra várias de uma vez; cada uma é numerada ("Entrada #n"). O stack vem do modelo da ação.</p>
                           </div>
                           <div className="grid grid-cols-2 gap-3 pt-2">
                             <button
                               onClick={() => handleRegisterEntry('buy-in', 'buy_in')}
                               disabled={entriesLocked}
-                              className="py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-emerald-500/20 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
+                              className="py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex flex-col items-center justify-center gap-1 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                             >
                               <Plus size={18} /> Buy-in
                             </button>
                             <button
                               onClick={() => handleRegisterEntry('re-entry', 're_entry')}
                               disabled={entriesLocked}
-                              className="py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-600 transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-blue-500/20 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
+                              className="py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-600 transition-all flex flex-col items-center justify-center gap-1 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                             >
                               <Plus size={18} /> Re-entry
                             </button>
@@ -938,9 +1011,9 @@ export default function Torneios() {
                               <button
                                 onClick={() => handleRegisterEntry('add-on', 'add_on')}
                                 disabled={entriesLocked}
-                                className="col-span-2 py-2.5 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-30"
+                                className="col-span-2 py-2.5 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
                               >
-                                <Plus size={16} /> Add-on ({(selectedTournament.addon_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                                <Plus size={16} /> Add-on
                               </button>
                             )}
                           </div>
@@ -948,19 +1021,19 @@ export default function Torneios() {
                       </div>
 
                       {/* Chips in Play (Consolidated) */}
-                      <div className="bg-white dark:bg-[#141414] p-6 rounded-3xl border border-gray-200 dark:border-zinc-800 shadow-sm">
+                      <div className="card p-6">
                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Layers className="text-amber-500" /> Fichas em Jogo</h3>
                         <div className="space-y-3">
                           {(sessionInPlay?.rows || []).map(row => (
-                            <div key={row.chip._id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#0F0F0F] rounded-xl border border-gray-200 dark:border-zinc-800">
+                            <div key={row.chip._id} className="flex items-center justify-between p-3 bg-sunken dark:bg-sunken rounded-xl border border-line">
                               <div className="flex items-center gap-3">
                                 <div className="w-4 h-4 rounded-full" style={{ backgroundColor: row.chip.color }}></div>
-                                <span className="font-bold text-gray-700 dark:text-gray-300">Ficha {row.chip.value?.toLocaleString()}</span>
+                                <span className="font-bold text-fg">Ficha {row.chip.value?.toLocaleString()}</span>
                               </div>
-                              <span className="font-black text-gray-900 dark:text-white">{row.quantity.toLocaleString()}</span>
+                              <span className="font-bold text-fg">{row.quantity.toLocaleString()}</span>
                             </div>
                           ))}
-                          {(!sessionInPlay || sessionInPlay.rows.length === 0) && <p className="text-xs text-gray-400 italic">Nenhuma ficha em jogo nesta sessão.</p>}
+                          {(!sessionInPlay || sessionInPlay.rows.length === 0) && <p className="text-xs text-fg-subtle italic">Nenhuma ficha em jogo nesta sessão.</p>}
                           {sessionInPlay?.uncovered?.length > 0 && (
                             <p className="text-xs text-amber-600">Sem fichas para: {sessionInPlay.uncovered.map((u) => `${u.label} (${u.count})`).join(', ')}.</p>
                           )}
@@ -970,20 +1043,20 @@ export default function Torneios() {
 
                     {/* History */}
                     <div className="lg:col-span-2">
-                      <div className="bg-white dark:bg-[#141414] p-6 rounded-3xl border border-gray-200 dark:border-zinc-800 shadow-sm h-full flex flex-col">
-                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><History className="text-gray-400" /> Histórico de Entradas</h3>
+                      <div className="card p-6 h-full flex flex-col">
+                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><History className="text-fg-subtle" /> Histórico de Entradas</h3>
                         <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                           {entries.map(entry => (
-                            <div key={entry._id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#0F0F0F] rounded-2xl border border-gray-200 dark:border-zinc-800 hover:border-gray-300 dark:hover:border-zinc-700 transition-all group">
+                            <div key={entry._id} className="flex items-center justify-between p-4 bg-sunken dark:bg-sunken rounded-2xl border border-line hover:border-gray-300 dark:hover:border-zinc-700 transition-all group">
                               <div className="flex items-center gap-4">
                                 <div className={`p-2 rounded-xl ${entry.type === 'buy-in' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-500' : entry.type === 'add-on' ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-500' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-500'}`}>
                                   {entry.type === 'buy-in' ? <ArrowUpCircle size={20} /> : entry.type === 'add-on' ? <Plus size={20} /> : <ArrowDownCircle size={20} />}
                                 </div>
                                 <div>
-                                  <p className="font-bold text-gray-900 dark:text-white uppercase tracking-tight text-sm">
+                                  <p className="font-bold text-fg uppercase tracking-tight text-sm">
                                     {entry.number != null ? `Entrada #${entry.number} · ` : ''}{entry.type === 'buy-in' ? 'Buy-in' : entry.type === 'add-on' ? 'Add-on' : 'Re-entrada'}
                                   </p>
-                                  <p className="text-xs text-gray-500 font-medium">
+                                  <p className="text-xs text-fg-muted font-medium">
                                     {entry.type}{entry.action && entry.action !== { 'buy-in': 'buy_in', 're-entry': 're_entry', 'add-on': 'add_on' }[entry.type] ? ` (${(chipsInPlay?.actions.find((x) => x.key === entry.action)?.label) || entry.action})` : ''} · {new Date(entry.timestamp).toLocaleTimeString()}
                                   </p>
                                 </div>
@@ -1007,12 +1080,12 @@ export default function Torneios() {
                                     <Trash2 size={15} />
                                   </button>
                                 )}
-                                <p className="text-sm font-black text-gray-900 dark:text-white">#{entries.length - entries.indexOf(entry)}</p>
+                                <p className="text-sm font-bold text-fg">#{entries.length - entries.indexOf(entry)}</p>
                               </div>
                             </div>
                           ))}
                           {entries.length === 0 && (
-                            <div className="text-center py-20 text-gray-400 italic">Nenhuma entrada registrada ainda.</div>
+                            <div className="text-center py-20 text-fg-subtle italic">Nenhuma entrada registrada ainda.</div>
                           )}
                         </div>
                       </div>
@@ -1042,17 +1115,17 @@ export default function Torneios() {
         {isCreateModalOpen && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={() => setIsCreateModalOpen(false)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4"
+            onClick={closeCreateModal}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-[#141414] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+              className="bg-surface w-full max-w-lg rounded-3xl shadow-2xl max-h-[92dvh] overflow-y-auto"
               onClick={e => e.stopPropagation()}
             >
-              <div className="p-6 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-[#111111] flex justify-between items-center">
-                <h2 className="text-xl font-bold">Novo Torneio</h2>
-                <button onClick={() => setIsCreateModalOpen(false)}><X /></button>
+              <div className="p-6 border-b border-line-soft bg-sunken flex justify-between items-center">
+                <h2 className="text-xl font-bold">{editing ? 'Editar Torneio' : duplicateOf ? 'Duplicar Torneio' : 'Novo Torneio'}</h2>
+                <button onClick={closeCreateModal}><X /></button>
               </div>
               <form onSubmit={handleCreateTournament} className="p-6 space-y-4">
                 <div className="grid grid-cols-[1fr_90px] gap-4">
@@ -1067,47 +1140,38 @@ export default function Torneios() {
                   </div>
                   <div>
                     <label className="block text-sm font-bold mb-1">Nº</label>
-                    <input type="number" min="1" value={form.number} onChange={e => setForm({ ...form, number: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-3 focus:outline-none focus:border-genesis-red" placeholder="#02" />
+                    <input type="number" min="1" value={form.number} onChange={e => setForm({ ...form, number: e.target.value })} className="input w-full" placeholder="#02" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold mb-1">Nome do Torneio</label>
-                  <input required type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red" placeholder="Ex: Main Event 50K" />
+                  <input required type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="input w-full" placeholder="Ex: Main Event 50K" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold mb-1">Data</label>
-                    <input required type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
+                    <input required type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="input w-full" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold mb-1">Horário</label>
-                    <input required type="time" value={form.start_time} onChange={e => setForm({ ...form, start_time: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
+                    <input required type="time" value={form.start_time} onChange={e => setForm({ ...form, start_time: e.target.value })} className="input w-full" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold mb-1">Jog. Estimados</label>
-                    <input required type="number" value={form.estimated_players} onChange={e => setForm({ ...form, estimated_players: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold mb-1">Lugares por mesa</label>
-                    <input required type="number" min="2" max="10" value={form.seats_per_table} onChange={e => setForm({ ...form, seats_per_table: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none" />
-                  </div>
+                <div>
+                  <label htmlFor="t-seats" className="label">Lugares por mesa</label>
+                  <input id="t-seats" required type="number" min="2" max="10" value={form.seats_per_table} onChange={e => setForm({ ...form, seats_per_table: e.target.value })} className="input" />
                 </div>
-                {isAdmin && (
+                {isAdmin && !editing && (
                   <div>
-                    <label className="block text-sm font-bold mb-1">Sessões / fases <span className="font-normal text-gray-400">(opcional)</span></label>
-                    <input type="text" value={form.sessions_text} onChange={e => setForm({ ...form, sessions_text: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red" placeholder="Ex: Dia 1A, Dia 1B, Dia 1C, Dia Final" />
-                    <p className="mt-1 text-[11px] text-gray-400">Separe por vírgula. Todas fazem parte do mesmo torneio. Sem isso, nasce "Dia Único".</p>
+                    <label className="block text-sm font-bold mb-1">Sessões / fases <span className="font-normal text-fg-subtle">(opcional)</span></label>
+                    <input type="text" value={form.sessions_text} onChange={e => setForm({ ...form, sessions_text: e.target.value })} className="input w-full" placeholder="Ex: Dia 1A, Dia 1B, Dia 1C, Dia Final" />
+                    <p className="mt-1 text-xs text-fg-subtle">Separe por vírgula. Todas fazem parte do mesmo torneio. Sem isso, nasce "Dia Único".</p>
                   </div>
                 )}
                 <div>
-                  <label className="block text-sm font-bold mb-1">Fuso horário</label>
-                  <select value={form.timezone} onChange={e => setForm({ ...form, timezone: e.target.value })} className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none">
-                    {['America/Sao_Paulo', 'America/Manaus', 'America/Cuiaba', 'America/Bahia', 'America/Recife', 'America/Belem', 'America/Fortaleza', 'America/Rio_Branco'].map(tz => (
-                      <option key={tz} value={tz}>{tz.split('/')[1].replace('_', ' ')}</option>
-                    ))}
-                  </select>
+                  <label className="label">Fuso horário</label>
+                  <CustomSelect aria-label="Fuso horário" options={timezoneOptions(form.timezone)} value={form.timezone} onChange={(val) => setForm({ ...form, timezone: val })} />
+                  <p className="field-help">O horário de início vale neste fuso; o relógio e as sessões usam o mesmo.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold mb-1">Modelo de Stack</label>
@@ -1118,7 +1182,7 @@ export default function Torneios() {
                     onChange={val => setForm({ ...form, stack_model_id: val })}
                   />
                 </div>
-                <button type="submit" className="w-full py-4 bg-genesis-red text-white font-bold rounded-xl shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all">Criar Torneio</button>
+                <button type="submit" className="w-full py-4 bg-brand text-white font-bold rounded-xl hover:bg-brand-hover transition-all">{editing ? 'Salvar alterações' : 'Criar Torneio'}</button>
               </form>
             </motion.div>
           </motion.div>

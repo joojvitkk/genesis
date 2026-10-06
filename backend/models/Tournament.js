@@ -11,8 +11,11 @@ const TournamentSchema = new mongoose.Schema({
   timezone: { type: String, default: DEFAULT_TZ },       // P6 — fuso do salão
   starts_at: { type: Date, default: null },               // instante derivado (date+start_time@tz)
   status: { type: String, enum: ['scheduled', 'running', 'paused', 'finished', 'finalized'], default: 'scheduled' },
-  estimated_players: { type: Number, default: 0 },
+  // ATIVOS (quem ainda joga) (cache de lib/headcount): inscrições − eliminações + ajuste do Salão. NÃO é editável direto.
   actual_players: { type: Number, default: 0 },
+  active_offset: { type: Number, default: 0 },       // ajuste informado pelo Salão sobre o derivado (rastreado no log de atividades)
+  entries_initial: { type: Number, default: 0 },     // cache: buy-ins registrados
+  entries_reentries: { type: Number, default: 0 },   // cache: reentradas registradas
   entry_seq: { type: Number, default: 0 }, // contador das entradas (numera "Entrada #n"; nunca volta atrás, nem ao cancelar)
   starting_stack: { type: Number, default: 0 }, // DERIVADO: valor nominal do stack do buy-in padrão
   // Modelo de stack PADRÃO (vale para toda ação sem mapeamento próprio) e mapeamento por AÇÃO

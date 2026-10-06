@@ -4,10 +4,20 @@ import { socket } from './socket';
 
 // Qual bloco do painel cada evento em tempo real invalida (G10): o painel refaz só o que mudou.
 export const EVENT_BLOCKS = {
-  movementsPosted: ['metrics', 'inventory', 'in_play', 'flows', 'timeline', 'conflicts', 'binders'],
-  balancesChanged: ['metrics', 'inventory', 'in_play'],
+  movementsPosted: ['metrics', 'inventory', 'in_play', 'flows', 'timeline', 'conflicts', 'binders', 'free_binders', 'tournament_chips'],
+  balancesChanged: ['metrics', 'inventory', 'in_play', 'free_binders', 'tournament_chips'],
   occurrenceOpened: ['occurrences', 'conflicts', 'timeline'],
   occurrenceUpdated: ['occurrences', 'conflicts'],
+  materialChanged: ['reentries'],
+  conversionRequestsChanged: ['requests'],
+  chipRaceUpdated: ['metrics', 'requests', 'tournament_chips'],
+  chipsInPlayChanged: ['tournament_chips'],
+  // nível/fim de dia/fim de torneio: quem está "em andamento" pode ter mudado (a lista de relógios sai do mesmo bloco)
+  tournamentsChanged: ['tournament_chips', 'metrics'],
+  tournamentLevelChanged: ['tournament_chips', 'metrics'],
+  tournamentMarker: ['tournament_chips', 'metrics'],
+  tournamentEnded: ['tournament_chips', 'metrics'],
+  allocationsChanged: ['metrics', 'free_binders'],
 };
 const POLL_MS = 30000;
 const DEBOUNCE_MS = 250;

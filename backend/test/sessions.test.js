@@ -148,7 +148,7 @@ test('ACEITE: Warm Up com 4 sessões continua sendo o MESMO torneio; entradas da
   assert.deepEqual(c('Dia 1B').by_type, { 'buy-in': 2, 're-entry': 1 });
   assert.deepEqual(c('Dia 1B').by_action, { buy_in: 2, re_entry: 1 });
   assert.equal(c('Dia Final').total, 0);
-  assert.equal((await Tournament.findById(t._id)).actual_players, 5, 'jogadores = buy-ins de todas as sessões');
+  assert.equal((await Tournament.findById(t._id)).actual_players, 6, 'ativos = inscrições (buy-ins + reentradas) de todas as sessões, sem eliminações');
 });
 
 test('fichas em jogo por sessão e do torneio (soma das sessões), com o stack no nível do torneio', async () => {
@@ -218,7 +218,7 @@ test('sessão encerrada não recebe entradas; cancelar entrada dela é só do ad
   assert.equal(late.status, 409);
   assert.match(late.body.error, /encerrada/);
 
-  const mat = await as('material');
+  const mat = await as('salao');
   assert.equal((await post(mat, `${url}/${e._id}/cancel`, { reason: 'x' })).status, 409);
   assert.equal(await TournamentEntry.countDocuments({ _id: e._id }), 1);
   assert.equal((await post(admin, `${url}/${e._id}/cancel`, { reason: 'correção' })).status, 200, 'admin corrige');
@@ -230,7 +230,8 @@ test('status da sessão: scheduled → running → finished; transições invál
   const admin = await as('admin');
   const { t, s } = await warmUp(admin);
   const url = `/api/tournaments/${t._id}/sessions/${s['Dia 1A']._id}`;
-  const mat = await as('material');
+  const mat = await as('salao'); // o SALÃO opera a sessão; o material só consulta (MEL-03)
+  assert.equal((await put(await as('material'), url, { status: 'running' })).status, 403, 'material não inicia/pausa/encerra sessão');
 
   assert.equal((await put(mat, url, { status: 'finished' })).status, 409, 'não pula o "em andamento"');
   const run = await put(mat, url, { status: 'running' });
@@ -458,4 +459,17 @@ test('§18.8: stack e fichários são do TORNEIO e valem para todas as sessões'
   }
   const r = (await get(admin, `/api/tournaments/${t._id}/chips-in-play`)).body;
   assert.equal(r.rows[0].quantity, 10, 'as duas sessões usam o mesmo modelo do torneio');
+});
+
+test('sessão aceita horário de início (date + start_time no fuso do torneio) e permite limpar', async () => {
+  const H = await as('admin');
+  const t = await Tournament.create({ name: 'Horário', date: new Date('2026-10-01T00:00:00Z'), timezone: 'America/Sao_Paulo' });
+  let r = await request(app).post(`/api/tournaments/${t._id}/sessions`).set(H).send({ name: 'Dia 1A', date: '2026-10-01', start_time: '20:00' });
+  assert.equal(r.status, 201);
+  assert.equal(new Date(r.body.starts_at).toISOString(), '2026-10-01T23:00:00.000Z');
+  r = await request(app).put(`/api/tournaments/${t._id}/sessions/${r.body._id}`).set(H).send({ starts_at: null });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.starts_at, null);
+  r = await request(app).put(`/api/tournaments/${t._id}/sessions/${r.body._id}`).set(H).send({ starts_at: 'lixo' });
+  assert.equal(r.status, 400);
 });

@@ -10,8 +10,8 @@ export const BACKEND_URL =
 //   view    — consultar · operate — operar (movimentos, conferência, entradas, mesas…) · manage — administrar (cadastros, estornos, config)
 export const LEVELS = ['view', 'operate', 'manage'];
 export const PERMISSIONS = {
-  admin:    { dashboard: 'manage', estoque: 'manage', ficharios: 'manage', torneios: 'manage', mesas: 'manage', chip_race: 'manage', chat: 'manage', relatorios: 'manage', usuarios: 'manage', modelos_stack: 'manage' },
-  material: { dashboard: 'view', estoque: 'operate', ficharios: 'operate', torneios: 'operate', mesas: 'operate', chip_race: 'operate', chat: 'operate', relatorios: 'view', modelos_stack: 'view' },
+  admin:    { dashboard: 'manage', estoque: 'manage', ficharios: 'manage', torneios: 'manage', mesas: 'manage', chip_race: 'manage', chat: 'manage', relatorios: 'manage', usuarios: 'manage', modelos_stack: 'manage', auditoria: 'manage' },
+  material: { dashboard: 'view', estoque: 'operate', ficharios: 'operate', torneios: 'operate', mesas: 'view', chip_race: 'operate', chat: 'operate', relatorios: 'view', modelos_stack: 'view' },
   salao:    { dashboard: 'view', estoque: 'view', torneios: 'view', mesas: 'operate', chip_race: 'view', chat: 'operate', modelos_stack: 'view' },
 };
 
@@ -31,12 +31,11 @@ export const ROUTE_AREA = {
   '/estoque': 'estoque',
   '/livro-estoque': 'estoque',
   '/ocorrencias': 'estoque',
-  '/modelos-ficharios': 'ficharios',
   '/ficharios': 'ficharios',
   '/chat': 'chat',
   '/modelos-stack': 'modelos_stack',
   '/relatorios': 'relatorios',
-  '/auditoria': 'relatorios',
+  '/auditoria': 'auditoria',
   '/usuarios': 'usuarios',
 };
 

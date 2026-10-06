@@ -24,13 +24,15 @@ const { entryContribution, summarize, payoutTable, validateTemplate } = require(
 const { postBatch, reverseMovements, balances, chipTotal } = require('../lib/movements');
 const {
   HttpError, sendError, chipInUse, findChipTwin, normalizeComposition, rejectedChipFields,
-  assertUniqueBinderModelName, assertUniqueBinder,
+  assertUniqueBinder,
 } = require('../lib/catalog');
 const seating = require('../lib/seating');
 const stackCalc = require('../lib/stackCalc');
 const tournamentChips = require('../lib/tournamentChips');
 const sessionsLib = require('../lib/sessions');
 const allocationLib = require('../lib/allocation');
+const playersLib = require('../lib/headcount');
+const conversionRequests = require('../lib/conversionRequests');
 const material = require('../lib/material');
 const occurrences = require('../lib/occurrences');
 const dashboardLib = require('../lib/dashboard');
@@ -42,7 +44,7 @@ const settingsLib = require('../lib/settings');
 const { computeStartsAt } = require('../lib/datetime');
 const { normalizeColor } = require('../models/Chip');
 const {
-  User, Chip, BinderModel, Tournament, Binder, ActivityLog, StackModel, TournamentEntry, ChatMessage,
+  User, Chip, ConversionRequest, Tournament, Binder, ActivityLog, StackModel, TournamentEntry, ChatMessage,
   PayoutTemplate, Elimination, Seat, BlindStructureTemplate, Movement, Event, TournamentSession, Allocation, Conversion, Occurrence,
 } = require('../models');
 const crypto = require('crypto');
@@ -89,7 +91,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       message: 'Login realizado',
       token: signToken(user),
       user: {
-        name: user.name, email: user.email, role: user.role,
+        name: user.name, email: user.email, role: user.role, avatar: user.avatar || null,
         must_change_password: !!user.must_change_password,
       },
     });
@@ -104,11 +106,39 @@ router.get('/me', verifyToken, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
     res.json({
-      id: user._id, name: user.name, email: user.email, role: user.role,
+      id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar || null,
       must_change_password: !!user.must_change_password,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Foto de perfil do PRÓPRIO usuário: data URL de imagem pequena (o navegador recorta em quadrado e comprime).
+const AVATAR_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const AVATAR_MAX_CHARS = 150_000; // ~110 KB de imagem: sobra para um 256×256 em JPEG
+router.put('/me/avatar', verifyToken, async (req, res) => {
+  try {
+    const image = String(req.body?.image || '');
+    if (!AVATAR_RE.test(image)) throw new HttpError(400, 'Envie uma imagem JPEG, PNG ou WebP.');
+    if (image.length > AVATAR_MAX_CHARS) throw new HttpError(413, 'Foto muito grande: use uma imagem menor.');
+    const user = await User.findByIdAndUpdate(req.user.id, { avatar: image }, { new: true });
+    if (!user) throw new HttpError(404, 'Usuário não encontrado.');
+    await logActivity('Foto de Perfil Alterada', 'system', user.email, req.user);
+    res.json({ avatar: user.avatar });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+router.delete('/me/avatar', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.user.id, { avatar: null }, { new: true });
+    if (!user) throw new HttpError(404, 'Usuário não encontrado.');
+    await logActivity('Foto de Perfil Removida', 'system', user.email, req.user);
+    res.json({ avatar: null });
+  } catch (err) {
+    sendError(res, err);
   }
 });
 
@@ -136,8 +166,8 @@ router.post('/me/password', verifyToken, async (req, res) => {
   }
 });
 
-// Encerra todas as sessões do próprio usuário
-router.post('/me/logout-all', verifyToken, async (req, res) => {
+// Encerrar todas as sessões é exclusivo do administrador (a tela fica em Usuários); aqui, as do próprio admin
+router.post('/me/logout-all', verifyToken, adminOnly, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
@@ -292,7 +322,7 @@ router.post('/users/:id/revoke-sessions', verifyToken, requirePageAccess('usuari
 router.get('/dashboard/stats', verifyToken, async (req, res) => {
   try {
     const asked = String(req.query.blocks || '').split(',').map((x) => x.trim()).filter(Boolean);
-    const all = ['metrics', 'recent', ...Object.keys(dashboardLib.BLOCKS)];
+    const all = ['metrics', 'recent', 'reentries', 'requests', 'free_binders', 'tournament_chips', ...Object.keys(dashboardLib.BLOCKS)];
     const unknown = asked.filter((b) => !all.includes(b));
     if (unknown.length) throw new HttpError(400, `Bloco(s) desconhecido(s): ${unknown.join(', ')}. Use: ${all.join(', ')}.`);
     const wanted = asked.length ? asked : all;
@@ -313,8 +343,45 @@ router.get('/dashboard/stats', verifyToken, async (req, res) => {
       };
     }
     if (wanted.includes('recent')) {
-      out.recentTournaments = await Tournament.find().sort({ createdAt: -1 }).limit(5).select('name status start_time date');
-      out.recentActivities = await ActivityLog.find().sort({ createdAt: -1 }).limit(7);
+      const scope = await allowedTournaments(req.user);
+      // a grade em ordem cronológica (14h, 15h, 17h, 20h…), não a ordem de cadastro
+      out.recentTournaments = await Tournament.find(scope ? { _id: { $in: scope } } : {}).sort(GRID_ORDER).limit(12).select('name status start_time date starts_at clock_status actual_players entries_initial entries_reentries');
+      // o feed de atividades é auditoria administrativa: só o admin
+      out.recentActivities = req.user.role === 'admin' ? await ActivityLog.find().sort({ createdAt: -1 }).limit(7) : [];
+    }
+    if (wanted.includes('reentries')) {
+      // reentradas já ENVIADAS ao Salão e ainda disponíveis (mesmo saldo e nomenclatura da aba Material) — visível ao Salão e ao Material
+      const scope = await allowedTournaments(req.user);
+      const running = await Tournament.find({ status: { $in: ['running', 'paused'] }, ...(scope ? { _id: { $in: scope } } : {}) }).sort(GRID_ORDER).select('name');
+      out.reentries = [];
+      for (const t of running) {
+        const sum = await material.summary(t._id);
+        const st = sum.stacks.find((x) => x.action === 're_entry');
+        const sent = sum.rows.length ? await Movement.countDocuments({ tournament_id: t._id, type: 'SEND_REENTRY' }) : 0;
+        if (st || sent) out.reentries.push({ tournament: { _id: t._id, name: t.name }, stacks_available: st?.stacks ?? 0, label: st?.label || 'Reentrada', composition: st?.composition || [] });
+      }
+    }
+    if (wanted.includes('free_binders')) {
+      // fichários livres = sem alocação aberta; a lista é o que aparece ao clicar no cartão
+      const used = await Allocation.distinct('binder_id', { open: true });
+      const free = await Binder.find({ _id: { $nin: used } }).sort({ name: 1 });
+      const shown = await binderView.present(free);
+      out.free_binders = shown.map((b) => ({ _id: b._id, name: b.name, code: b.code || null, stamp: b.stamp || null, chips: b.chips.reduce((a, c) => a + (c.quantity || 0), 0) }));
+    }
+    if (wanted.includes('tournament_chips')) {
+      // fichas EM JOGO (Chip Count: o que as entradas já entregaram aos jogadores), por torneio em andamento
+      const scope = await allowedTournaments(req.user);
+      const live = await Tournament.find({ status: { $in: ['running', 'paused'] }, ...(scope ? { _id: { $in: scope } } : {}) }).sort(GRID_ORDER).select('name');
+      const rows = [];
+      for (const t of live) {
+        const r = await tournamentChips.chipsInPlay(t._id);
+        rows.push({ tournament: { _id: t._id, name: t.name }, quantity: r.totals.quantity, value: r.totals.value, chips: r.rows.map((x) => ({ chip: x.chip, quantity: x.quantity })) });
+      }
+      out.tournament_chips = { rows, totals: { quantity: rows.reduce((a, r) => a + r.quantity, 0), value: rows.reduce((a, r) => a + r.value, 0) } };
+    }
+    if (wanted.includes('requests')) {
+      const scope = await allowedTournaments(req.user);
+      out.requests = await ConversionRequest.find({ status: { $in: conversionRequests.OPEN }, ...(scope ? { tournament_id: { $in: scope } } : {}) }).sort({ createdAt: 1 }).limit(20).populate('tournament_id', 'name');
     }
     Object.assign(out, await dashboardLib.stats(wanted.filter((b) => dashboardLib.BLOCKS[b])));
     res.json(out);
@@ -414,77 +481,18 @@ router.delete('/chips/:id', verifyToken, (req, res) => {
   res.status(405).json({ error: 'Fichas não são excluídas — desative a ficha (active: false) para descontinuá-la sem perder o histórico.' });
 });
 
-// ─── Modelos de Fichário (composição padrão — G1) ────────────────────────────
-// "O modelo define quanto de cada ficha compõe um fichário." Leitura para quem vê fichários;
-// criar/editar/excluir só admin. Editar um modelo NÃO altera fichários físicos já criados.
-router.get('/binder-models', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
-  try {
-    await paginate(res, BinderModel, {}, { populate: 'composition.chip_id', sort: { name: 1 }, query: req.query });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.post('/binder-models', verifyToken, requirePageAccess('ficharios'), adminOnly, async (req, res) => {
-  try {
-    const name = String(req.body?.name || '').trim();
-    if (!name) throw new HttpError(400, 'Nome do modelo é obrigatório.');
-    await assertUniqueBinderModelName(name);
-    const composition = await normalizeComposition(req.body?.composition);
-    const model = await new BinderModel({ name, composition, notes: req.body?.notes }).save();
-    await logActivity('Modelo de Fichário Criado', 'chip_case', `Nome: ${model.name} | ${composition.length} ficha(s)`, req.user);
-    res.status(201).json(await BinderModel.findById(model._id).populate('composition.chip_id'));
-  } catch (err) {
-    sendError(res, err);
-  }
-});
-
-router.put('/binder-models/:id', verifyToken, requirePageAccess('ficharios'), adminOnly, async (req, res) => {
-  try {
-    const model = await BinderModel.findById(req.params.id);
-    if (!model) throw new HttpError(404, 'Modelo de fichário não encontrado.');
-    if (req.body?.name !== undefined) {
-      const name = String(req.body.name).trim();
-      if (!name) throw new HttpError(400, 'Nome do modelo é obrigatório.');
-      await assertUniqueBinderModelName(name, model._id);
-      model.name = name;
-    }
-    if (req.body?.composition !== undefined) {
-      model.composition = await normalizeComposition(req.body.composition, { keepIds: model.composition.map((l) => l.chip_id) });
-    }
-    if (req.body?.notes !== undefined) model.notes = req.body.notes;
-    await model.save();
-    await logActivity('Modelo de Fichário Editado', 'chip_case', `ID: ${model._id} | Nome: ${model.name}`, req.user);
-    res.json(await BinderModel.findById(model._id).populate('composition.chip_id'));
-  } catch (err) {
-    sendError(res, err);
-  }
-});
-
-router.delete('/binder-models/:id', verifyToken, requirePageAccess('ficharios'), adminOnly, async (req, res) => {
-  try {
-    const model = await BinderModel.findById(req.params.id);
-    if (!model) throw new HttpError(404, 'Modelo de fichário não encontrado.');
-    const used = await Binder.countDocuments({ model_id: model._id });
-    if (used > 0) throw new HttpError(409, `${used} fichário(s) físico(s) seguem este modelo. Exclua ou desvincule-os antes.`);
-    await model.softDelete();
-    await logActivity('Modelo de Fichário Excluído', 'chip_case', `ID: ${req.params.id} | Nome: ${model.name}`, req.user);
-    res.json({ message: 'Modelo de fichário excluído com sucesso' });
-  } catch (err) {
-    sendError(res, err);
-  }
-});
-
 // ─── Fichários físicos (Binder) ──────────────────────────────────────────────
-// Unidade real usada no evento; pode seguir um Modelo de Fichário. Conteúdo, alocações e situação são
+// Cada fichário é uma UNIDADE FÍSICA ÚNICA (nome, código, estampa e composição própria) — não há "modelo de fichário".
+// A composição informada no cadastro vira o saldo inicial: UM lote ASSEMBLY no livro-razão. Depois disso o saldo só muda por
+// movimentação (envio, retorno, transferência, conferência, ajuste identificado). Conteúdo, alocações e situação são
 // DERIVADOS na leitura (lib/binderView.js). Criar/editar/excluir só admin; a conferência é operacional.
-const BINDER_FIELDS = ['name', 'code', 'model_id', 'status'];
+const BINDER_FIELDS = ['name', 'code', 'stamp', 'status'];
 const CHIPS_READONLY_MSG = 'O conteúdo do fichário é derivado das movimentações e não pode ser editado: use a montagem (POST /binders/:id/assemble) ou movimentações (POST /movements).';
 const BINDER_PATHS = ['/binders'];
 
 router.get(BINDER_PATHS, verifyToken, requirePageAccess('ficharios'), async (req, res) => {
   try {
-    await paginate(res, Binder, {}, { populate: ['model_id'], sort: { createdAt: -1 }, query: req.query, transform: (rows) => binderView.present(rows) });
+    await paginate(res, Binder, {}, { sort: { createdAt: -1 }, query: req.query, transform: (rows) => binderView.present(rows) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -496,19 +504,23 @@ router.post(BINDER_PATHS, verifyToken, requirePageAccess('ficharios'), adminOnly
     data.name = String(data.name || '').trim();
     if (!data.name) throw new HttpError(400, 'Nome é obrigatório.');
     if (data.code !== undefined) data.code = String(data.code).trim() || undefined;
+    if (data.stamp !== undefined) data.stamp = String(data.stamp).trim() || undefined;
     await assertUniqueBinder(data);
-
     if (req.body?.chips !== undefined) throw new HttpError(400, CHIPS_READONLY_MSG);
-    // O fichário nasce vazio: o estoque físico entra por montagem (ASSEMBLY) — a partir do modelo ou avulsa.
-    if (data.model_id) {
-      if (!(await BinderModel.exists({ _id: data.model_id }))) throw new HttpError(400, 'Modelo de fichário não encontrado.');
-    } else {
-      data.model_id = null;
-    }
+    // composição inicial (opcional): validada ANTES de criar o fichário, para não deixar um fichário pela metade
+    const composition = req.body?.composition === undefined ? [] : await normalizeComposition(req.body.composition);
 
     const binder = await new Binder(data).save();
-    await logActivity('Fichário Criado', 'chip_case', `Nome: ${binder.name}${data.model_id ? ' | a partir de modelo' : ''}`, req.user);
-    res.status(201).json(await binderView.presentOne(await Binder.findById(binder._id).populate('model_id')));
+    if (composition.length) {
+      // saldo inicial = UM lote no livro-razão; criar/consultar de novo nunca gera outro lançamento
+      await postBatch(composition.map((l) => ({
+        type: 'ASSEMBLY', chip_id: l.chip_id, quantity: l.quantity,
+        from: { kind: 'external' }, to: { kind: 'binder', id: binder._id }, reason: `Saldo inicial do fichário "${binder.name}"`,
+      })), { user: req.user });
+      req.app.get('io')?.emit('balancesChanged', { binder_id: binder._id });
+    }
+    await logActivity('Fichário Criado', 'chip_case', `Nome: ${binder.name} | ${composition.length} ficha(s) no saldo inicial`, req.user);
+    res.status(201).json(await binderView.presentOne(await Binder.findById(binder._id)));
   } catch (err) {
     sendError(res, err);
   }
@@ -524,15 +536,13 @@ router.put(BINDER_PATHS.map((p) => `${p}/:id`), verifyToken, requirePageAccess('
       if (!data.name) throw new HttpError(400, 'Nome é obrigatório.');
     }
     if (data.code !== undefined) data.code = String(data.code).trim() || undefined;
+    if (data.stamp !== undefined) data.stamp = String(data.stamp).trim() || undefined;
     await assertUniqueBinder({ name: data.name, code: data.code }, binder._id);
-    if (data.model_id) {
-      if (!(await BinderModel.exists({ _id: data.model_id }))) throw new HttpError(400, 'Modelo de fichário não encontrado.');
-    }
-    if (req.body?.chips !== undefined) throw new HttpError(400, CHIPS_READONLY_MSG);
+    if (req.body?.chips !== undefined || req.body?.composition !== undefined) throw new HttpError(400, CHIPS_READONLY_MSG);
     binder.set(data);
     await binder.save();
     await logActivity('Fichário Editado', 'chip_case', `ID: ${binder._id} | Nome: ${binder.name}`, req.user);
-    res.json(await binderView.presentOne(await Binder.findById(binder._id).populate('model_id')));
+    res.json(await binderView.presentOne(await Binder.findById(binder._id)));
   } catch (err) {
     sendError(res, err);
   }
@@ -562,27 +572,21 @@ async function announceOccurrences(req, list) {
 }
 
 // ─── Montagem e conferência de fichário (G2) ─────────────────────────────────
-// Montagem = ASSEMBLY (externo → fichário). "A partir do modelo" lança a composição padrão do modelo.
+// Montagem = ASSEMBLY (externo → fichário): entrada de fichas NOVAS no fichário, sempre com motivo (rastreável).
 router.post(BINDER_PATHS.map((p) => `${p}/:id/assemble`), verifyToken, requirePageAccess('ficharios'), adminOnly, async (req, res) => {
   try {
     const binder = await Binder.findById(req.params.id);
     if (!binder) throw new HttpError(404, 'Fichário não encontrado.');
-    let items; let reason = req.body?.reason;
-    if (req.body?.from_model) {
-      const model = binder.model_id ? await BinderModel.findById(binder.model_id) : null;
-      if (!model) throw new HttpError(400, 'Este fichário não segue nenhum modelo de fichário.');
-      items = model.composition.map((l) => ({ chip_id: l.chip_id, quantity: l.quantity }));
-      reason = reason || `Montagem a partir do modelo "${model.name}"`;
-    } else {
-      items = await normalizeComposition(req.body?.items);
-    }
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) throw new HttpError(400, 'Informe o motivo da montagem (compra do lote, reposição…).');
+    const items = await normalizeComposition(req.body?.items);
     const docs = await postBatch(items.map((i) => ({
       type: 'ASSEMBLY', chip_id: i.chip_id, quantity: i.quantity,
       from: { kind: 'external' }, to: { kind: 'binder', id: binder._id }, reason,
     })), { user: req.user });
     await logActivity('Montagem de Fichário', 'chip_case', `${binder.name} | ${docs.length} ficha(s)`, req.user);
     req.app.get('io')?.emit('balancesChanged', { binder_id: binder._id });
-    res.status(201).json({ message: 'Fichário montado', batch_id: docs[0].batch_id, movements: docs.length, case: await binderView.presentOne(await Binder.findById(binder._id).populate('model_id')) });
+    res.status(201).json({ message: 'Fichário montado', batch_id: docs[0].batch_id, movements: docs.length, case: await binderView.presentOne(await Binder.findById(binder._id)) });
   } catch (err) {
     sendError(res, err);
   }
@@ -732,7 +736,7 @@ router.get('/balances', verifyToken, requirePageAccess('estoque'), async (req, r
 // `current_level` e os campos de relógio NÃO entram aqui — são controlados
 // exclusivamente por POST /tournaments/:id/clock.
 const TOURNAMENT_FIELDS = [
-  'name', 'date', 'start_time', 'timezone', 'status', 'estimated_players', 'actual_players',
+  'name', 'date', 'start_time', 'timezone', 'status',
   'stack_model_id', 'stack_models', 'blind_structure',
   'notes', 'seats_per_table', 'event_id', 'number',
   // financeiro (P2)
@@ -799,10 +803,13 @@ const CLOCK_ACTIONS = ['start', 'pause', 'resume', 'stop', 'next', 'prev', 'goto
 // Escopo por torneio (G11): quem tem `allowed_tournament_ids` só enxerga/opera esses torneios (admin: todos).
 router.use('/tournaments/:tid', requireTournamentAccess);
 
+// GRADE em ordem cronológica (14h, 15h, 17h, 20h…): dia e horário de início, não a ordem de cadastro. Empate → nº do torneio no evento.
+const isValidTimezone = (tz) => { try { new Intl.DateTimeFormat('en-US', { timeZone: String(tz) }); return true; } catch { return false; } };
+const GRID_ORDER = { starts_at: 1, date: 1, start_time: 1, number: 1, createdAt: 1 };
 router.get('/tournaments', verifyToken, async (req, res) => {
   try {
     const allowed = await allowedTournaments(req.user);
-    await paginate(res, Tournament, allowed ? { _id: { $in: allowed } } : {}, { sort: { date: -1, createdAt: -1 }, query: req.query });
+    await paginate(res, Tournament, allowed ? { _id: { $in: allowed } } : {}, { sort: GRID_ORDER, query: req.query });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -903,12 +910,21 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('mesas', 'operate'
     const io = req.app.get('io');
     const updates = pick(req.body, TOURNAMENT_FIELDS);
     // o salão/material operam o torneio (status, entradas, anotações); a ESTRUTURA (stack, financeiro, blinds…) é do admin
-    const OPERATIONAL = ['status', 'actual_players', 'estimated_players', 'notes'];
+    const OPERATIONAL = ['status', 'notes'];
     if (Object.keys(updates).some((k) => !OPERATIONAL.includes(k)) && !hasLevel(req.user.role, 'torneios', 'manage')) {
       return res.status(403).json({ error: 'Alterar a estrutura do torneio (stack, financeiro, blinds…) é permitido só ao administrador.' });
     }
     const oldTournament = await Tournament.findById(req.params.id);
     if (!oldTournament) return res.status(404).json({ error: 'Torneio não encontrado' });
+    // fuso: só IANA válido (o relógio e os horários das sessões dependem dele)
+    if (updates.timezone !== undefined && !isValidTimezone(updates.timezone)) throw new HttpError(400, 'Fuso horário inválido.');
+    // identidade do torneio (nome, data, horário, fuso, evento, nº) só muda ENQUANTO ESTÁ AGENDADO
+    const IDENTITY = ['name', 'date', 'start_time', 'timezone', 'event_id', 'number'];
+    const changing = IDENTITY.filter((k) => updates[k] !== undefined && JSON.stringify(updates[k] ?? null) !== JSON.stringify(oldTournament[k] ?? null)
+      && !(k === 'date' && String(updates[k]).slice(0, 10) === new Date(oldTournament.date).toISOString().slice(0, 10)));
+    if (changing.length && oldTournament.status !== 'scheduled') {
+      throw new HttpError(409, 'Só torneios agendados podem ter nome, data, horário, fuso, evento ou número alterados.');
+    }
     const stackChanged = updates.stack_model_id !== undefined || updates.stack_models !== undefined;
     if (stackChanged) Object.assign(updates, await tournamentChips.normalizeStackConfig(updates));
     if (updates.event_id !== undefined || updates.number !== undefined) {
@@ -944,6 +960,7 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('mesas', 'operate'
     if (willClose && !CLOSED_STATES.includes(oldTournament.status)) {
       const pending = await sessionsLib.pendingSessions(oldTournament._id);
       if (pending.length) {
+        if (req.body?.finish_sessions === true && req.user.role !== 'admin') throw new HttpError(403, 'Encerrar todas as sessões é exclusivo do administrador.');
         if (req.body?.finish_sessions !== true) {
           throw new HttpError(409, `Encerre as sessões pendentes antes de finalizar o torneio: ${pending.map((x) => x.name).join(', ')}.`,
             pending.map((x) => ({ _id: x._id, name: x.name, status: x.status })));
@@ -963,8 +980,13 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('mesas', 'operate'
     const tournament = await Tournament.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
 
     if (stackChanged) await tournamentChips.refreshTournamentChips(tournament._id, io);
+    if (willRun && !wasRunning) await ensureClockStarted(tournament._id, req);
+    await syncClockWithStatus(tournament._id, oldTournament.status, updates.status, req);
+    if (updates.status !== undefined) io.emit('tournamentsChanged', { tournament_id: tournament._id });
 
-    await logActivity('Torneio Alterado', 'tournament', `ID: ${tournament._id} | Nome: ${tournament.name}`, req.user);
+    const tChanges = diffFields(oldTournament.toObject(), tournament.toObject(), Object.keys(updates).filter((k) => !['blind_structure', 'starts_at', 'blind_version', 'stack_models'].includes(k)));
+    if (updates.blind_structure !== undefined) tChanges.push({ field: 'blind_structure', from: `${(oldTournament.blind_structure || []).length} linha(s)`, to: `${(tournament.blind_structure || []).length} linha(s)` });
+    await logActivity('Torneio Alterado', 'tournament', `${tournament.name} | ${tChanges.length ? tChanges.map((c) => `${c.field}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ') : 'sem mudança de valores'}`, req.user, tChanges);
     res.json({ message: 'Torneio atualizado', tournament: stackChanged ? await Tournament.findById(tournament._id) : tournament });
   } catch (err) {
     sendError(res, err);
@@ -972,6 +994,43 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('mesas', 'operate'
 });
 
 // ─── Relógio do torneio (P1) ─────────────────────────────────────────────────
+/** Todos os "Iniciar" (relógio, sessão, torneio) convergem aqui: liga o relógio se estiver parado (idempotente). */
+async function ensureClockStarted(tournamentId, req) {
+  const t = await Tournament.findById(tournamentId);
+  if (!t || t.clock_status !== 'stopped') return t;
+  Object.assign(t, applyAction(t, 'start'));
+  if (t.status === 'scheduled') t.status = 'running';
+  await t.save();
+  const io = req.app.get('io');
+  io.to(`tournament:${t._id}`).emit('tournamentClock', clockPayload(t));
+  io.emit('tournamentsChanged', { tournament_id: t._id });
+  return t;
+}
+
+/** Pausar/retomar o torneio pelo botão do torneio faz o mesmo que o relógio (um único estado). */
+async function syncClockWithStatus(tournamentId, from, to, req) {
+  const action = to === 'paused' && from === 'running' ? 'pause' : to === 'running' && from === 'paused' ? 'resume' : null;
+  if (!action) return;
+  const t = await Tournament.findById(tournamentId);
+  const updates = t && applyAction(t, action);
+  if (!updates || !Object.keys(updates).length) return;
+  Object.assign(t, updates);
+  await t.save();
+  req.app.get('io').to(`tournament:${t._id}`).emit('tournamentClock', clockPayload(t));
+}
+
+// Estado atual do relógio (leitura): quem abre a tela vê o valor certo na hora, sem esperar o próximo pulso do socket
+// (parados/pausados não são transmitidos). Escopo por torneio já vale via `/tournaments/:tid`.
+router.get('/tournaments/:id/clock', verifyToken, async (req, res) => {
+  try {
+    const t = await Tournament.findById(req.params.id);
+    if (!t) throw new HttpError(404, 'Torneio não encontrado.');
+    res.json(clockPayload(t));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
   try {
     const { action } = req.body || {};
@@ -986,14 +1045,45 @@ router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'o
     const updates = applyAction(t, action, { seconds });
     if (updates === null) return res.status(400).json({ error: 'Ação inválida.' });
     Object.assign(t, updates);
+    if (action === 'pause' && updates.clock_status === 'paused' && t.status === 'running') t.status = 'paused';
+    if (action === 'resume' && updates.clock_status === 'running' && t.status === 'paused') t.status = 'running';
+    if (action === 'start' && updates.clock_status && t.status === 'scheduled') {
+      t.status = 'running';
+      if (await allocationLib.activateForTournament(t._id)) req.app.get('io').emit('allocationsChanged', { tournament_id: t._id });
+    }
     await t.save();
 
     const payload = clockPayload(t);
     req.app.get('io').to(`tournament:${t._id}`).emit('tournamentClock', payload);
+    req.app.get('io').emit('tournamentsChanged', { tournament_id: t._id }); // Dashboard: quem está rodando mudou
     await logActivity('Relógio do Torneio', 'tournament', `${t.name} | ${action}${seconds ? ` (${seconds}s)` : ''}`, req.user);
     res.json(payload);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Ativos (quem ainda joga) (BUG-04/05): inscrições e ativos são números diferentes ───────────────────────
+// GET devolve as contagens; PUT é o ÚNICO jeito de o Salão informar os ativos (rastreado: antes → depois + motivo).
+router.get('/tournaments/:id/headcount', verifyToken, async (req, res) => {
+  try {
+    if (!(await Tournament.exists({ _id: req.params.id }))) throw new HttpError(404, 'Torneio não encontrado.');
+    res.json(await playersLib.playerCounts(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+router.put('/tournaments/:id/active-players', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+  try {
+    const t = await Tournament.findById(req.params.id);
+    if (!t) throw new HttpError(404, 'Torneio não encontrado.');
+    if (CLOSED_STATES.includes(t.status) && req.user.role !== 'admin') throw new HttpError(409, 'Torneio encerrado: só o administrador altera.');
+    const { before, after, counts } = await playersLib.setActivePlayers(t._id, req.body?.active_players, req.app.get('io'));
+    const reason = String(req.body?.reason || '').trim();
+    await logActivity('Ativos Informados (Salão)', 'tournament', `${t.name} | ativos ${before} → ${after} | inscrições ${counts.entries_total} (${counts.entries_initial} iniciais + ${counts.entries_reentries} reentradas) | eliminados ${counts.eliminated}${reason ? ` | motivo: ${reason}` : ''}`, req.user);
+    res.json(counts);
+  } catch (err) {
+    sendError(res, err);
   }
 });
 
@@ -1306,14 +1396,12 @@ router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('mesas', 
       tournament_id: tournament._id, session_id: session?._id || null, type, action, number: lastSeq - quantity + 1 + i, ...money,
     })));
 
-    if (type === 'buy-in') {
-      await Tournament.findByIdAndUpdate(tournament._id, { $inc: { actual_players: quantity } });
-    }
     // Sorteio de lugar (P4) — buy-in e re-entry ganham um assento (cada entrada ocupa o seu)
     if (['buy-in', 're-entry'].includes(type) && tournament.status !== 'finalized') {
       for (const e of entries) await seatNewEntry(tournament, e._id, session?._id);
     }
     await tournamentChips.refreshTournamentChips(tournament._id, req.app.get('io'));
+    await playersLib.refreshPlayers(tournament._id, req.app.get('io'));
 
     await logActivity('Entrada Registrada', 'tournament', `${tournament.name} | ${type}${action !== tournamentChips.defaultAction(type) ? ` (${action})` : ''}${quantity > 1 ? ` ×${quantity}` : ''} | #${entries[0].number}${quantity > 1 ? `–#${entries.at(-1).number}` : ''}`, req.user);
     if (quantity > 1) return res.status(201).json({ created: quantity, type, action });
@@ -1337,12 +1425,10 @@ router.post('/tournaments/:tid/entries/:eid/cancel', verifyToken, requirePageAcc
       if (closed) throw new HttpError(409, 'A sessão desta entrada está encerrada: só o administrador altera.');
     }
     await entry.cancel({ user: req.user, reason: req.body.reason });
-    if (entry.type === 'buy-in') {
-      await Tournament.findByIdAndUpdate(req.params.tid, { $inc: { actual_players: -1 } });
-    }
     // a entrada cancelada libera o lugar
     if (entry.type !== 'add-on') await Seat.deleteOne({ ...seatScope(req.params.tid, entry.session_id), entry_id: entry._id });
     await tournamentChips.refreshTournamentChips(req.params.tid, req.app.get('io'));
+    await playersLib.refreshPlayers(req.params.tid, req.app.get('io'));
     await logActivity('Entrada Cancelada', 'tournament', `ID: ${req.params.eid} | ${req.body.reason}`, req.user);
     res.json({ message: 'Entrada cancelada' });
   } catch (err) {
@@ -1484,12 +1570,28 @@ router.get('/tournaments/:id/sessions', verifyToken, async (req, res) => {
   }
 });
 
+/** Início da sessão: `date` + `start_time` (no fuso do torneio) ou `starts_at` (ISO / null p/ limpar). undefined = não mexer. */
+function resolveSessionStart(body, tournament) {
+  if (body?.start_time) {
+    const instant = computeStartsAt(body.date || tournament.date, body.start_time, tournament.timezone);
+    if (!instant) throw new HttpError(400, 'Data/horário de início inválidos.');
+    return instant;
+  }
+  if (body?.starts_at === null || body?.starts_at === '') return null;
+  if (body?.starts_at !== undefined) {
+    const d = new Date(body.starts_at);
+    if (Number.isNaN(d.getTime())) throw new HttpError(400, 'Horário de início inválido.');
+    return d;
+  }
+  return undefined;
+}
+
 router.post('/tournaments/:id/sessions', verifyToken, requirePageAccess('torneios'), adminOnly, async (req, res) => {
   try {
     const t = await Tournament.findById(req.params.id);
     if (!t) throw new HttpError(404, 'Torneio não encontrado.');
     if (CLOSED_STATES.includes(t.status)) throw new HttpError(409, 'O torneio está encerrado: não aceita novas sessões.');
-    const session = await sessionsLib.createSession(t._id, pick(req.body, ['name', 'starts_at', 'notes']));
+    const session = await sessionsLib.createSession(t._id, { ...pick(req.body, ['name', 'notes']), starts_at: resolveSessionStart(req.body, t) });
     await logActivity('Sessão Criada', 'tournament', `${t.name} | ${session.name}`, req.user);
     res.status(201).json(session);
   } catch (err) {
@@ -1502,7 +1604,11 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
     const session = await TournamentSession.findOne({ _id: req.params.sid, tournament_id: req.params.tid });
     if (!session) throw new HttpError(404, 'Sessão não encontrada.');
     const isAdmin = req.user.role === 'admin';
-    const structural = pick(req.body, ['name', 'starts_at', 'notes']);
+    const sessionBefore = { status: session.status };
+    const structural = pick(req.body, ['name', 'notes']);
+    const tournament = await Tournament.findById(session.tournament_id);
+    const startsAt = resolveSessionStart(req.body, tournament || {});
+    if (startsAt !== undefined) structural.starts_at = startsAt;
     if (Object.keys(structural).length && !isAdmin) throw new HttpError(403, 'Apenas administradores renomeiam ou reagendam sessões.');
     if (structural.name !== undefined) {
       structural.name = String(structural.name).trim();
@@ -1512,7 +1618,8 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
     session.set(structural);
     if (req.body?.status !== undefined) sessionsLib.applyStatus(session, req.body.status, { isAdmin });
     await session.save();
-    await logActivity('Sessão Atualizada', 'tournament', `${session.name} | ${session.status}`, req.user);
+    if (req.body?.status === 'running') await ensureClockStarted(session.tournament_id, req);
+    await logActivity('Sessão Atualizada', 'tournament', `${session.name} | ${sessionBefore.status}${sessionBefore.status !== session.status ? ` → ${session.status}` : ''}${req.body?.starts_at !== undefined || req.body?.start_time !== undefined ? ' | horário de início alterado' : ''}`, req.user);
     res.json(session);
   } catch (err) {
     sendError(res, err);
@@ -1606,7 +1713,7 @@ router.put('/allocations/:id', verifyToken, requirePageAccess('torneios'), admin
   try {
     if (!alloc) throw new HttpError(404, 'Alocação não encontrada.');
     await allocationLib.updateChips(alloc, req.body?.chips, req.user);
-    await logActivity('Alocação Editada', 'chip_case', `ID: ${alloc._id}`, req.user);
+    await logActivity('Alocação Editada', 'chip_case', `${(await Tournament.findById(alloc.tournament_id).select('name').lean())?.name} | alocação ${alloc._id} | ${alloc.chips.length} ficha(s) na lista`, req.user);
     req.app.get('io')?.emit('allocationsChanged', { tournament_id: alloc.tournament_id, binder_id: alloc.binder_id });
     res.json(await allocationView(alloc._id));
   } catch (err) {
@@ -1747,6 +1854,8 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
 
     await Elimination.create({ tournament_id: t._id, entry_id, position });
     await Seat.deleteOne({ tournament_id: t._id, entry_id }); // libera o lugar
+    // eliminar tira UM jogador dos ativos; inscrições e fichas em jogo (Chip Count) não mudam
+    await playersLib.refreshPlayers(t._id, req.app.get('io'));
 
     // Sobrou 1 → essa é a campeã; finaliza.
     if (remaining - 1 === 1) {
@@ -1772,7 +1881,8 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
       await t.save();
       await logActivity('Torneio Finalizado', 'tournament', `${t.name}`, req.user);
     } else {
-      await logActivity('Eliminação Registrada', 'tournament', `${t.name} | pos ${position}`, req.user);
+      const after = await playersLib.playerCounts(t._id);
+      await logActivity('Eliminação Registrada', 'tournament', `${t.name} | ${entryLabel(alive.find((e) => String(e._id) === String(entry_id)))} | posição ${position} | ativos agora ${after.active} (inscrições ${after.entries_total} inalteradas)`, req.user);
     }
 
     res.status(201).json(await buildFinance(t._id));
@@ -1796,6 +1906,7 @@ router.post('/tournaments/:tid/eliminations/:eid/cancel', verifyToken, requirePa
       const entry = await TournamentEntry.findById(elim.entry_id);
       if (entry) await seatNewEntry(t, entry._id, entry.session_id || null);
     }
+    await playersLib.refreshPlayers(req.params.tid, req.app.get('io'));
     await logActivity('Eliminação Cancelada', 'tournament', `ID: ${req.params.eid} | ${req.body.reason}`, req.user);
     res.json(await buildFinance(req.params.tid));
   } catch (err) {
@@ -1824,6 +1935,7 @@ router.get('/tournaments/:id/results', verifyToken, async (req, res) => {
 // ─── Material no torneio (G6): envio, retorno e conversões ───────────────────
 // Toda movimentação de fichas é uma MOVEMENT imutável. Quem registra: admin e material (operação de material,
 // spec §13.2); o salão consulta. Envio/entrada de conversão só saem do que está ALOCADO ao torneio (G5).
+const mvDescribe = (docs) => require('../lib/movements').describeBatch(docs);
 const emitMaterial = (req, tournamentId) => req.app.get('io')?.emit('materialChanged', { tournament_id: tournamentId });
 
 // Envio por AÇÃO (o stack calcula as fichas): { items: [{ action, count }], session_id?, binder_id?, reason? }
@@ -1832,7 +1944,7 @@ router.post('/tournaments/:id/sends', verifyToken, requirePageAccess('torneios',
   try {
     const t = await material.openTournament(req.params.id);
     const docs = await material.send(t, req.body, req.user);
-    await logActivity('Envio de Fichas ao Torneio', 'inventory', `${t.name} | ${docs.length} lançamento(s)`, req.user);
+    await logActivity('Envio de Fichas ao Torneio', 'inventory', `${t.name}${docs[0]?.session_id ? ' | sessão ' + (await TournamentSession.findById(docs[0].session_id).select('name').lean())?.name : ''} | ${(await mvDescribe(docs))} | lote ${docs[0]?.batch_id}`, req.user);
     emitMaterial(req, t._id);
     res.status(201).json({ batch_id: docs[0].batch_id, movements: docs });
   } catch (err) {
@@ -1845,7 +1957,7 @@ router.post('/tournaments/:id/returns', verifyToken, requirePageAccess('torneios
   try {
     const t = await material.openTournament(req.params.id);
     const docs = await material.returnChips(t, req.body, req.user);
-    await logActivity('Retorno de Fichas do Torneio', 'inventory', `${t.name} | ${docs.length} lançamento(s)`, req.user);
+    await logActivity('Retorno de Fichas do Torneio', 'inventory', `${t.name} | ${(await mvDescribe(docs))} | para o fichário ${(await Binder.findById(req.body.binder_id).select('name').lean())?.name} | lote ${docs[0]?.batch_id}`, req.user);
     emitMaterial(req, t._id);
     res.status(201).json({ batch_id: docs[0].batch_id, movements: docs });
   } catch (err) {
@@ -2071,13 +2183,60 @@ router.get('/conversions/:id', verifyToken, async (req, res) => {
   }
 });
 
+// ─── Chamados de Chip Race / Color Up (MEL-02): o Salão solicita, o Material atende ───────────────
+const emitRequests = (req, tournamentId) => req.app.get('io')?.emit('conversionRequestsChanged', { tournament_id: tournamentId });
+router.post('/tournaments/:id/conversion-requests', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+  try {
+    const doc = await conversionRequests.create(req.params.id, req.body, req.user);
+    await logActivity('Chamado de Troca', 'chip_race', `${doc.type} | ${doc.tables} mesa(s) | ativos ${doc.snapshot.active_players}${doc.snapshot.provisional ? ' (provisório)' : ''}`, req.user);
+    emitRequests(req, doc.tournament_id);
+    res.status(201).json(doc);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+router.get('/conversion-requests', verifyToken, async (req, res) => {
+  try {
+    const scope = await allowedTournaments(req.user);
+    const filter = {};
+    if (req.query.tournament_id) {
+      if (scope && !scope.includes(String(req.query.tournament_id))) return res.status(403).json({ error: 'Você não tem acesso a este torneio.' });
+      filter.tournament_id = req.query.tournament_id;
+    } else if (scope) filter.tournament_id = { $in: scope };
+    if (req.query.status === 'open') filter.status = { $in: conversionRequests.OPEN };
+    else if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
+    const rows = await ConversionRequest.find(filter).sort({ createdAt: -1 }).limit(100).populate('tournament_id', 'name').populate('session_id', 'name');
+    res.json(rows);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+router.put('/conversion-requests/:id', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
+  try {
+    const current = await ConversionRequest.findById(req.params.id).select('tournament_id');
+    const scope = await allowedTournaments(req.user);
+    if (current && scope && !scope.includes(String(current.tournament_id))) return res.status(403).json({ error: 'Você não tem acesso a este torneio.' });
+    const doc = await conversionRequests.advance(req.params.id, req.body?.status, { user: req.user, note: req.body?.note, role: req.user.role });
+    await logActivity('Chamado de Troca', 'chip_race', `${doc.type} | ${doc.status}`, req.user);
+    emitRequests(req, doc.tournament_id);
+    res.json(doc);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 router.post('/conversions', verifyToken, requirePageAccess('chip_race', 'operate'), async (req, res) => {
   try {
     const scope = await allowedTournaments(req.user);
     if (scope && !scope.includes(String(req.body?.tournament_id))) return res.status(403).json({ error: 'Você não tem acesso a este torneio.' });
     const t = await material.openTournament(req.body?.tournament_id);
+    if (req.body?.request_id) await conversionRequests.assertOpen(req.body.request_id, { tournament_id: t._id, type: req.body.type }); // recusa ANTES de movimentar fichas
     const c = await material.createConversion(t, req.body, req.user);
-    await logActivity('Conversão de Fichas', 'chip_race', `${t.name} | ${c.type} | quebra ${c.math_breakage}`, req.user);
+    if (req.body?.request_id) { await conversionRequests.complete(req.body.request_id, c, req.user); emitRequests(req, t._id); }
+    const side = async (list) => mvDescribe(list.map((l) => ({ chip_id: l.chip_id, quantity: l.quantity })));
+    await logActivity('Conversão de Fichas', 'chip_race', `${t.name} | ${c.type === 'CHIP_RACE' ? 'Chip Race' : 'Color Up'} | retirado: ${await side(c.outs)} | entregue: ${await side(c.ins)} | diferença de valor ${c.value_in - c.value_out} (quebra matemática ${c.math_breakage})${req.body?.request_id ? ` | chamado ${req.body.request_id}` : ''} | lote ${c.movement_batch_id}`, req.user);
     await tournamentChips.refreshTournamentChips(t._id, req.app.get('io')); // a quebra muda o valor em jogo (relógio/projeção)
     req.app.get('io')?.emit('chipRaceUpdated', c);
     emitMaterial(req, t._id);
@@ -2106,6 +2265,15 @@ const CONVERSION_IMMUTABLE = 'Conversões são imutáveis: corrija por estorno (
 router.put('/conversions/:id', verifyToken, (req, res) => res.status(405).json({ error: CONVERSION_IMMUTABLE }));
 router.delete('/conversions/:id', verifyToken, (req, res) => res.status(405).json({ error: CONVERSION_IMMUTABLE }));
 
+// Conciliação por denominação: saldo inicial + entradas − saídas = saldo; reservado × livre (BUG-07).
+router.get('/binders/:id/reconciliation', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
+  try {
+    res.json(await historyLib.reconcile(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // ─── Histórico de saldo (G11, spec §15) ──────────────────────────────────────
 // Reconstrói o efeito de cada movimento no saldo da ficha / do fichário / do torneio (leitura pura, dos movimentos).
 router.get('/audit/history', verifyToken, requirePageAccess('relatorios'), async (req, res) => {
@@ -2126,7 +2294,7 @@ router.get('/audit/history', verifyToken, requirePageAccess('relatorios'), async
 });
 
 // ─── Log de Auditoria do Estoque ─────────────────────────────────────────────
-router.get('/inventory/logs', verifyToken, requirePageAccess('relatorios'), async (req, res) => {
+router.get('/inventory/logs', verifyToken, requirePageAccess('auditoria'), async (req, res) => {
   try {
     const { search, type } = req.query;
     const page = toInt(req.query.page, { min: 1, fallback: 1 });
@@ -2188,11 +2356,13 @@ router.get('/reports/data', verifyToken, requirePageAccess('relatorios'), async 
       }
     }
 
-    const totalLogs = await ActivityLog.countDocuments(filter);
-    const logs = await ActivityLog.find(filter)
+    // o log de atividades é auditoria administrativa: só o admin o recebe (o relatório de números segue aberto a quem tem a área)
+    const isAdminUser = req.user.role === 'admin';
+    const totalLogs = isAdminUser ? await ActivityLog.countDocuments(filter) : 0;
+    const logs = isAdminUser ? await ActivityLog.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(limit);
+      .limit(limit) : [];
 
     const t = inventory.totals;
     res.json({
@@ -2297,6 +2467,16 @@ router.post('/chat/:id/ack', verifyToken, async (req, res) => {
     res.json(msg);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Fotos de perfil de quem conversa: { email: data URL }. Separado das mensagens para não repetir a imagem em cada uma.
+router.get('/chat/avatars', verifyToken, async (req, res) => {
+  try {
+    const users = await User.find({ avatar: { $ne: null } }).select('email avatar');
+    res.json(Object.fromEntries(users.map((u) => [u.email, u.avatar])));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

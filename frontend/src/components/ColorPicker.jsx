@@ -48,7 +48,7 @@ export default function ColorPicker({ value, onChange }) {
     return (
       <button
         type="button" onClick={() => onChange(hex)} aria-label={label} aria-pressed={selected} title={label} data-color={hex}
-        className={`relative h-7 w-7 rounded-md border transition-transform hover:scale-110 ${selected ? 'border-genesis-red ring-2 ring-genesis-red' : 'border-gray-300 dark:border-zinc-600'}`}
+        className={`relative h-7 w-7 rounded-md border transition-transform hover:scale-110 ${selected ? 'border-brand ring-2 ring-brand' : 'border-line'}`}
         style={{ backgroundColor: hex }}
       >
         {selected && <Check size={14} className="absolute inset-0 m-auto drop-shadow" style={{ color: /^#(?:f|e|d|c|b|a|9)/.test(hex) && hex !== '#ff0000' ? '#000' : '#fff' }} />}
@@ -57,14 +57,14 @@ export default function ColorPicker({ value, onChange }) {
   };
 
   return (
-    <div data-testid="color-picker" className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-[#111111]">
-      <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
-        <span data-testid="color-current" className="h-6 w-6 rounded-md border border-gray-300 dark:border-zinc-600" style={{ backgroundColor: current || 'transparent' }} />
+    <div data-testid="color-picker" className="space-y-3 rounded-xl border border-line bg-sunken p-3">
+      <div className="flex items-center gap-2 text-xs font-bold text-fg-muted">
+        <span data-testid="color-current" className="h-6 w-6 rounded-md border border-line" style={{ backgroundColor: current || 'transparent' }} />
         {current ? (inPalette(current) ? 'Cor selecionada' : 'Cor personalizada') : 'Escolha uma cor'}
       </div>
 
       <div>
-        <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gray-400">Cores do tema</p>
+        <p className="mb-1 text-xs font-bold uppercase tracking-wide text-fg-subtle">Cores do tema</p>
         <div className="grid grid-cols-10 gap-x-1.5" role="group" aria-label="Cores do tema">
           {PALETTE.map((col) => (
             <div key={col.name} className="flex flex-col gap-1.5">
@@ -75,7 +75,7 @@ export default function ColorPicker({ value, onChange }) {
       </div>
 
       <div>
-        <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gray-400">Cores padrão</p>
+        <p className="mb-1 text-xs font-bold uppercase tracking-wide text-fg-subtle">Cores padrão</p>
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Cores padrão">
           {STANDARD.map(([name, hex]) => <Swatch key={hex} hex={hex} label={name} />)}
         </div>
@@ -84,7 +84,7 @@ export default function ColorPicker({ value, onChange }) {
       <div className="flex items-center gap-2">
         <button
           type="button" onClick={() => custom.current?.click()}
-          className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:border-genesis-red hover:text-genesis-red dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-200"
+          className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-bold text-fg hover:border-brand hover:text-brand-fg dark:bg-zinc-800 dark:text-gray-200"
         >
           <Palette size={14} /> Personalizar cor…
         </button>

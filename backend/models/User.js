@@ -7,6 +7,8 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true, select: false },
   role: { type: String, enum: ['admin', 'material', 'salao'], default: 'salao' },
   created_by: { type: String },
+  // Foto de perfil: imagem pequena (quadrada, JPEG/PNG/WebP) como data URL. Cada usuário troca a própria (PUT /me/avatar).
+  avatar: { type: String, default: null },
   // G11 — escopo por torneio: vazio = sem restrição; preenchido = SOMENTE estes torneios (admin ignora)
   allowed_tournament_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tournament' }],
 

@@ -1,3 +1,4 @@
+import { locale } from '../lib/i18n';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Coins, Info, Undo2, Layers, AlertCircle } from 'lucide-react';
@@ -6,9 +7,10 @@ import { apiGet, apiPost } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 import { can } from '../config';
 import CustomSelect from '../components/CustomSelect';
+import ConversionRequests from '../components/ConversionRequests';
 
 const TYPES = [{ v: 'CHIP_RACE', label: 'Chip Race' }, { v: 'COLOR_UP', label: 'Color Up' }];
-const fmt = (n) => (n ?? 0).toLocaleString('pt-BR');
+const fmt = (n) => (n ?? 0).toLocaleString(locale());
 const signed = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(n))}`;
 const CLOSED = ['finished', 'finalized'];
 
@@ -38,6 +40,7 @@ export default function ChipRace() {
   const [note, setNote] = useState('');
   const [preview, setPreview] = useState(null);     // { value_out, value_in, math_breakage } — vem do servidor
   const [previewError, setPreviewError] = useState(null);
+  const [linked, setLinked] = useState(null);     // chamado do Salão que esta conversão vai atender
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -69,6 +72,7 @@ export default function ChipRace() {
 
   // em jogo por ficha e quanto ainda há reservado (alocação) para colocar
   const onTable = useMemo(() => Object.fromEntries((material?.rows || []).map((r) => [r.chip._id, r.on_table])), [material]);
+  const inPlayBy = useMemo(() => Object.fromEntries((material?.rows || []).map((r) => [r.chip._id, r.in_play])), [material]);
   const reserved = useMemo(() => {
     const m = {};
     allocations.forEach((a) => a.chips.forEach((l) => { const id = l.chip_id?._id || l.chip_id; m[id] = (m[id] || 0) + (l.remaining || 0); }));
@@ -89,7 +93,7 @@ export default function ChipRace() {
     return () => clearTimeout(timer);
   }, [outs, ins]);
 
-  const reset = () => { setOuts({}); setIns({}); setNote(''); setPreview(null); };
+  const reset = () => { setOuts({}); setIns({}); setNote(''); setPreview(null); setLinked(null); };
 
   const submit = async () => {
     const o = lines(outs); const i = lines(ins);
@@ -102,7 +106,7 @@ export default function ChipRace() {
     if (!(await showConfirm(`Registrar ${TYPES.find((t) => t.v === type).label}? ${summary} As fichas serão movimentadas e o lançamento não pode ser editado (só estornado).`))) return;
     setBusy(true);
     try {
-      await apiPost('/conversions', { tournament_id: tid, type, session_id: sessionId || undefined, binder_id: binderId || undefined, outs: o, ins: i, note: note.trim() || undefined });
+      await apiPost('/conversions', { tournament_id: tid, type, session_id: sessionId || undefined, binder_id: binderId || undefined, outs: o, ins: i, note: note.trim() || undefined, request_id: linked?._id });
       showAlert('Conversão registrada!', 'success');
       reset();
       await loadTournament(tid);
@@ -122,39 +126,45 @@ export default function ChipRace() {
   };
 
   const tournamentOptions = tournaments.map((t) => ({ value: t._id, label: `${t.name}${t.status === 'running' ? ' · em andamento' : ''}` }));
-  const numCls = 'w-24 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-700 dark:bg-zinc-900';
+  const numCls = 'w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-brand ';
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 pb-12">
       <header>
-        <h1 className="flex items-center gap-2 text-3xl font-black uppercase tracking-tighter text-gray-900 dark:text-white md:text-4xl"><Coins className="text-genesis-red" size={30} /> Chip Race / Color Up</h1>
-        <p className="text-gray-500 dark:text-gray-400">Lance o que saiu e o que entrou de jogo, por denominação. Valores e quebra são calculados pelo sistema.</p>
+        <h1 className="page-title flex items-center gap-2"><Coins className="text-brand-fg" size={22} /> Chip Race / Color Up</h1>
+        <p className="page-sub">Lance o que saiu e o que entrou de jogo, por denominação. Valores e quebra são calculados pelo sistema.</p>
       </header>
 
       {loading ? (
-        <div className="py-20 text-center text-gray-400 animate-pulse">Carregando…</div>
+        <div className="py-20 text-center text-fg-subtle animate-pulse">Carregando…</div>
       ) : tournaments.length === 0 ? (
-        <div className="rounded-3xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400 dark:border-zinc-800">Nenhum torneio aberto.</div>
+        <div className="rounded-3xl border-2 border-dashed border-line p-12 text-center text-fg-subtle">Nenhum torneio aberto.</div>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="md:col-span-2">
-              <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-gray-400">Torneio</label>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Torneio</label>
               <CustomSelect options={tournamentOptions} value={tid} onChange={(v) => { setTid(v); reset(); }} placeholder="Torneio…" />
             </div>
             {sessions.length > 1 && (
               <div>
-                <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-gray-400">Sessão</label>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Sessão</label>
                 <CustomSelect options={sessions.map((s) => ({ value: s._id, label: s.name }))} value={sessionId} onChange={setSessionId} />
               </div>
             )}
             {allocations.length > 1 && (
               <div>
-                <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-gray-400">Fichas retiradas vão para</label>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Fichas retiradas vão para</label>
                 <CustomSelect options={allocations.map((a) => ({ value: a.binder_id?._id, label: a.binder_id?.name }))} value={binderId} onChange={setBinderId} placeholder="Fichário…" />
               </div>
             )}
           </div>
+
+          <ConversionRequests
+            tournamentId={tid} sessionId={sessionId} role={role}
+            linkedId={linked?._id}
+            onLink={(r) => { setLinked(r); if (r) setType(r.type); }}
+          />
 
           {allocations.length === 0 && (
             <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
@@ -162,28 +172,30 @@ export default function ChipRace() {
             </div>
           )}
 
-          <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-[#141414]">
+          <div className="card p-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex gap-2">
                 {TYPES.map((t) => (
-                  <button key={t.v} onClick={() => setType(t.v)} className={`rounded-xl border px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${type === t.v ? 'border-genesis-red bg-red-50 text-genesis-red dark:bg-red-500/10' : 'border-gray-200 text-gray-500 dark:border-zinc-700'}`}>{t.label}</button>
+                  <button key={t.v} onClick={() => setType(t.v)} className={`rounded-xl border px-4 py-2 text-xs font-bold transition-all ${type === t.v ? 'border-brand bg-red-50 text-brand-fg dark:bg-red-500/10' : 'border-line text-fg-muted'}`}>{t.label}</button>
                 ))}
               </div>
-              {!canOperate && <span className="text-xs font-bold text-gray-400">Somente consulta — o material registra as conversões.</span>}
+              {!canOperate && <span className="text-xs font-bold text-fg-subtle">Somente consulta — o Salão solicita pelo chamado acima e o Material registra a conversão.</span>}
+              {linked && <span className="text-xs font-bold text-brand-fg">Atendendo chamado: {TYPES.find((t) => t.v === linked.type).label} · {linked.tables} mesa(s)</span>}
             </div>
 
+            <p className="mb-3 text-xs text-fg-muted">A mesma denominação pode estar em Retirado e em Colocado (ex.: retirar 500 e devolver parte aos jogadores). O valor é calculado sobre tudo que foi lançado; no fichário só movimenta a diferença líquida.</p>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
-                  <tr className="text-[10px] uppercase tracking-widest text-gray-400">
-                    <th className="py-2 pr-3 text-left font-black">Ficha</th>
-                    <th className="px-2 py-2 text-right font-black">Em jogo</th>
-                    <th className="px-2 py-2 text-center font-black text-red-500">Retirado</th>
-                    <th className="px-2 py-2 text-right font-black">Reservado p/ colocar</th>
-                    <th className="px-2 py-2 text-center font-black text-emerald-600">Colocado</th>
+                  <tr className="text-xs uppercase tracking-wide text-fg-subtle">
+                    <th className="py-2 pr-3 text-left font-bold">Ficha</th>
+                    <th className="px-2 py-2 text-right font-bold" title="Fichas já entregues aos jogadores (Chip Count)">Em jogo</th>
+                    <th className="px-2 py-2 text-center font-bold text-red-500">Retirado</th>
+                    <th className="px-2 py-2 text-right font-bold" title="Saldo ainda reservado ao torneio nos fichários alocados — de onde saem as fichas a colocar">Reservado no fichário</th>
+                    <th className="px-2 py-2 text-center font-bold text-emerald-600">Colocado</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60">
+                <tbody className="divide-y divide-line-soft">
                   {chips.map((c) => {
                     const playing = onTable[c._id] || 0;
                     const res = reserved[c._id] || 0;
@@ -191,17 +203,17 @@ export default function ChipRace() {
                     return (
                       <tr key={c._id}>
                         <td className="py-2 pr-3">
-                          <span className="inline-flex items-center gap-2 font-bold text-gray-700 dark:text-gray-300">
-                            <span className="h-3 w-3 rounded-full border border-gray-200 dark:border-zinc-700" style={{ backgroundColor: c.color }} /> {fmt(c.value)}
+                          <span className="inline-flex items-center gap-2 font-bold text-fg">
+                            <span className="h-3 w-3 rounded-full border border-line" style={{ backgroundColor: c.color }} /> {fmt(c.value)}
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-right font-bold tabular-nums text-gray-500">{fmt(playing)}</td>
+                        <td className="px-2 py-2 text-right font-bold tabular-nums text-fg-muted">{fmt(inPlayBy[c._id] || 0)}</td>
                         <td className="px-2 py-2 text-center">
                           <input type="number" min="0" step="1" placeholder="0" disabled={!canOperate || playing <= 0} value={outs[c._id] ?? ''} onChange={(e) => setOuts((s) => ({ ...s, [c._id]: e.target.value }))} className={`${numCls} ${o > playing ? 'border-red-400' : ''}`} />
                         </td>
-                        <td className="px-2 py-2 text-right font-bold tabular-nums text-gray-500">{fmt(res)}</td>
+                        <td className="px-2 py-2 text-right font-bold tabular-nums text-fg-muted">{fmt(res)}</td>
                         <td className="px-2 py-2 text-center">
-                          <input type="number" min="0" step="1" placeholder="0" disabled={!canOperate || res <= 0} value={ins[c._id] ?? ''} onChange={(e) => setIns((s) => ({ ...s, [c._id]: e.target.value }))} className={`${numCls} ${n > res ? 'border-red-400' : ''}`} />
+                          <input type="number" min="0" step="1" placeholder="0" disabled={!canOperate || (res + o) <= 0} value={ins[c._id] ?? ''} onChange={(e) => setIns((s) => ({ ...s, [c._id]: e.target.value }))} className={`${numCls} ${n > res + o ? 'border-red-400' : ''}`} />
                         </td>
                       </tr>
                     );
@@ -212,13 +224,13 @@ export default function ChipRace() {
 
             <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
               {[['Valor retirado', preview?.value_out, 'text-red-500'], ['Valor colocado', preview?.value_in, 'text-emerald-600'], ['Quebra matemática', preview?.math_breakage, 'text-amber-500', true]].map(([label, v, cls, sign]) => (
-                <div key={label} className="rounded-2xl bg-gray-50 p-4 dark:bg-[#0f0f0f]">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{label}</p>
-                  <p className={`text-2xl font-black tabular-nums ${cls}`}>{v === undefined || v === null ? '—' : sign ? signed(v) : fmt(v)}</p>
+                <div key={label} className="rounded-2xl bg-sunken p-4 dark:bg-sunken">
+                  <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">{label}</p>
+                  <p className={`text-2xl font-bold tabular-nums ${cls}`}>{v === undefined || v === null ? '—' : sign ? signed(v) : fmt(v)}</p>
                 </div>
               ))}
             </div>
-            <p className="mt-3 flex items-start gap-2 text-xs text-gray-500">
+            <p className="mt-3 flex items-start gap-2 text-xs text-fg-muted">
               <Info size={14} className="mt-0.5 shrink-0" />
               A quebra (colocado − retirado) é uma diferença legítima da conversão e <b className="mx-1">não é perda física</b>: não gera ocorrência. Só a conferência física aponta divergência.
             </p>
@@ -226,37 +238,37 @@ export default function ChipRace() {
 
             {canOperate && (
               <div className="mt-5 flex flex-col gap-3 md:flex-row">
-                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Observação (opcional) — ex.: nível 6, mesas 1 a 4" className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-800 dark:bg-[#0f0f0f]" />
-                <button onClick={submit} disabled={busy || allocations.length === 0} className="rounded-xl bg-genesis-red px-8 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-red-700 disabled:opacity-40">
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Observação (opcional) — ex.: nível 6, mesas 1 a 4" className="input flex-1" />
+                <button onClick={submit} disabled={busy || allocations.length === 0} className="btn btn-primary disabled:opacity-40">
                   {busy ? 'Registrando…' : `Registrar ${TYPES.find((t) => t.v === type).label}`}
                 </button>
               </div>
             )}
           </div>
 
-          <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#141414]">
-            <div className="border-b border-gray-100 p-5 dark:border-zinc-800"><h2 className="flex items-center gap-2 font-black uppercase tracking-tight text-gray-900 dark:text-white"><Layers size={18} className="text-genesis-red" /> Histórico</h2></div>
-            {history.length === 0 ? <p className="p-10 text-center text-sm italic text-gray-400">Nenhuma conversão neste torneio.</p> : (
-              <ul className="divide-y divide-gray-100 dark:divide-zinc-800/60">
+          <div className="card overflow-hidden">
+            <div className="border-b border-line-soft p-5"><h2 className="flex items-center gap-2 font-bold uppercase tracking-tight text-fg"><Layers size={18} className="text-brand-fg" /> Histórico</h2></div>
+            {history.length === 0 ? <p className="p-10 text-center text-sm italic text-fg-subtle">Nenhuma conversão neste torneio.</p> : (
+              <ul className="divide-y divide-line-soft">
                 {history.map((c) => (
                   <motion.li key={c._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`flex flex-wrap items-center gap-4 p-4 ${c.status === 'reversed' ? 'opacity-55' : ''}`}>
                     <div className="min-w-0 flex-1">
-                      <p className="flex flex-wrap items-center gap-2 text-sm font-black text-gray-900 dark:text-white">
+                      <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-fg">
                         {c.type === 'CHIP_RACE' ? 'Chip Race' : 'Color Up'}
-                        {c.legacy && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-black uppercase text-gray-500 dark:bg-zinc-800">modelo anterior</span>}
-                        {c.status === 'reversed' && <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-black uppercase text-purple-600 dark:bg-purple-500/10">estornada</span>}
+                        {c.legacy && <span className="rounded-full bg-raised px-2 py-0.5 text-xs font-bold text-fg-muted dark:bg-zinc-800">modelo anterior</span>}
+                        {c.status === 'reversed' && <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-600 dark:bg-purple-500/10">estornada</span>}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-fg-muted">
                         Saiu: {c.outs.map((l) => `${fmt(l.chip_id?.value)}×${fmt(l.quantity)}`).join(', ')} → Entrou: {c.ins.map((l) => `${fmt(l.chip_id?.value)}×${fmt(l.quantity)}`).join(', ')}
                       </p>
-                      <p className="text-[11px] text-gray-400">{new Date(c.createdAt).toLocaleString('pt-BR')} · {c.user_name}{c.binder_id?.name ? ` · para ${c.binder_id.name}` : ''}{c.note ? ` · ${c.note}` : ''}{c.status === 'reversed' && c.reverse_reason ? ` · estorno: ${c.reverse_reason}` : ''}</p>
+                      <p className="text-xs text-fg-subtle">{new Date(c.createdAt).toLocaleString(locale())} · {c.user_name}{c.binder_id?.name ? ` · para ${c.binder_id.name}` : ''}{c.note ? ` · ${c.note}` : ''}{c.status === 'reversed' && c.reverse_reason ? ` · estorno: ${c.reverse_reason}` : ''}</p>
                     </div>
                     <div className="text-right text-xs tabular-nums">
-                      <p className="text-gray-400">retirado {fmt(c.value_out)} · colocado {fmt(c.value_in)}</p>
-                      <p className="font-black text-amber-500">quebra {signed(c.math_breakage)}</p>
+                      <p className="text-fg-subtle">retirado {fmt(c.value_out)} · colocado {fmt(c.value_in)}</p>
+                      <p className="font-bold text-amber-500">quebra {signed(c.math_breakage)}</p>
                     </div>
                     {isAdmin && c.status === 'active' && !c.legacy && (
-                      <button onClick={() => reverse(c)} title="Estornar" className="rounded-lg border border-gray-200 p-2 text-gray-400 hover:text-purple-500 dark:border-zinc-700"><Undo2 size={16} /></button>
+                      <button onClick={() => reverse(c)} title="Estornar" className="rounded-lg border border-line p-2 text-fg-subtle hover:text-purple-500"><Undo2 size={16} /></button>
                     )}
                   </motion.li>
                 ))}

@@ -7,7 +7,6 @@ export default {
   'nav.estoque': 'Chips',
   'nav.livroEstoque': 'Ledger',
   'nav.ocorrencias': 'Occurrences',
-  'nav.modelosFicharios': 'Chip case models',
   'nav.ficharios': 'Chip cases',
   'nav.chat': 'Chat',
   'nav.stacks': 'Stacks',

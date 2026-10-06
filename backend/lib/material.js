@@ -5,7 +5,8 @@
 //  • return   em jogo → fichário, por denominação (contagem física).
 //  • conversão OUT (em jogo → fichário) + IN (fichário → em jogo) em UM lote; quebra matemática no registro.
 const mongoose = require('mongoose');
-const { Tournament, Conversion, Binder, Chip, Allocation, Movement } = require('../models');
+const { Tournament, Conversion, Binder, Chip, Allocation, Movement, StackModel } = require('../models');
+const calc = require('./stackCalc');
 const mv = require('./movements');
 const conv = require('./conversion');
 const tournamentChips = require('./tournamentChips');
@@ -171,7 +172,10 @@ async function createConversion(tournament, body = {}, user) {
   }
   if (!(await Binder.exists({ _id: dest }))) throw new HttpError(404, 'Fichário não encontrado.');
 
-  const ins = await pickSources(tournament, n.ins.map((l) => ({ type: conv.IN_TYPE[body.type], chip_id: l.chip_id, quantity: l.quantity })));
+  // movimento físico = LÍQUIDO por ficha (a mesma ficha pode sair e voltar ao jogo); o registro guarda o bruto lançado
+  const { netOuts, netIns } = conv.netSides(n.outs, n.ins);
+  if (!netOuts.length && !netIns.length) throw new HttpError(400, 'A troca não move nenhuma ficha: o que saiu é igual ao que entrou, em cada denominação.');
+  const ins = netIns.length ? await pickSources(tournament, netIns.map((l) => ({ type: conv.IN_TYPE[body.type], chip_id: l.chip_id, quantity: l.quantity }))) : [];
   const batch = new mongoose.Types.ObjectId();
   const doc = await new Conversion({
     tournament_id: tournament._id, session_id: session?._id || null, type: body.type,
@@ -182,7 +186,7 @@ async function createConversion(tournament, body = {}, user) {
 
   try {
     await mv.postBatch([
-      ...n.outs.map((l) => ({
+      ...netOuts.map((l) => ({
         type: conv.OUT_TYPE[body.type], chip_id: l.chip_id, quantity: l.quantity,
         from: { kind: 'play', id: tournament._id }, to: { kind: 'binder', id: dest }, session_id: session?._id || null,
         meta: { conversion_id: doc._id }, reason: body.note,
@@ -335,15 +339,42 @@ async function summary(tournamentId, { sessionId } = {}) {
   for (const id of bal.keys()) cell(id);
   const chips = await chipsMap([...by.keys()]);
   const rows = [...by.entries()].map(([id, c]) => {
-    const on_table = bal.get(id) || 0;
-    return { chip: chips.get(id) || { _id: id }, ...c, on_table, pending: c.expected - on_table };
+    const on_table = bal.get(id) || 0; // fisicamente NO SALÃO (enviado − devolvido ± conversões): ainda não é "em jogo"
+    // EM JOGO = o que as entradas já entregaram aos jogadores (= Chip Count). DISPONÍVEL no salão = o que foi enviado e ainda não usado.
+    return { chip: chips.get(id) || { _id: id }, ...c, on_table, at_hall: on_table, in_play: c.expected, available: Math.max(0, on_table - c.expected), pending: c.expected - on_table };
   }).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
   const val = (f) => rows.reduce((s, r) => s + r[f] * (r.chip.value || 0), 0);
   return {
     tournament_id: String(tournamentId), session_id: sessionId || null, rows,
-    totals: { expected_value: val('expected'), on_table_value: val('on_table'), pending_value: val('pending') },
+    stacks: await availableStacks(tournamentId, rows),
+    totals: { expected_value: val('expected'), on_table_value: val('on_table'), in_play_value: val('in_play'), available_value: val('available'), pending_value: val('pending') },
     uncovered: inPlay.uncovered,
   };
+}
+
+/**
+ * Stacks equivalentes ainda disponíveis no salão, por AÇÃO que recebeu envio ("100 stacks de reentrada, 2 × 25.000 cada").
+ * Só informa a capacidade — não prova que serão usados; o consumo real é o lançamento das entradas.
+ */
+async function availableStacks(tournamentId, rows) {
+  const actions = (await Movement.distinct('meta.action', { tournament_id: oid(tournamentId), type: { $in: SEND_TYPES }, 'meta.action': { $ne: null } })).filter(Boolean);
+  if (!actions.length) return [];
+  const tournament = await Tournament.findById(tournamentId).lean();
+  const ids = [tournament.stack_model_id, ...(tournament.stack_models || []).map((m) => m.stack_model_id)].filter(Boolean);
+  const models = new Map((await StackModel.find({ _id: { $in: ids } }).setOptions({ withDeleted: true }).lean()).map((m) => [String(m._id), m]));
+  const avail = new Map(rows.map((r) => [String(r.chip._id), r.available]));
+  const out = [];
+  for (const action of actions) {
+    const model = calc.modelForAction(tournament, action, models);
+    const per = calc.perPlayer(model, action);
+    if (!per.size) continue;
+    const stacks = Math.min(...[...per].map(([chipId, q]) => Math.floor((avail.get(chipId) || 0) / q)));
+    out.push({
+      action, label: model.actions?.find((a) => a.key === action)?.label || action, stacks,
+      composition: [...per].map(([chipId, quantity]) => ({ chip: rows.find((r) => String(r.chip._id) === chipId)?.chip || { _id: chipId }, quantity })),
+    });
+  }
+  return out;
 }
 
 module.exports = {

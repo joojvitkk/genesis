@@ -45,7 +45,7 @@ test('propriedade: quebra = valor colocado − valor retirado, para quaisquer qu
   }
 });
 
-test('normalize: as duas pontas são obrigatórias e uma ficha não pode estar nos dois lados', () => {
+test('normalize: as duas pontas são obrigatórias; a mesma ficha PODE estar nos dois lados', () => {
   const ok = c.normalize([{ chip_id: 'c100', quantity: 5 }], [{ chip_id: 'c500', quantity: 1 }]);
   assert.deepEqual(ok, { outs: [{ chip_id: 'c100', quantity: 5 }], ins: [{ chip_id: 'c500', quantity: 1 }] });
 
@@ -53,7 +53,6 @@ test('normalize: as duas pontas são obrigatórias e uma ficha não pode estar n
     [[], [{ chip_id: 'c500', quantity: 1 }]],
     [[{ chip_id: 'c100', quantity: 5 }], []],
     [null, [{ chip_id: 'c500', quantity: 1 }]],
-    [[{ chip_id: 'c100', quantity: 5 }], [{ chip_id: 'c100', quantity: 1 }]],                  // mesma ficha nos 2 lados
     [[{ chip_id: 'c100', quantity: 5 }, { chip_id: 'c100', quantity: 1 }], [{ chip_id: 'c500', quantity: 1 }]], // repetida
     [[{ chip_id: 'c100', quantity: 0 }], [{ chip_id: 'c500', quantity: 1 }]],
     [[{ chip_id: 'c100', quantity: -3 }], [{ chip_id: 'c500', quantity: 1 }]],
@@ -61,6 +60,17 @@ test('normalize: as duas pontas são obrigatórias e uma ficha não pode estar n
     [[{ quantity: 5 }], [{ chip_id: 'c500', quantity: 1 }]],
   ];
   for (const [outs, ins] of bad) assert.throws(() => c.normalize(outs, ins), undefined, JSON.stringify([outs, ins]));
+});
+
+test('mesma ficha nos dois lados: valor sobre o bruto, movimento físico líquido', () => {
+  const outs = [{ chip_id: 'c500', quantity: 28 }, { chip_id: 'c100', quantity: 1000 }];
+  const ins = [{ chip_id: 'c500', quantity: 8 }, { chip_id: 'c1000', quantity: 22 }];
+  const v = c.compute(outs, ins, chips);
+  assert.equal(v.value_out, 28 * 500 + 1000 * 100);
+  assert.equal(v.value_in, 8 * 500 + 22 * 1000);
+  const { netOuts, netIns } = c.netSides(outs, ins);
+  assert.deepEqual(netOuts.sort((a, b) => a.chip_id.localeCompare(b.chip_id)), [{ chip_id: 'c100', quantity: 1000 }, { chip_id: 'c500', quantity: 20 }]);
+  assert.deepEqual(netIns, [{ chip_id: 'c1000', quantity: 22 }]);
 });
 
 test('ficha desconhecida na conta é erro (não vira valor zero em silêncio)', () => {

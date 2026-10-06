@@ -24,7 +24,7 @@ export default function SeatingMap({ tournamentId, sessionId, canEdit }) {
     finally { setBusy(false); }
   };
 
-  if (!view) return <div className="p-10 text-center text-gray-400">Carregando mesas…</div>;
+  if (!view) return <div className="p-10 text-center text-fg-subtle">Carregando mesas…</div>;
 
   const b = view.balancing;
   // não há cadastro de jogadores: cada lugar é ocupado por uma ENTRADA ("Entrada #12")
@@ -39,15 +39,15 @@ export default function SeatingMap({ tournamentId, sessionId, canEdit }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm font-black uppercase tracking-widest text-gray-400">
+        <p className="text-sm font-bold uppercase tracking-wide text-fg-subtle">
           {view.total_seated} entradas · {view.tables.filter((t) => t.count > 0).length} mesa(s) · {view.seats_per_table}-max
         </p>
         {canEdit && (
           <div className="flex flex-wrap gap-2">
-            <button disabled={busy} onClick={() => act('draw', {})} className="flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-xs font-black uppercase text-gray-700 hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700">
+            <button disabled={busy} onClick={() => act('draw', {})} className="flex items-center gap-1.5 rounded-xl bg-raised px-3 py-2 text-xs font-bold text-fg hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700">
               <Shuffle size={13} /> Sentar pendentes
             </button>
-            <button disabled={busy} onClick={() => act('redraw', {}, 'Redistribuir todas as entradas ativas aleatoriamente?')} className="flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-xs font-black uppercase text-gray-700 hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700">
+            <button disabled={busy} onClick={() => act('redraw', {}, 'Redistribuir todas as entradas ativas aleatoriamente?')} className="flex items-center gap-1.5 rounded-xl bg-raised px-3 py-2 text-xs font-bold text-fg hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700">
               <Dices size={13} /> Redistribuir
             </button>
           </div>
@@ -64,7 +64,7 @@ export default function SeatingMap({ tournamentId, sessionId, canEdit }) {
           <button
             disabled={busy}
             onClick={() => act('move', { entry_id: b.entry_id, to_table: b.to_table, to_seat: b.to_seat })}
-            className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2 text-xs font-black uppercase text-white hover:bg-amber-600"
+            className="btn btn-warn flex items-center"
           >
             <Check size={13} /> Aplicar
           </button>
@@ -75,31 +75,31 @@ export default function SeatingMap({ tournamentId, sessionId, canEdit }) {
       {canEdit && view.breakable.map((bt) => (
         <div key={bt.table_number} className="flex items-center justify-between gap-3 rounded-2xl border border-blue-300 bg-blue-50 p-3 text-sm font-bold text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">
           <span><Scissors size={13} className="mr-1.5 inline" /> A mesa {bt.table_number} ({bt.count} entradas) cabe nas outras.</span>
-          <button disabled={busy} onClick={() => act('break-table', { table_number: bt.table_number }, `Quebrar a mesa ${bt.table_number}?`)} className="rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-black uppercase text-white hover:bg-blue-600">Quebrar</button>
+          <button disabled={busy} onClick={() => act('break-table', { table_number: bt.table_number }, `Quebrar a mesa ${bt.table_number}?`)} className="btn btn-info">Quebrar</button>
         </div>
       ))}
 
       {/* Grade de mesas */}
       {view.tables.filter((t) => t.count > 0).length === 0 ? (
-        <p className="rounded-3xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400 dark:border-zinc-800">
+        <p className="rounded-3xl border-2 border-dashed border-line p-12 text-center text-fg-subtle">
           Ninguém sentado. As inscrições sorteiam o lugar automaticamente.
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {view.tables.filter((t) => t.count > 0).map((t) => (
-            <div key={t.number} className="rounded-3xl border border-gray-200 bg-white p-5 dark:border-zinc-800 dark:bg-[#111111]">
+            <div key={t.number} className="card p-5">
               <div className="mb-3 flex items-center justify-between">
-                <h4 className="text-lg font-black uppercase tracking-tight text-gray-900 dark:text-white">Mesa {t.number}</h4>
-                <span className="flex items-center gap-1 text-xs font-black text-gray-400"><Users size={12} /> {t.count}/{view.seats_per_table}</span>
+                <h4 className="text-lg font-bold text-fg">Mesa {t.number}</h4>
+                <span className="flex items-center gap-1 text-xs font-bold text-fg-subtle"><Users size={12} /> {t.count}/{view.seats_per_table}</span>
               </div>
               <ul className="grid grid-cols-3 gap-1.5 text-xs sm:grid-cols-3">
                 {t.seats.map((s) => (
                   <li
                     key={s.seat}
-                    className={`truncate rounded-lg px-2 py-1.5 font-bold ${s.label ? 'bg-gray-100 text-gray-800 dark:bg-zinc-800 dark:text-gray-100' : 'bg-gray-50 text-gray-300 dark:bg-zinc-900/50 dark:text-zinc-600'}`}
+                    className={`truncate rounded-lg px-2 py-1.5 font-bold ${s.label ? 'bg-raised text-fg dark:bg-zinc-800 dark:text-gray-100' : 'bg-sunken text-gray-300  dark:text-zinc-600'}`}
                     title={s.label || `lugar ${s.seat} livre`}
                   >
-                    <span className="text-gray-400">{s.seat}.</span> {s.label || '—'}
+                    <span className="text-fg-subtle">{s.seat}.</span> {s.label || '—'}
                   </li>
                 ))}
               </ul>

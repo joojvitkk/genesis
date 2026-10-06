@@ -116,7 +116,7 @@ export const AlertProvider = ({ children }) => {
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => close(cancelResult)}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[var(--overlay)]"
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 8 }}
@@ -126,18 +126,18 @@ export const AlertProvider = ({ children }) => {
               role={dialog.kind === 'confirm' ? 'alertdialog' : 'dialog'}
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-[#141414]"
+              className="card relative w-full max-w-sm max-h-[92vh] overflow-y-auto p-6 shadow-2xl"
             >
               <div className={`absolute left-0 top-0 h-1 w-full ${tone.bar}`} />
               <button onClick={() => close(cancelResult)} className="absolute right-4 top-4 text-gray-300 hover:text-gray-500" aria-label="Fechar"><X size={18} /></button>
 
               <div className={`mb-3 flex items-center gap-3 ${tone.text}`}>
                 <ToneIcon size={26} />
-                <h3 className="text-lg font-black text-gray-900 dark:text-white">{dialog.title || tone.title}</h3>
+                <h3 className="text-lg font-bold text-fg">{dialog.title || tone.title}</h3>
               </div>
 
               {typeof dialog.message === 'string'
-                ? <p className="mb-5 whitespace-pre-line font-medium text-gray-600 dark:text-gray-300">{dialog.message}</p>
+                ? <p className="mb-5 whitespace-pre-line font-medium text-fg-muted">{dialog.message}</p>
                 : <div className="mb-5">{dialog.message}</div>}
 
               {dialog.kind === 'prompt' && (
@@ -150,7 +150,7 @@ export const AlertProvider = ({ children }) => {
                     value={promptValue}
                     onChange={(e) => setPromptValue(e.target.value)}
                     placeholder={dialog.placeholder}
-                    className="w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-700 dark:bg-[#111111] dark:text-white"
+                    className="input w-full"
                   />
                 </form>
               )}
@@ -159,7 +159,7 @@ export const AlertProvider = ({ children }) => {
                 {dialog.kind !== 'modal' && (
                   <button
                     onClick={() => close(cancelResult)}
-                    className="flex-1 rounded-xl bg-gray-100 py-3 font-bold text-gray-700 transition-all hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700"
+                    className="flex-1 rounded-xl bg-raised py-3 font-bold text-fg transition-all hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
                   >
                     {dialog.cancelLabel}
                   </button>
@@ -170,8 +170,8 @@ export const AlertProvider = ({ children }) => {
                     else if (dialog.kind === 'confirm') close(true);
                     else close(undefined);
                   }}
-                  className={`flex-1 rounded-xl py-3 font-bold text-white shadow-lg transition-all ${
-                    dialog.tone === 'danger' ? 'bg-red-600 hover:bg-red-700 shadow-red-500/20' : 'bg-genesis-red hover:bg-red-700 shadow-red-500/20'
+                  className={`flex-1 rounded-xl py-3 font-bold text-white  transition-all ${
+                    dialog.tone === 'danger' ? 'bg-red-600 hover:bg-brand-hover ' : 'bg-brand hover:bg-brand-hover '
                   }`}
                 >
                   {dialog.confirmLabel}

@@ -9,7 +9,7 @@ const logger = require('./lib/logger');
 const { User, ChatMessage, Tournament } = require('./models');
 const { decodeToken } = require('./middlewares/authMiddleware');
 const logActivity = require('./services/activityLogger');
-const { autoAdvance, clockPayload } = require('./lib/tournamentClock');
+const { autoAdvance, clockPayload, levelNumber } = require('./lib/tournamentClock');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/genesis';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
@@ -148,7 +148,7 @@ function startClockRunner() {
               io.to(`tournament:${t._id}`).emit('tournamentEnded', { tournament_id: String(t._id) });
             }
           }
-          logActivity('Nível do Torneio Avançou', 'tournament', `${t.name} | nível ${t.current_level}`, { name: 'Relógio' });
+          logActivity('Nível do Torneio Avançou', 'tournament', `${t.name} | nível ${levelNumber(t.blind_structure || [], t.current_level) ?? '-'} (linha ${t.current_level + 1})`, { name: 'Relógio' });
         }
         io.to(`tournament:${t._id}`).emit('tournamentClock', clockPayload(t, now));
       }

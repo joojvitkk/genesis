@@ -30,7 +30,7 @@ let list; let root; let container;
 const flush = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 const buttons = () => [...container.querySelectorAll('button')];
 const button = (label) => buttons().find((b) => b.textContent.includes(label));
-const option = (label) => [...container.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
+const option = (label) => [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
 const setValue = (el, v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
 const dialog = () => document.querySelector('[role="dialog"]');
 

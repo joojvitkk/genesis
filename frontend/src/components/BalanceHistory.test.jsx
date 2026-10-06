@@ -15,7 +15,7 @@ const payload = { entity: { type: 'binder', name: 'LISA' }, balances: [], pagina
 let root; let container;
 const flush = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 const button = (label) => [...container.querySelectorAll('button')].find((b) => b.textContent.includes(label));
-const option = (label) => [...container.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
+const option = (label) => [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
 
 beforeEach(async () => {
   api.apiGet.mockReset();

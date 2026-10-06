@@ -1,15 +1,111 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap');
 
+/*
+ * GENESIS — design tokens (ver DESIGN_SYSTEM.md na raiz do projeto).
+ * Camada 1: variáveis semânticas por tema (:root = claro, .dark = escuro).
+ * Camada 2: @theme expõe as variáveis ao Tailwind (bg-surface, text-fg-muted, border-line…).
+ * Regra: componente novo usa SÓ token semântico; nunca hex solto nem cinza "cru" de Tailwind.
+ */
+:root {
+  --canvas: #f5f6f8;        /* fundo da página */
+  --surface: #ffffff;       /* cartões, painéis, modais */
+  --sunken: #f0f2f5;        /* campos, linhas de tabela alternadas, áreas rebaixadas */
+  --raised: #e6e9ee;        /* hover de item neutro, chip */
+  --line: #d8dde5;          /* borda padrão */
+  --line-soft: #e7ebf0;     /* divisória interna */
+  --fg: #0f172a;            /* texto principal  (17,7:1 sobre surface) */
+  --fg-muted: #475569;      /* texto secundário (7,6:1) */
+  --fg-subtle: #5b6779;     /* rótulos/ajuda    (5,6:1) */
+  --brand: #d10a0a;         /* preenchimento da marca (texto branco: 5,6:1) */
+  --brand-hover: #a80707;
+  --brand-fg: #b00808;      /* marca como TEXTO/ícone sobre surface (6,9:1) */
+  --brand-soft: #fdecec;
+  --ok: #166534;     --ok-soft: #e6f6ec;     --on-ok: #ffffff;
+  --warn: #92400e;   --warn-soft: #fdf3dc;   --on-warn: #ffffff;
+  --danger: #b42318; --danger-soft: #fdeceb;
+  --info: #1d4ed8;   --info-soft: #e8efff;
+  --scroll-thumb: #c3cad5;
+  --scroll-thumb-hover: #8a95a6;
+  --overlay: rgba(15, 23, 42, 0.55);
+  --shadow-overlay: 0 16px 48px rgba(15, 23, 42, 0.18);
+}
+.dark {
+  --canvas: #0b0d10;
+  --surface: #12151a;
+  --sunken: #181c22;
+  --raised: #20252d;
+  --line: #2a3039;
+  --line-soft: #1e232a;
+  --fg: #f1f5f9;
+  --fg-muted: #a8b3c4;      /* 8,6:1 sobre surface */
+  --fg-subtle: #8c98ab;     /* 5,9:1 */
+  --brand: #d10a0a;
+  --brand-hover: #e51a1a;
+  --brand-fg: #ff7878;      /* 6,8:1 */
+  --brand-soft: #2a1214;
+  --ok: #5fd68a;    --ok-soft: #0f2418;    --on-ok: #04210f;
+  --warn: #f2b84b;  --warn-soft: #2a2010;  --on-warn: #1f1403;
+  --danger: #ff8a80; --danger-soft: #2b1413;
+  --info: #8fb0ff;  --info-soft: #121c33;
+  --scroll-thumb: #333b47;
+  --scroll-thumb-hover: #566174;
+  --overlay: rgba(0, 0, 0, 0.7);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
+  --color-ok: var(--ok);         --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);     --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger); --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);     --color-info-soft: var(--info-soft);
+  /* legado: nomes antigos apontam para a marca nova (migrar para brand-*) */
+  --color-genesis-red: var(--brand);
+  --color-genesis-dark: var(--canvas);
+  /* cinzas "crus" do Tailwind remapeados para a escala fria do tema: texto cinza nunca fica abaixo de AA */
+  --color-gray-400: var(--fg-subtle);
+  --color-gray-500: var(--fg-muted);
+  --color-gray-600: var(--fg-muted);
+  --color-gray-900: var(--fg);
+  --color-zinc-950: #0b0d10;
+  --color-zinc-900: #181c22;
+  --color-zinc-800: #232932;
+  --color-zinc-700: #323945;
+}
 @theme {
-  --color-genesis-red: #E60000;
-  --color-genesis-dark: #0A0A0A;
-  --color-zinc-950: #09090b;
+  --font-sans: 'Fira Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  /* raios: 8 controles · 12 cartões/modais (a escala antiga 2xl/3xl/[32px]/[40px] colapsa aqui) */
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.5rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 0.75rem;
+  /* sombra só para camadas flutuantes; superfícies são planas (borda fina) */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: var(--shadow-overlay);
+  --shadow-2xl: var(--shadow-overlay);
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
+  *, ::before, ::after { border-color: var(--line); }
   * {
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
@@ -17,7 +113,7 @@
 
   /* Foco visível consistente para navegação por teclado */
   :focus-visible {
-    outline: 2px solid var(--color-genesis-red);
+    outline: 2px solid var(--brand-fg);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -26,7 +122,7 @@
   /* Impressão / "Salvar como PDF": só o conteúdo, sem navegação */
   @media print {
     aside, header.md\:hidden, nav.md\:hidden, .no-print { display: none !important; }
-    .md\:ml-64 { margin-left: 0 !important; }
+    .md\:ml-60 { margin-left: 0 !important; }
     body { background: #fff !important; color: #000 !important; }
     * { box-shadow: none !important; }
     main { padding: 0 !important; }
@@ -48,40 +144,117 @@
   }
 
   body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background-color: #f4f4f5;
-    color: #111827;
-    transition: background-color 0.3s, color 0.3s;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    background-color: var(--canvas);
+    color: var(--fg);
+    transition: background-color 0.2s, color 0.2s;
     -webkit-font-smoothing: antialiased;
     overscroll-behavior: none;
     padding-bottom: env(safe-area-inset-bottom, 0);
   }
 
-  .dark body {
-    background-color: #0A0A0A;
-    color: #f4f4f5;
-  }
+  /* Barras de rolagem: finas, neutras, acompanham o tema (Firefox: scrollbar-*; WebKit/Blink: ::-webkit-scrollbar) */
+  * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 9999px; border: 2px solid transparent; background-clip: content-box; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: content-box; }
+  *::-webkit-scrollbar-corner { background: transparent; }
+  html { scrollbar-gutter: stable; }
+
+  button, [role="button"], select, summary, label[for] { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  input[type="number"] { font-variant-numeric: tabular-nums; }
+  .tabular-nums { font-variant-numeric: tabular-nums; }
+  ::selection { background: var(--brand); color: #fff; }
 }
 
 @layer components {
-  /* Glass morphism */
-  .glass {
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-  }
-  .dark .glass {
-    background: rgba(0, 0, 0, 0.4);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
+  /* ── Superfícies ─────────────────────────────────────────────── */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 0.75rem; padding: 1.25rem; }
+  .card-flush { padding: 0; overflow: hidden; }
+  .card-title { font-size: 1rem; font-weight: 600; color: var(--fg); letter-spacing: -0.005em; }
+  .card-hint { font-size: 0.75rem; color: var(--fg-subtle); margin-top: 0.125rem; }
+  .panel-sunken { background: var(--sunken); border: 1px solid var(--line-soft); border-radius: 0.5rem; }
 
-  /* Scrollable X with hidden bar */
-  .scroll-x {
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .scroll-x::-webkit-scrollbar {
-    display: none;
-  }
+  /* ── Tipografia ──────────────────────────────────────────────── */
+  .page-title { font-size: 1.5rem; line-height: 2rem; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }
+  .page-sub { font-size: 0.875rem; color: var(--fg-muted); margin-top: 0.125rem; }
+  .section-title { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-subtle); }
+  .label { display: block; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-subtle); margin-bottom: 0.375rem; }
+  .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  .stat-value { font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); font-variant-numeric: tabular-nums; }
+
+  /* ── Botões (altura mínima 40px; .btn-lg = 44px para toque) ──── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.5rem; padding: 0 1rem;
+         border-radius: 0.5rem; border: 1px solid transparent; font-size: 0.875rem; font-weight: 600; line-height: 1;
+         transition: background-color .15s, border-color .15s, color .15s, opacity .15s; white-space: nowrap; }
+  .btn:disabled { opacity: 0.45; }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--brand-hover); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--line); }
+  .btn-secondary:hover:not(:disabled) { background: var(--sunken); }
+  .btn-ghost { background: transparent; color: var(--fg-muted); }
+  .btn-ghost:hover:not(:disabled) { background: var(--sunken); color: var(--fg); }
+  .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+  .btn-danger:hover:not(:disabled) { background: var(--danger-soft); }
+  .btn-success { background: var(--ok); color: var(--on-ok); }
+  .btn-warn { background: var(--warn); color: var(--on-warn); }
+  .btn-info { background: var(--info); color: #fff; }
+  .btn-success:hover:not(:disabled), .btn-warn:hover:not(:disabled), .btn-info:hover:not(:disabled) { filter: brightness(1.1); }
+  .btn-neutral { background: var(--fg); color: var(--canvas); }
+  .btn-neutral:hover:not(:disabled) { filter: brightness(1.15); }
+  .btn-sm { min-height: 2rem; padding: 0 0.75rem; font-size: 0.8125rem; }
+  .btn-lg { min-height: 2.75rem; padding: 0 1.25rem; }
+  .btn-icon { min-height: 2.25rem; min-width: 2.25rem; padding: 0; }
+
+  /* ── Campos ──────────────────────────────────────────────────── */
+  .input { width: 100%; min-height: 2.5rem; background: var(--surface); color: var(--fg); border: 1px solid var(--line);
+           border-radius: 0.5rem; padding: 0 0.75rem; font-size: 0.875rem; transition: border-color .15s, box-shadow .15s; }
+  .input::placeholder { color: var(--fg-subtle); }
+  .input:hover { border-color: var(--fg-subtle); }
+  .input:focus { outline: none; border-color: var(--brand-fg); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent); }
+  .input:disabled { background: var(--sunken); color: var(--fg-subtle); }
+  .input-error { border-color: var(--danger); }
+  .field-help { font-size: 0.75rem; color: var(--fg-subtle); margin-top: 0.25rem; }
+  .field-error { font-size: 0.75rem; color: var(--danger); margin-top: 0.25rem; font-weight: 500; }
+
+  /* ── Status (sempre texto + cor: nunca só cor) ───────────────── */
+  .badge { display: inline-flex; align-items: center; gap: 0.375rem; border-radius: 9999px; padding: 0.125rem 0.625rem;
+           font-size: 0.75rem; font-weight: 600; line-height: 1.25rem; white-space: nowrap; }
+  .badge-ok { background: var(--ok-soft); color: var(--ok); }
+  .badge-warn { background: var(--warn-soft); color: var(--warn); }
+  .badge-danger { background: var(--danger-soft); color: var(--danger); }
+  .badge-info { background: var(--info-soft); color: var(--info); }
+  .badge-neutral { background: var(--sunken); color: var(--fg-muted); border: 1px solid var(--line-soft); }
+  .badge-brand { background: var(--brand-soft); color: var(--brand-fg); }
+  .dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: currentColor; display: inline-block; }
+
+  /* ── Camadas flutuantes ──────────────────────────────────────── */
+  .modal-backdrop { position: absolute; inset: 0; background: var(--overlay); }
+  .modal-panel { position: relative; width: 100%; max-height: 92vh; overflow-y: auto; background: var(--surface); color: var(--fg);
+                 border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: var(--shadow-overlay); }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--line-soft); }
+  .modal-foot { display: flex; gap: 0.75rem; justify-content: flex-end; padding: 0.875rem 1.25rem; border-top: 1px solid var(--line-soft); }
+
+  /* ── Tabelas densas ──────────────────────────────────────────── */
+  .table-dense { width: 100%; font-size: 0.875rem; border-collapse: collapse; }
+  .table-dense th { text-align: left; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-subtle);
+                    padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); }
+  .table-dense td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line-soft); font-variant-numeric: tabular-nums; }
+  .table-dense tbody tr:hover { background: var(--sunken); }
+  .table-dense .num-col { text-align: right; }
+
+  /* ── Navegação ───────────────────────────────────────────────── */
+  .nav-item { display: flex; align-items: center; gap: 0.75rem; min-height: 2.5rem; padding: 0 0.75rem; border-radius: 0.5rem;
+              font-size: 0.875rem; font-weight: 500; color: var(--fg-muted); transition: background-color .15s, color .15s; }
+  .nav-item:hover { background: var(--sunken); color: var(--fg); }
+  .nav-item-active { background: var(--brand-soft); color: var(--brand-fg); font-weight: 600; box-shadow: inset 3px 0 0 var(--brand); }
+  .nav-item-active:hover { background: var(--brand-soft); color: var(--brand-fg); }
+
+  /* ── Utilitários ─────────────────────────────────────────────── */
+  .scroll-x { overflow-x: auto; scrollbar-width: none; }
+  .scroll-x::-webkit-scrollbar { display: none; }
 }
