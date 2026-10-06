@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Avatar from '../components/Avatar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserPlus, Mail, Trash2, Edit2, X, Save,
   Search, Eye, EyeOff, KeyRound, ShieldOff
@@ -204,13 +205,16 @@ export default function Usuarios() {
                   </div>
                 </div>
 
-                <div>
-                  <h3 className="text-xl font-bold text-fg leading-tight mb-1">{user.name}</h3>
-                  <div className="flex items-center gap-2 text-xs font-bold text-fg-muted">
-                    <Mail size={12}/> {user.email}
-                    {user.email === currentUser?.email && (
-                      <span className="ml-1 px-2 py-0.5 bg-brand-soft text-brand-fg text-xs font-bold rounded-full">Você</span>
-                    )}
+                <div className="flex items-center gap-3">
+                  <Avatar user={user} size="lg" />
+                  <div className="min-w-0">
+                    <h3 className="text-xl font-bold text-fg leading-tight mb-1 truncate">{user.name}</h3>
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-fg-muted">
+                      <Mail size={12}/> <span className="break-all">{user.email}</span>
+                      {user.email === currentUser?.email && (
+                        <span className="ml-1 px-2 py-0.5 bg-brand-soft text-brand-fg text-xs font-bold rounded-full">Você</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 

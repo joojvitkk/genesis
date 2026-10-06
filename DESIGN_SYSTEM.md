@@ -167,7 +167,10 @@ Cabeçalho 12 px maiúsculo `fg-subtle`; células 14 px tabulares; linha com hov
 ### 3.7 Relógio de torneio no Dashboard — `components/RunningClocks.jsx`
 Seção "Torneios em andamento": um cartão por torneio rodando, com relógio ao vivo (socket) em Fira Code, nível de **jogo** + blinds e quantos estão jogando. **Em intervalo/dinner break** o cartão muda de cor (`border-warn bg-warn-soft ring-1 ring-warn`), mostra o selo `Intervalo` com ícone `Coffee` e "Volta no Nível N · blinds". Pausado: fundo `sunken` + selo "Pausado". Último minuto do nível: dígitos em `brand-fg`.
 
-### 3.8 Navegação
+### 3.8 Avatar (foto do usuário) — `components/Avatar.jsx`
+`<Avatar user={user} size="xs|sm|md|lg|xl" />`: imagem redonda com borda `line`; **sem foto, a inicial do nome** sobre `sunken`. É decorativo (`alt=""`): o nome sempre aparece ao lado. Tamanhos: `xs` 20 (listas compactas) · `sm` 32 (mensagens do chat) · `md` 36 (menu) · `lg` 48 (cartão de usuário) · `xl` 96 (Minha conta). Cada usuário troca a **própria** foto em *Minha conta → Dados → Foto de perfil* (`PUT/DELETE /me/avatar`): o navegador recorta o centro em quadrado de 256 px, converte para JPEG e comprime (`lib/image.js › fileToAvatarDataURL`); o servidor só aceita JPEG/PNG/WebP (SVG é recusado) e até ~150 mil caracteres. No **Chat** a foto vem de `GET /chat/avatars` (mapa `{e-mail: foto}`, uma vez por sessão e de novo quando aparece um remetente novo), nunca embutida em cada mensagem. Novas telas que mostram uma pessoa devem usar `Avatar` ao lado do nome.
+
+### 3.9 Navegação
 - **Desktop:** sidebar fixa de 240 px (`w-60`), `bg-surface`, borda à direita. Item `.nav-item`; ativo `.nav-item-active` (fundo `brand-soft`, texto `brand-fg`, barra de 3 px à esquerda).
 - **Mobile:** barra superior de 56 px (menu · marca · tema), **barra inferior de 5 itens no máximo** (60 px + safe-area) e drawer para o restante.
 - Ordem do menu (por perfil via `config.js › PERMISSIONS`): Dashboard, Salão, Eventos, Torneios, Chip Race, Fichas, Livro-razão, Ocorrências, Fichários, Chat, Stacks, Relatórios, Auditoria, Usuários.
@@ -282,7 +285,7 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 
 ## 12. Conta do usuário
 
-"Trocar senha" **não fica no menu lateral**. O cartão do usuário (topo da sidebar) abre `/conta` ("Minha conta"): dados do usuário e formulário de troca de senha (`pages/Conta.jsx` + `pages/ChangePassword.jsx` com `embedded`). A rota `/conta` vale para todos os perfis. O seletor de idioma e o botão de sair continuam no rodapé da sidebar.
+"Trocar senha" **não fica no menu lateral**. O cartão do usuário (topo da sidebar) abre `/conta` ("Minha conta"): dados do usuário e formulário de troca de senha (`pages/Conta.jsx` + `pages/ChangePassword.jsx` com `embedded`). A rota `/conta` vale para todos os perfis e concentra as **preferências do usuário**: dados, **idioma da interface** (Português / English, `aria-pressed`) e trocar senha. O idioma **não** fica no menu lateral; no rodapé da sidebar só ficam o botão de sair (e, no celular, o alternador de tema).
 
 ---
 
@@ -297,7 +300,8 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 | `frontend/src/components/TournamentClock.jsx` · `pages/Telao.jsx` | Relógio e projeção |
 | `frontend/src/components/CustomSelect.jsx` | Select padronizado (menu em portal) |
 | `frontend/src/lib/i18n-runtime/` · `frontend/src/locales/en-ui.js` | Tradução de toda a interface (runtime + dicionário pt→en) |
-| `frontend/src/pages/Conta.jsx` | Minha conta (dados + trocar senha) |
+| `frontend/src/pages/Conta.jsx` | Minha conta (dados, foto, idioma, trocar senha) |
+| `frontend/src/components/Avatar.jsx` | Foto/inicial do usuário |
 | `frontend/src/lib/timezones.js` | Lista e formatação dos fusos horários |
 | `frontend/src/components/RunningClocks.jsx` | Relógios dos torneios em andamento (Dashboard) |
 | `frontend/src/config.js` | Rotas ↔ áreas de permissão |

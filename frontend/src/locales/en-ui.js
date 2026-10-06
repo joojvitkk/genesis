@@ -2,6 +2,23 @@
 // Chave = texto exatamente como aparece no código (espaços normalizados); {} = valor embutido (copiado na ordem).
 // Ao criar texto novo na interface, acrescente aqui a tradução. Vocabulário: Salão = Floor, Material = Materials, Fichário = Binder.
 export default {
+  "Foto de perfil": "Profile photo",
+  "Escolher foto de perfil": "Choose profile photo",
+  "Adicionar foto": "Add photo",
+  "Trocar foto": "Change photo",
+  "Remover": "Remove",
+  "JPEG, PNG ou WebP. A foto é recortada em quadrado e reduzida automaticamente.": "JPEG, PNG or WebP. The photo is cropped to a square and resized automatically.",
+  "Foto atualizada.": "Photo updated.",
+  "Foto removida.": "Photo removed.",
+  "Não foi possível atualizar a foto.": "Could not update the photo.",
+  "Não foi possível remover a foto.": "Could not remove the photo.",
+  "Use uma foto JPEG, PNG ou WebP.": "Use a JPEG, PNG or WebP photo.",
+  "Foto de Perfil Alterada": "Profile Photo Changed",
+  "Foto de Perfil Removida": "Profile Photo Removed",
+  "Idioma": "Language",
+  "Idioma da interface. Vale para toda a plataforma neste navegador.": "Interface language. Applies to the whole platform in this browser.",
+  "Idioma da interface": "Interface language",
+  "Seus dados, o idioma da interface e a segurança da sua conta.": "Your details, the interface language and your account security.",
   "torneio:": "tournament:",
   "Re-entrada": "Re-entry",
   "{} · {} entrada(s)": "{} · {} entry(ies)",

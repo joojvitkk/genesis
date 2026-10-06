@@ -7,6 +7,7 @@ import { apiGet, apiPost } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 import { useAlert } from '../contexts/AlertContext';
 import { fileToCompressedDataURL } from '../lib/image';
+import Avatar from '../components/Avatar';
 
 const CHANNELS = [
   { id: 'general', label: 'Geral', icon: <MessageSquare size={16}/>, color: 'bg-blue-500' },
@@ -29,6 +30,10 @@ export default function Chat() {
   const { showAlert } = useAlert();
 
   const [onlineCount, setOnlineCount] = useState(0);
+  const [avatars, setAvatars] = useState({});           // { email: foto } — vem à parte das mensagens
+  const seenSenders = useRef(new Set());                 // e-mails cujas fotos já foram buscadas
+  const loadAvatars = () => apiGet('/chat/avatars').then(setAvatars).catch(() => {});
+  const avatarOf = (email, name) => ({ name, avatar: email && email === user?.email ? user.avatar : avatars[email] });
 
   const setActiveChannel = (id) => {
     activeRef.current = id;
@@ -44,7 +49,10 @@ export default function Chat() {
     // assina todos os canais para saber de mensagens não lidas
     CHANNELS.forEach((c) => socket.emit('joinChannel', c.id));
 
+    loadAvatars();
     const onNew = (msg) => {
+      // remetente novo na sessão: busca as fotos de novo (alguém pode ter acabado de trocar a sua)
+      if (msg.sender_email && !seenSenders.current.has(msg.sender_email)) { seenSenders.current.add(msg.sender_email); loadAvatars(); }
       if (msg.channel === activeRef.current) {
         setMessages((prev) => [...prev, msg]);
       } else {
@@ -193,7 +201,7 @@ export default function Chat() {
               return (
                 <div key={a._id} className="mb-2 rounded-xl border border-red-200 bg-surface p-3 text-sm dark:border-red-500/20">
                   <p className="font-bold text-fg">{a.message || '(imagem)'}</p>
-                  <p className="text-xs text-fg-subtle">{a.sender_name} · #{a.channel} · {new Date(a.createdAt).toLocaleString(locale())}</p>
+                  <p className="flex items-center gap-1.5 text-xs text-fg-subtle"><Avatar user={avatarOf(a.sender_email, a.sender_name)} size="xs" />{a.sender_name} · #{a.channel} · {new Date(a.createdAt).toLocaleString(locale())}</p>
                   <div className="mt-1.5 flex items-center justify-between">
                     <span className="text-xs text-fg-muted">{(a.acks || []).length} confirmação(ões){a.acks?.length ? `: ${a.acks.map((x) => x.user_name).join(', ')}` : ''}</span>
                     {!mine && (
@@ -223,7 +231,8 @@ export default function Chat() {
                 className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
               >
                 <div className={`flex items-center gap-2 mb-1 px-2 ${isMe ? 'flex-row-reverse' : ''}`}>
-                  <span className="text-xs font-bold text-fg-subtle uppercase tracking-wide">{msg.sender_name}</span>
+                  <Avatar user={avatarOf(msg.sender_email, msg.sender_name)} size="sm" />
+                  <span className="text-sm font-semibold text-fg-muted">{msg.sender_name}</span>
                   <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${msg.sender_role === 'admin' ? 'bg-red-500/10 text-red-500' : msg.sender_role === 'material' ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
                     {msg.sender_role}
                   </span>

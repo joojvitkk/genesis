@@ -133,6 +133,13 @@ function App() {
     setAuth({ token, user });
   };
 
+  // foto de perfil: atualiza o usuário da sessão (menu e Minha conta mudam na hora)
+  const handleAvatarChanged = (avatar) => {
+    const user = { ...auth.user, avatar };
+    saveSession(auth.token, user);
+    setAuth({ token: auth.token, user });
+  };
+
   if (!auth) {
     return <Login onLogin={handleLogin} theme={theme} onToggleTheme={toggleTheme} />;
   }
@@ -150,13 +157,13 @@ function App() {
         <Route path="/torneios/:id/telao" element={<Telao />} />
         <Route path="*" element={<Shell role={role} auth={auth} theme={theme} toggleTheme={toggleTheme}
           sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} handleLogout={handleLogout}
-          onPasswordChanged={handlePasswordChanged} />} />
+          onPasswordChanged={handlePasswordChanged} onAvatarChanged={handleAvatarChanged} />} />
       </Routes>
     </Router>
   );
 }
 
-function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, handleLogout, onPasswordChanged }) {
+function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, handleLogout, onPasswordChanged, onAvatarChanged }) {
   const { showAlert } = useAlert();
 
   useEffect(() => {
@@ -190,7 +197,7 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
                            pb-[calc(60px+env(safe-area-inset-bottom,0px)+1rem)] md:pb-6">
             <Routes>
               <Route path="/" element={<Navigate to={homeRoute(role)} replace />} />
-              <Route path="/conta" element={<Conta user={auth.user} onPasswordChanged={onPasswordChanged} />} />
+              <Route path="/conta" element={<Conta user={auth.user} onPasswordChanged={onPasswordChanged} onAvatarChanged={onAvatarChanged} />} />
               {Object.entries({
                 '/salao': <Salao />,
                 '/eventos': <Eventos />,

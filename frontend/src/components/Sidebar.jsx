@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { can } from '../config';
 import { useT } from '../lib/i18n.jsx';
+import Avatar from './Avatar';
 
 // `area` refere-se à matriz de permissões em config.js (PERMISSIONS)
 const NAV_ITEMS = [
@@ -43,9 +44,7 @@ function UserBadge({ user }) {
   const name = user?.name || user?.username || '?';
   return (
     <div className="flex items-center gap-3 min-w-0">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sunken text-sm font-semibold text-fg border border-line">
-        {name[0].toUpperCase()}
-      </div>
+      <Avatar user={user} />
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-fg">{name}</p>
         <p className="text-xs font-medium capitalize text-fg-subtle">{user?.role}</p>
@@ -54,21 +53,9 @@ function UserBadge({ user }) {
   );
 }
 
-function LangSwitch({ t, lang, setLang, langs }) {
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-fg-subtle">
-      <span className="font-medium">{t('lang.label')}:</span>
-      {langs.map((l) => (
-        <button key={l} onClick={() => setLang(l)} aria-pressed={lang === l}
-          className={`rounded px-1.5 py-0.5 font-semibold uppercase ${lang === l ? 'bg-brand-soft text-brand-fg' : 'hover:text-fg'}`}>{l}</button>
-      ))}
-    </div>
-  );
-}
-
 export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme, onToggleTheme }) {
   const location = useLocation();
-  const { t, lang, setLang, langs } = useT();
+  const { t } = useT();
   const filtered = NAV_ITEMS.filter(i => can(user?.role, i.area)).map(i => ({ ...i, label: t(i.key) }));
   const bottomItems = filtered.filter(i => BOTTOM_PRIORITY.includes(i.to)).slice(0, 4);
   const themeLabel = theme === 'dark' ? 'Modo claro' : 'Modo escuro';
@@ -100,7 +87,6 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme
         </nav>
 
         <div className="shrink-0 space-y-0.5 border-t border-line-soft p-2">
-          <LangSwitch t={t} lang={lang} setLang={setLang} langs={langs} />
           <button onClick={onLogout} className="nav-item w-full hover:!text-danger"><LogOut size={16} aria-hidden="true" /> {t('account.logout')}</button>
         </div>
       </aside>
@@ -133,7 +119,6 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme
               </nav>
               <div className="shrink-0 space-y-0.5 border-t border-line-soft p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
                 <button onClick={onToggleTheme} className="nav-item min-h-11 w-full"><ThemeIcon size={16} aria-hidden="true" /> {themeLabel}</button>
-                <LangSwitch t={t} lang={lang} setLang={setLang} langs={langs} />
                 <button onClick={() => { onClose(); onLogout(); }} className="nav-item min-h-11 w-full hover:!text-danger"><LogOut size={16} aria-hidden="true" /> {t('account.logout')}</button>
               </div>
             </motion.div>
