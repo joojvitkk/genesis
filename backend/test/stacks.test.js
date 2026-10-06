@@ -208,7 +208,7 @@ test('buy-in opcional, reentrada e mix de ações somam pelo modelo de cada colu
   const optionalStack = 4 * 500 + 8 * 1000 + 8 * 5000; // coluna "opcional" da tabela da spec
   const reentryStack = 2 * 25000;                       // coluna "reentrada"
   assert.equal(r.totals.value, 100 * 50000 + 20 * optionalStack + 10 * reentryStack);
-  assert.equal((await Tournament.findById(t._id)).actual_players, 120, 'buy-in opcional também conta como jogador');
+  assert.equal((await Tournament.findById(t._id)).actual_players, 130, 'buy-in opcional e reentradas contam como inscrições ativas');
 });
 
 test('a ação vem do tipo: valores inválidos são recusados; stack_model_id do cliente é ignorado', async () => {
@@ -313,8 +313,8 @@ test('relógio/projeção: "fichas em jogo" inclui reentradas (antes: jogadores 
 
   const payload = clockPayload(await Tournament.findById(t._id));
   assert.equal(payload.total_chips_in_play, 10 * 50000 + 2 * 50000);
-  assert.notEqual(payload.total_chips_in_play, payload.actual_players * payload.starting_stack, 'a conta antiga ignorava a reentrada');
-  assert.equal(payload.avg_stack, Math.round(payload.total_chips_in_play / 10));
+  assert.equal(payload.actual_players, 12, 'sem eliminações, ativos = inscrições');
+  assert.equal(payload.avg_stack, Math.round(payload.total_chips_in_play / 12));
 
   // torneio ainda não recalculado (cache nulo) mantém o comportamento anterior
   const legacy = clockPayload({ _id: 'x', actual_players: 12, starting_stack: 20000, chips_value_in_play: null });

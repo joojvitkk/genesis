@@ -64,4 +64,40 @@ async function history(q = {}) {
   return { entity, rows: rows.reverse(), balances };
 }
 
-module.exports = { history };
+/**
+ * Conciliação de um fichário por denominação (BUG-07): saldo inicial + entradas − saídas = saldo atual, com a quebra por tipo
+ * de movimento, o que está reservado (alocações abertas) e o que está efetivamente livre. Leitura pura.
+ * `explained` = o saldo atual é exatamente o que os movimentos explicam (sempre deve ser true: o saldo É derivado deles).
+ */
+async function reconcile(binderId) {
+  if (!mongoose.isValidObjectId(binderId)) throw new HttpError(400, 'Fichário inválido.');
+  const binder = await Binder.findById(binderId).setOptions({ withDeleted: true }).select('name');
+  if (!binder) throw new HttpError(404, 'Fichário não encontrado.');
+  const id = oid(binderId);
+  const moves = await Movement.find({ $or: [{ 'from.kind': 'binder', 'from.id': id }, { 'to.kind': 'binder', 'to.id': id }] })
+    .sort({ createdAt: 1, _id: 1 }).select('chip_id type quantity from to batch_id').lean();
+  const firstBatch = moves.length ? String(moves[0].batch_id) : null;
+  const by = new Map();
+  const row = (c) => by.get(c) || by.set(c, { chip_id: c, opening: 0, entries: {}, exits: {}, balance: 0 }).get(c);
+  for (const m of moves) {
+    const r = row(String(m.chip_id));
+    const incoming = m.to.kind === 'binder' && String(m.to.id) === String(id);
+    const q = incoming ? m.quantity : -m.quantity;
+    r.balance += q;
+    if (incoming && m.type === 'ASSEMBLY' && String(m.batch_id) === firstBatch) r.opening += m.quantity; // saldo inicial do cadastro
+    else (incoming ? r.entries : r.exits)[m.type] = ((incoming ? r.entries : r.exits)[m.type] || 0) + m.quantity;
+  }
+  const states = await require('./movements').allocationStates(id);
+  const reserved = new Map();
+  for (const st of states) for (const c of st.chips || []) reserved.set(String(c.chip_id), (reserved.get(String(c.chip_id)) || 0) + c.remaining);
+  const chips = new Map((await Chip.find({ _id: { $in: [...by.keys()] } }).setOptions({ withDeleted: true }).select('name value').lean()).map((c) => [String(c._id), c]));
+  const rows = [...by.values()].map((r) => {
+    const inn = Object.values(r.entries).reduce((a, b) => a + b, 0);
+    const out = Object.values(r.exits).reduce((a, b) => a + b, 0);
+    const res = Math.min(reserved.get(r.chip_id) || 0, Math.max(0, r.balance));
+    return { chip: chips.get(r.chip_id) || { _id: r.chip_id }, ...r, total_in: inn, total_out: out, explained: r.opening + inn - out === r.balance, reserved: res, free: Math.max(0, r.balance - res) };
+  }).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
+  return { binder: { _id: binder._id, name: binder.name }, rows, explained: rows.every((r) => r.explained) };
+}
+
+module.exports = { history, reconcile };

@@ -152,26 +152,26 @@ test('DELETE /chips responde 405: fichas não são excluídas', async () => {
   assert.ok(await Chip.findById(chip._id));
 });
 
-// ─── Modelo de Fichário ──────────────────────────────────────────────────────
+// ─── Fichário físico (único, com composição própria — MEL-01) ────────────────
 
-test('reutiliza a MESMA ficha de 100 em dois modelos com quantidades diferentes', async () => {
+test('a MESMA ficha de 100 entra em fichários diferentes com quantidades próprias', async () => {
   const h = await as('admin');
   const c100 = await makeChip({ value: 100, color: '#000000' });
   const c500 = await makeChip({ value: 500, color: '#ff0000' });
 
-  const a = await post(h, '/api/binder-models', { name: 'Modelo A', composition: [{ chip_id: c100._id, quantity: 1000 }, { chip_id: c500._id, quantity: 200 }] });
-  const b = await post(h, '/api/binder-models', { name: 'Modelo B', composition: [{ chip_id: c100._id, quantity: 500 }] });
+  const a = await post(h, '/api/binders', { name: 'Drogon', composition: [{ chip_id: c100._id, quantity: 1000 }, { chip_id: c500._id, quantity: 200 }] });
+  const b = await post(h, '/api/binders', { name: 'Shenlong', composition: [{ chip_id: c100._id, quantity: 500 }] });
   assert.equal(a.status, 201, JSON.stringify(a.body));
   assert.equal(b.status, 201, JSON.stringify(b.body));
 
   assert.equal(await Chip.countDocuments({ value: 100 }), 1, 'continua existindo uma única ficha de 100');
-  const list = await request(app).get('/api/binder-models').set(h);
-  const q = (name) => list.body.find((m) => m.name === name).composition.find((l) => l.chip_id.value === 100).quantity;
-  assert.equal(q('Modelo A'), 1000);
-  assert.equal(q('Modelo B'), 500);
+  const list = (await request(app).get('/api/binders').set(h)).body;
+  const q = (name) => list.find((m) => m.name === name).chips.find((l) => l.chip_id.value === 100).quantity;
+  assert.equal(q('Drogon'), 1000);
+  assert.equal(q('Shenlong'), 500);
 });
 
-test('composição inválida é recusada: repetida, vazia, quantidade ruim, ficha inexistente/inativa', async () => {
+test('composição inválida é recusada: repetida, quantidade ruim, ficha inexistente/inativa', async () => {
   const h = await as('admin');
   const c = await makeChip({ value: 100, color: '#000000' });
   const off = await makeChip({ value: 25, color: '#0000ff' });
@@ -180,7 +180,6 @@ test('composição inválida é recusada: repetida, vazia, quantidade ruim, fich
 
   const cases = [
     [{ chip_id: c._id, quantity: 1 }, { chip_id: c._id, quantity: 2 }],
-    [],
     [{ chip_id: c._id, quantity: 0 }],
     [{ chip_id: c._id, quantity: 1.5 }],
     [{ chip_id: c._id, quantity: -3 }],
@@ -188,66 +187,17 @@ test('composição inválida é recusada: repetida, vazia, quantidade ruim, fich
     [{ chip_id: off._id, quantity: 5 }],
   ];
   for (const composition of cases) {
-    const res = await post(h, '/api/binder-models', { name: `X${Math.random()}`, composition });
+    const res = await post(h, '/api/binders', { name: `X${Math.random()}`, composition });
     assert.equal(res.status, 400, JSON.stringify(composition));
   }
-  assert.equal(await BinderModel.countDocuments(), 0);
+  assert.equal(await Binder.countDocuments(), 0, 'nenhum fichário pela metade');
+  assert.equal(await Movement.countDocuments(), 0);
 });
 
-test('modelo: nome obrigatório e único (sem diferenciar maiúsculas); editar e excluir', async () => {
-  const h = await as('admin');
-  const c = await makeChip({ value: 100, color: '#000000' });
-  const comp = [{ chip_id: c._id, quantity: 10 }];
-
-  assert.equal((await post(h, '/api/binder-models', { composition: comp })).status, 400);
-  const created = await post(h, '/api/binder-models', { name: 'LISA', composition: comp });
-  assert.equal(created.status, 201);
-  assert.equal((await post(h, '/api/binder-models', { name: 'lisa', composition: comp })).status, 409);
-
-  const edited = await put(h, `/api/binder-models/${created.body._id}`, { composition: [{ chip_id: c._id, quantity: 99 }] });
-  assert.equal(edited.status, 200);
-  assert.equal(edited.body.composition[0].quantity, 99);
-
-  const del = await request(app).delete(`/api/binder-models/${created.body._id}`).set(h);
-  assert.equal(del.status, 200);
-  assert.equal((await request(app).get('/api/binder-models').set(h)).body.length, 0);
-});
-
-// ─── Fichário físico ─────────────────────────────────────────────────────────
-
-test('vários fichários físicos seguem o mesmo modelo, cada um com sua composição', async () => {
-  const h = await as('admin');
-  const c100 = await makeChip({ value: 100, color: '#000000' });
-  const c500 = await makeChip({ value: 500, color: '#ff0000' });
-  const model = await post(h, '/api/binder-models', { name: 'LISA', composition: [{ chip_id: c100._id, quantity: 3000 }, { chip_id: c500._id, quantity: 2000 }] });
-
-  const b1 = await post(h, '/api/binders', { name: 'LISA 1', code: 'L-01', model_id: model.body._id });
-  const b2 = await post(h, '/api/binders', { name: 'LISA 2', code: 'L-02', model_id: model.body._id });
-  assert.equal(b1.status, 201, JSON.stringify(b1.body));
-  assert.equal(b2.status, 201);
-  assert.equal(b1.body.model_id.name, 'LISA');
-  assert.deepEqual(b1.body.chips, [], 'o fichário nasce vazio: o estoque físico entra por montagem');
-
-  // montar a partir do modelo lança a composição padrão
-  const built = await post(h, `/api/binders/${b1.body._id}/assemble`, { from_model: true });
-  assert.equal(built.status, 201, JSON.stringify(built.body));
-  assert.deepEqual(built.body.case.chips.map((l) => [l.chip_id.value, l.quantity]).sort((a, b) => a[0] - b[0]), [[100, 3000], [500, 2000]]);
-
-  // editar o modelo depois NÃO mexe nos fichários já montados
-  await put(h, `/api/binder-models/${model.body._id}`, { composition: [{ chip_id: c100._id, quantity: 1 }] });
-  assert.equal(await mv.balanceAt({ kind: 'binder', id: new (require('mongoose').Types.ObjectId)(b1.body._id) }, c100._id), 3000);
-
-  // modelo em uso não pode ser excluído
-  const del = await request(app).delete(`/api/binder-models/${model.body._id}`).set(h);
-  assert.equal(del.status, 409);
-  assert.match(del.body.error, /2 fichário/);
-});
-
-test('fichário: pode ser criado sem modelo; nome e código únicos; modelo inexistente é recusado', async () => {
+test('fichário: nome e código únicos (sem diferenciar maiúsculas); o conteúdo não é editável pelo cadastro', async () => {
   const h = await as('admin');
   const solo = await post(h, '/api/binders', { name: 'Avulso' });
   assert.equal(solo.status, 201);
-  assert.equal(solo.body.model_id, null);
   assert.deepEqual(solo.body.chips, []);
   const withChips = await post(h, '/api/binders', { name: 'Editando chips', chips: [{ chip_id: '64b000000000000000000000', quantity: 5 }] });
   assert.equal(withChips.status, 400, 'o conteúdo do fichário não é editável pelo cadastro');
@@ -256,7 +206,6 @@ test('fichário: pode ser criado sem modelo; nome e código únicos; modelo inex
   assert.equal((await post(h, '/api/binders', { name: 'avulso' })).status, 409);
   await post(h, '/api/binders', { name: 'Com código', code: 'X-1' });
   assert.equal((await post(h, '/api/binders', { name: 'Outro', code: 'x-1' })).status, 409);
-  assert.equal((await post(h, '/api/binders', { name: 'Sem modelo real', model_id: '64b000000000000000000000' })).status, 400);
   assert.equal((await post(h, '/api/binders', { name: '   ' })).status, 400);
 });
 
@@ -283,7 +232,6 @@ test('fichário não aceita definir alocação/estado de torneio pelo cliente', 
 test('material e salão NÃO criam/editam cadastros estruturais (403), mas continuam vendo', async () => {
   const admin = await as('admin');
   const chip = await makeChip({ value: 100, color: '#000000' });
-  const model = (await post(admin, '/api/binder-models', { name: 'M', composition: [{ chip_id: chip._id, quantity: 5 }] })).body;
   const binder = (await post(admin, '/api/binders', { name: 'B' })).body;
 
   for (const role of ['material', 'salao']) {
@@ -291,9 +239,6 @@ test('material e salão NÃO criam/editam cadastros estruturais (403), mas conti
     const attempts = [
       post(h, '/api/chips', { value: 5, color: '#010101' }),
       put(h, `/api/chips/${chip._id}`, { active: false }),
-      post(h, '/api/binder-models', { name: 'N', composition: [{ chip_id: chip._id, quantity: 1 }] }),
-      put(h, `/api/binder-models/${model._id}`, { name: 'Z' }),
-      request(app).delete(`/api/binder-models/${model._id}`).set(h),
       post(h, '/api/binders', { name: 'C' }),
       put(h, `/api/binders/${binder._id}`, { name: 'Z' }),
       request(app).delete(`/api/binders/${binder._id}`).set(h),
@@ -302,15 +247,13 @@ test('material e salão NÃO criam/editam cadastros estruturais (403), mas conti
     assert.equal((await request(app).get('/api/chips').set(h)).status, 200);
   }
   assert.equal(await Chip.countDocuments(), 1);
-  assert.equal(await BinderModel.countDocuments(), 1);
   assert.equal(await Binder.countDocuments(), 1);
 
-  // material lê modelos e fichários (área "ficharios"); salão não tem a área
+  // material lê os fichários (área "ficharios"); salão não tem a área
   const mat = await as('material');
-  assert.equal((await request(app).get('/api/binder-models').set(mat)).status, 200);
   assert.equal((await request(app).get('/api/binders').set(mat)).status, 200);
   const sal = await as('salao');
-  assert.equal((await request(app).get('/api/binder-models').set(sal)).status, 403);
+  assert.equal((await request(app).get('/api/binders').set(sal)).status, 403);
 });
 
 test('a conferência de fichário continua sendo uma operação permitida ao material', async () => {

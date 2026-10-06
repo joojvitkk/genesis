@@ -447,7 +447,19 @@ async function playBalances({ tournament_id, session_id, chip_id } = {}) {
   return [...map.values()].filter((r) => r.quantity !== 0);
 }
 
+/** Texto legível de um lote: "100 × Ficha 100 · 4 × Ficha 500 (valor 12.000)" — para o log dizer O QUE aconteceu. */
+async function describeBatch(docs) {
+  const { Chip } = require('../models');
+  const chips = new Map((await Chip.find({ _id: { $in: docs.map((d) => d.chip_id) } }).setOptions({ withDeleted: true }).select('value').lean()).map((c) => [String(c._id), c.value]));
+  const by = new Map();
+  for (const d of docs) by.set(String(d.chip_id), (by.get(String(d.chip_id)) || 0) + d.quantity);
+  const lines = [...by].map(([id, q]) => ({ value: chips.get(id) || 0, q })).sort((a, b) => a.value - b.value);
+  const total = lines.reduce((sum, l) => sum + l.value * l.q, 0);
+  return `${lines.map((l) => `${l.q} × ficha ${l.value}`).join(' · ')} (valor nominal ${total})`;
+}
+
 module.exports = {
+  describeBatch,
   postBatch, reverseMovements, balances, balanceAt, chipTotal, reservedByChip,
   allocatedIn, allocationStates, sentNetMap, playBalances, execute, locKey, supportsTransactions, _setTransactionMode, setNotifier,
 };

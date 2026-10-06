@@ -478,21 +478,20 @@ test('propriedade: sequência aleatória de operações — o motor aceita/rejei
   assert.ok(assembled >= 0 && withdrawn >= 0);
 });
 
-test('modelo de fichário: montar a partir do modelo cria um lote de ASSEMBLY (e não duplica dados do modelo)', async () => {
+test('montagem: exige motivo e itens; não existe mais "a partir do modelo"', async () => {
   const h = await as('admin');
   const c1 = await makeChip({ value: 5, color: '#111111' });
   const c2 = await makeChip({ value: 10, color: '#222222' });
-  const model = await BinderModel.create({ name: 'LISA', composition: [{ chip_id: c1._id, quantity: 30 }, { chip_id: c2._id, quantity: 20 }] });
-  const binder = await Binder.create({ name: 'LISA 1', model_id: model._id });
-  const solo = await Binder.create({ name: 'Avulso' });
+  const binder = await Binder.create({ name: 'LISA 1' });
 
-  assert.equal((await post(h, `/api/binders/${solo._id}/assemble`, { from_model: true })).status, 400, 'sem modelo');
-  const res = await post(h, `/api/binders/${binder._id}/assemble`, { from_model: true });
+  assert.equal((await post(h, `/api/binders/${binder._id}/assemble`, { items: [{ chip_id: c1._id, quantity: 30 }] })).status, 400, 'sem motivo');
+  assert.equal((await post(h, `/api/binders/${binder._id}/assemble`, { from_model: true, reason: 'x' })).status, 400, 'sem itens');
+  const res = await post(h, `/api/binders/${binder._id}/assemble`, { items: [{ chip_id: c1._id, quantity: 30 }, { chip_id: c2._id, quantity: 20 }], reason: 'reposição do lote' });
   assert.equal(res.status, 201);
   assert.equal(res.body.movements, 2);
   const batch = await Movement.find({ batch_id: res.body.batch_id });
   assert.equal(batch.length, 2);
-  assert.match(batch[0].reason, /modelo "LISA"/);
+  assert.match(batch[0].reason, /reposição do lote/);
   assert.equal(await bal(binder, c1), 30);
   assert.equal(await bal(binder, c2), 20);
 });

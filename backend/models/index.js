@@ -8,6 +8,7 @@ module.exports = {
   TournamentSession: require('./TournamentSession'),
   Allocation: require('./Allocation'),
   Conversion: require('./Conversion'),
+  ConversionRequest: require('./ConversionRequest'),
   ChatMessage: require('./ChatMessage'),
   ActivityLog: require('./ActivityLog'),
   StackModel: require('./StackModel'),
