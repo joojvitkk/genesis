@@ -25,69 +25,42 @@ export default function Login({ onLogin, theme, onToggleTheme }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0A0A0A] p-4 transition-colors duration-300 relative">
-      <div className="absolute top-8 right-8">
-        <button 
-          onClick={onToggleTheme}
-          className="p-3 rounded-full bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 shadow-xl border border-gray-200 dark:border-zinc-700 hover:ring-2 hover:ring-genesis-red transition-all"
-        >
-          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-        </button>
-      </div>
-      <div className="w-full max-w-md bg-white dark:bg-[#141414] rounded-3xl shadow-2xl border border-gray-200 dark:border-zinc-800 p-8 animate-in fade-in zoom-in-95 duration-500">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-black tracking-widest text-genesis-red mb-2">GENESIS</h1>
-          <p className="text-gray-500 dark:text-gray-400 font-bold uppercase text-[10px] tracking-[4px]">Acesso Restrito</p>
+    <div className="relative flex min-h-screen items-center justify-center bg-canvas p-4">
+      <button onClick={onToggleTheme} aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} className="btn btn-secondary btn-icon absolute right-4 top-4">
+        {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
+
+      <main className="card w-full max-w-sm p-8">
+        <div className="mb-8">
+          <span className="inline-flex items-center gap-2 text-2xl font-bold tracking-[0.18em] text-fg">
+            <span className="inline-block h-4 w-4 rounded-sm bg-brand" aria-hidden="true" />
+            GENESIS
+          </span>
+          <p className="mt-1 text-sm text-fg-muted">Logística de fichas e operação de torneios</p>
         </div>
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-500 rounded-xl text-sm font-semibold border border-red-200 dark:border-red-500/20 text-center">
-            {error}
-          </div>
-        )}
+        {error && <div role="alert" className="mb-5 rounded-lg border border-danger bg-danger-soft px-3 py-2 text-sm font-medium text-danger">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest mb-2 text-gray-400">E-mail de Acesso</label>
-            <input 
-              type="email" 
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white placeholder-gray-400 font-bold" 
-              placeholder="exemplo@admin.com"
-              required 
-            />
+            <label htmlFor="login-email" className="label">E-mail de acesso</label>
+            <input id="login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className="input" placeholder="exemplo@admin.com" required />
           </div>
           <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest mb-2 text-gray-400">Senha</label>
+            <label htmlFor="login-password" className="label">Senha</label>
             <div className="relative">
-              <input 
-                type={showPassword ? 'text' : 'password'} 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white placeholder-gray-400 font-bold pr-12" 
-                placeholder="••••••••"
-                required 
-              />
-              <button 
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-all"
-              >
+              <input id="login-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="input pr-11" placeholder="••••••••" required />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-fg-subtle hover:text-fg">
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </div>
-          
-          <button 
-            type="submit" 
-            disabled={loading}
-            className="w-full mt-4 py-4 rounded-xl font-black uppercase text-xs tracking-widest bg-genesis-red text-white hover:bg-red-700 active:scale-95 transition-all shadow-lg shadow-red-500/20 flex justify-center items-center gap-2 disabled:opacity-50"
-          >
-            {loading ? 'Autenticando...' : <><LogIn size={16} /> Entrar no Sistema</>}
+          <button type="submit" disabled={loading} className="btn btn-primary btn-lg w-full">
+            {loading ? 'Autenticando…' : <><LogIn size={16} /> Entrar</>}
           </button>
         </form>
-      </div>
+      </main>
     </div>
   );
 }

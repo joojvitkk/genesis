@@ -1,3 +1,4 @@
+import { locale } from '../lib/i18n';
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Users, AlertTriangle, Clock, MessageSquare, Bell, Shield, Package, MonitorPlay, ImagePlus, X, Check } from 'lucide-react';
@@ -116,42 +117,42 @@ export default function Chat() {
   };
 
   return (
-    <div className="h-[calc(100vh-120px)] md:h-[calc(100vh-80px)] flex bg-white dark:bg-[#0A0A0A] rounded-3xl overflow-hidden border border-gray-200 dark:border-zinc-800 shadow-2xl">
+    <div className="h-[calc(100vh-120px)] md:h-[calc(100vh-80px)] flex bg-surface dark:bg-canvas rounded-3xl overflow-hidden border border-line shadow-2xl">
       {/* Channels Sidebar */}
-      <div className="w-20 md:w-64 bg-gray-50 dark:bg-[#0F0F0F] border-r border-gray-200 dark:border-zinc-800 flex flex-col">
-        <div className="p-6 border-b border-gray-200 dark:border-zinc-800 hidden md:block">
-          <h2 className="text-xl font-black uppercase tracking-tighter text-gray-900 dark:text-white">Canais</h2>
+      <div className="w-20 md:w-64 bg-sunken dark:bg-sunken border-r border-line flex flex-col">
+        <div className="p-6 border-b border-line hidden md:block">
+          <h2 className="text-xl font-bold text-fg">Canais</h2>
         </div>
         <div className="flex-1 p-3 md:p-4 space-y-2">
           {CHANNELS.map(ch => (
             <button
               key={ch.id}
               onClick={() => setActiveChannel(ch.id)}
-              className={`relative w-full flex items-center justify-center md:justify-start gap-3 p-3 md:px-4 md:py-3 rounded-2xl transition-all ${activeChannel === ch.id ? 'bg-genesis-red text-white shadow-lg shadow-red-500/20' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-zinc-800/50 hover:text-gray-900 dark:hover:text-gray-100'}`}
+              className={`relative w-full flex items-center justify-center md:justify-start gap-3 p-3 md:px-4 md:py-3 rounded-2xl transition-all ${activeChannel === ch.id ? 'bg-brand text-white  ' : 'text-fg-muted hover:bg-gray-200 dark:hover:bg-zinc-800/50 hover:text-gray-900 dark:hover:text-gray-100'}`}
             >
               {ch.icon}
               <span className="hidden md:block font-bold text-sm uppercase tracking-tight">{ch.label}</span>
               {unread[ch.id] && activeChannel !== ch.id && (
-                <span className="absolute right-2 top-2 md:static md:ml-auto h-2.5 w-2.5 rounded-full bg-genesis-red animate-pulse" aria-label="mensagens não lidas" />
+                <span className="absolute right-2 top-2 md:static md:ml-auto h-2.5 w-2.5 rounded-full bg-brand animate-pulse" aria-label="mensagens não lidas" />
               )}
             </button>
           ))}
         </div>
-        <div className="p-4 border-t border-gray-200 dark:border-zinc-800 hidden md:block">
-          <div className="bg-gray-100 dark:bg-zinc-800/50 p-4 rounded-2xl">
-            <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase mb-2">
+        <div className="p-4 border-t border-line hidden md:block">
+          <div className="bg-raised/50 p-4 rounded-2xl">
+            <div className="flex items-center gap-2 text-xs font-bold text-fg-subtle uppercase mb-2">
               <Users size={12}/> Online agora
             </div>
             <div className="flex items-center gap-3">
               <div className="relative">
-                <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-zinc-800 flex items-center justify-center text-genesis-red">
+                <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-zinc-800 flex items-center justify-center text-brand-fg">
                   <Users size={20}/>
                 </div>
                 <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white dark:border-[#0F0F0F] rounded-full animate-pulse"></div>
               </div>
               <div>
-                <p className="text-xl font-black text-gray-900 dark:text-white leading-none">{onlineCount}</p>
-                <p className="text-[10px] font-bold text-gray-500 uppercase">Membros</p>
+                <p className="text-xl font-bold text-fg leading-none">{onlineCount}</p>
+                <p className="text-xs font-bold text-fg-muted uppercase">Membros</p>
               </div>
             </div>
           </div>
@@ -161,46 +162,46 @@ export default function Chat() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="p-4 md:px-8 md:py-6 bg-white dark:bg-[#111111] border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between">
+        <div className="p-4 md:px-8 md:py-6 bg-surface border-b border-line flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-xl ${CHANNELS.find(c => c.id === activeChannel)?.color} text-white`}>
               {CHANNELS.find(c => c.id === activeChannel)?.icon}
             </div>
             <div>
-              <h3 className="font-black uppercase tracking-tight text-gray-900 dark:text-white">#{CHANNELS.find(c => c.id === activeChannel)?.label}</h3>
-              <p className="text-xs text-gray-500 font-medium">Comunicação oficial do setor</p>
+              <h3 className="font-bold uppercase tracking-tight text-fg">#{CHANNELS.find(c => c.id === activeChannel)?.label}</h3>
+              <p className="text-xs text-fg-muted font-medium">Comunicação oficial do setor</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowAlerts((v) => !v)} className={`relative p-2 rounded-xl transition-all ${showAlerts ? 'bg-genesis-red text-white' : 'text-gray-400 hover:text-gray-600'}`} title="Alertas urgentes">
+            <button onClick={() => setShowAlerts((v) => !v)} className={`relative p-2 rounded-xl transition-all ${showAlerts ? 'bg-brand text-white' : 'text-fg-subtle hover:text-gray-600'}`} title="Alertas urgentes">
               <Bell size={20}/>
               {urgentAlerts.length > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-genesis-red px-1 text-[9px] font-black text-white">{urgentAlerts.length}</span>
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-xs font-bold text-white">{urgentAlerts.length}</span>
               )}
             </button>
-            <button className="hidden md:block p-2 text-gray-400 hover:text-gray-600"><Shield size={20}/></button>
+            <button className="hidden md:block p-2 text-fg-subtle hover:text-gray-600"><Shield size={20}/></button>
           </div>
         </div>
 
         {/* Painel de alertas urgentes */}
         {showAlerts && (
-          <div className="border-b border-gray-200 bg-red-50 p-4 dark:border-zinc-800 dark:bg-red-500/5 max-h-64 overflow-y-auto">
-            <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-genesis-red">Alertas urgentes</p>
-            {urgentAlerts.length === 0 && <p className="text-sm text-gray-400">Nenhum alerta.</p>}
+          <div className="border-b border-line bg-red-50 p-4 dark:bg-red-500/5 max-h-64 overflow-y-auto">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-fg">Alertas urgentes</p>
+            {urgentAlerts.length === 0 && <p className="text-sm text-fg-subtle">Nenhum alerta.</p>}
             {urgentAlerts.map((a) => {
               const mine = a.acks?.some((x) => x.user_name === user?.name);
               return (
-                <div key={a._id} className="mb-2 rounded-xl border border-red-200 bg-white p-3 text-sm dark:border-red-500/20 dark:bg-zinc-900">
-                  <p className="font-bold text-gray-900 dark:text-white">{a.message || '(imagem)'}</p>
-                  <p className="text-[11px] text-gray-400">{a.sender_name} · #{a.channel} · {new Date(a.createdAt).toLocaleString('pt-BR')}</p>
+                <div key={a._id} className="mb-2 rounded-xl border border-red-200 bg-surface p-3 text-sm dark:border-red-500/20">
+                  <p className="font-bold text-fg">{a.message || '(imagem)'}</p>
+                  <p className="text-xs text-fg-subtle">{a.sender_name} · #{a.channel} · {new Date(a.createdAt).toLocaleString(locale())}</p>
                   <div className="mt-1.5 flex items-center justify-between">
-                    <span className="text-[11px] text-gray-500">{(a.acks || []).length} confirmação(ões){a.acks?.length ? `: ${a.acks.map((x) => x.user_name).join(', ')}` : ''}</span>
+                    <span className="text-xs text-fg-muted">{(a.acks || []).length} confirmação(ões){a.acks?.length ? `: ${a.acks.map((x) => x.user_name).join(', ')}` : ''}</span>
                     {!mine && (
-                      <button onClick={() => ackUrgent(a._id)} className="inline-flex items-center gap-1 rounded-lg bg-genesis-red px-2.5 py-1 text-[10px] font-black uppercase text-white hover:bg-red-700">
+                      <button onClick={() => ackUrgent(a._id)} className="inline-flex items-center gap-1 rounded-lg bg-brand px-2.5 py-1 text-xs font-bold text-white hover:bg-brand-hover">
                         <Check size={12}/> Confirmar leitura
                       </button>
                     )}
-                    {mine && <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-emerald-500"><Check size={12}/> Você confirmou</span>}
+                    {mine && <span className="inline-flex items-center gap-1 text-xs font-bold uppercase text-emerald-500"><Check size={12}/> Você confirmou</span>}
                   </div>
                 </div>
               );
@@ -211,7 +212,7 @@ export default function Chat() {
         {/* Messages */}
         <div 
           ref={scrollRef}
-          className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-gray-50 dark:bg-[#0A0A0A]"
+          className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-sunken dark:bg-canvas"
         >
           {messages.map((msg, idx) => {
             const isMe = msg.sender_name === user?.name;
@@ -222,20 +223,20 @@ export default function Chat() {
                 className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
               >
                 <div className={`flex items-center gap-2 mb-1 px-2 ${isMe ? 'flex-row-reverse' : ''}`}>
-                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{msg.sender_name}</span>
-                  <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${msg.sender_role === 'admin' ? 'bg-red-500/10 text-red-500' : msg.sender_role === 'material' ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                  <span className="text-xs font-bold text-fg-subtle uppercase tracking-wide">{msg.sender_name}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${msg.sender_role === 'admin' ? 'bg-red-500/10 text-red-500' : msg.sender_role === 'material' ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
                     {msg.sender_role}
                   </span>
                 </div>
-                <div className={`max-w-[85%] md:max-w-[70%] p-4 rounded-3xl shadow-sm relative ${msg.is_urgent ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : isMe ? 'bg-genesis-red text-white' : 'bg-white dark:bg-[#141414] text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-zinc-800'}`}>
-                  {msg.is_urgent && <AlertTriangle size={14} className="absolute -top-2 -right-2 bg-white text-red-500 rounded-full p-0.5 shadow-md"/>}
+                <div className={`max-w-[85%] md:max-w-[70%] p-4 rounded-3xl  relative ${msg.is_urgent ? 'bg-red-500 text-white  ' : isMe ? 'bg-brand text-white' : 'bg-surface text-gray-900 dark:text-gray-100 border border-line-soft'}`}>
+                  {msg.is_urgent && <AlertTriangle size={14} className="absolute -top-2 -right-2 bg-surface text-red-500 rounded-full p-0.5"/>}
                   {msg.image && (
                     <a href={msg.image} target="_blank" rel="noopener" className="block mb-1.5">
                       <img src={msg.image} alt="anexo" className="max-h-60 rounded-lg" />
                     </a>
                   )}
                   {msg.message && <p className="text-sm font-medium leading-relaxed">{msg.message}</p>}
-                  <div className={`text-[9px] mt-2 opacity-50 font-bold flex items-center gap-1 ${isMe ? 'justify-end' : ''}`}>
+                  <div className={`text-xs mt-2 opacity-50 font-bold flex items-center gap-1 ${isMe ? 'justify-end' : ''}`}>
                     <Clock size={8}/> {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
@@ -243,7 +244,7 @@ export default function Chat() {
             );
           })}
           {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
+            <div className="h-full flex flex-col items-center justify-center text-fg-subtle space-y-4">
               <MessageSquare size={48} className="opacity-10"/>
               <p className="font-medium italic">Nenhuma mensagem neste canal ainda.</p>
             </div>
@@ -251,17 +252,17 @@ export default function Chat() {
         </div>
 
         {/* Input Area */}
-        <div className="p-4 md:p-8 bg-white dark:bg-[#111111] border-t border-gray-200 dark:border-zinc-800">
+        <div className="p-4 md:p-8 bg-surface border-t border-line">
           <form onSubmit={handleSendMessage} className="space-y-4">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setIsUrgent(!isUrgent)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-tight transition-all border ${isUrgent ? 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-400 hover:text-red-500'}`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all border ${isUrgent ? 'bg-red-500 border-red-500 text-white  ' : 'bg-raised border-line text-fg-subtle hover:text-red-500'}`}
               >
                 <AlertTriangle size={14}/> Urgente
               </button>
-              <label className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-tight border bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-400 hover:text-genesis-red cursor-pointer">
+              <label className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold tracking-tight border bg-raised border-line text-fg-subtle hover:text-brand-fg cursor-pointer">
                 <ImagePlus size={14}/> Imagem
                 <input type="file" accept="image/*" onChange={pickImage} className="hidden" />
               </label>
@@ -272,7 +273,7 @@ export default function Chat() {
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-3 bg-gray-50 dark:bg-[#0F0F0F] p-2 pr-2 md:p-3 md:pr-3 rounded-3xl border border-gray-200 dark:border-zinc-800 focus-within:border-genesis-red transition-all">
+            <div className="flex items-center gap-3 bg-sunken dark:bg-sunken p-2 pr-2 md:p-3 md:pr-3 rounded-3xl border border-line focus-within:border-genesis-red transition-all">
               <input
                 type="text"
                 placeholder={`Mensagem para #${CHANNELS.find(c => c.id === activeChannel)?.label}...`}
@@ -282,9 +283,9 @@ export default function Chat() {
               />
               <button
                 type="submit"
-                className="p-3 md:px-6 md:py-3 bg-genesis-red text-white rounded-2xl flex items-center gap-2 hover:scale-105 active:scale-95 transition-all shadow-lg shadow-red-500/20"
+                className="p-3 md:px-6 md:py-3 bg-brand text-white rounded-2xl flex items-center gap-2 hover:scale-105 active:scale-95 transition-all"
               >
-                <span className="hidden md:block font-black uppercase text-xs">Enviar</span>
+                <span className="hidden md:block font-bold uppercase text-xs">Enviar</span>
                 <Send size={18}/>
               </button>
             </div>

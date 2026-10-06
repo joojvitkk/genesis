@@ -9,7 +9,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const api = vi.hoisted(() => ({ apiGet: vi.fn() }));
 vi.mock('../lib/api', () => api);
 const sock = vi.hoisted(() => { const h = {}; return { handlers: h, socket: { on: (e, f) => { (h[e] ||= new Set()).add(f); }, off: (e, f) => h[e]?.delete(f) } }; });
-vi.mock('../lib/socket', () => ({ socket: sock.socket }));
+vi.mock('../lib/socket', () => ({ socket: { ...sock.socket, emit: () => {}, connected: true }, connectSocket: () => {} }));
 
 import Dashboard from './Dashboard';
 import { EVENT_BLOCKS } from '../lib/useDashboard';
@@ -20,6 +20,8 @@ const full = () => ({
   metrics: { activeTournamentsCount: 1, totalChipsInStock: 1200, stockValue: 150000, chipsInPlay: 300, valueInPlay: 40000, availableCases: 2, chipRacesToday: 1 },
   recentTournaments: [{ _id: 't1', name: 'Warm Up', status: 'running', start_time: '20:00' }],
   recentActivities: [],
+  free_binders: [{ _id: 'b1', name: 'Clássica', code: null, stamp: 'Dragão', chips: 1000 }, { _id: 'b2', name: 'TESTE', code: 'T-1', stamp: null, chips: 10 }],
+  tournament_chips: { rows: [{ tournament: { _id: 't1', name: 'Warm Up' }, quantity: 300, value: 75000, chips: [{ chip: c100, quantity: 250 }, { chip: c500, quantity: 50 }] }, { tournament: { _id: 't2', name: 'High Roller' }, quantity: 40, value: 20000, chips: [{ chip: c500, quantity: 40 }] }], totals: { quantity: 340, value: 95000 } },
   inventory: {
     rows: [
       { chip: c100, in_binders: 1000, reserved: 200, free: 800, in_play: 250, lost: 3, settled: 0 },
@@ -52,10 +54,13 @@ async function mount() {
 const fire = async (ev) => { await act(async () => { sock.handlers[ev].forEach((f) => f({})); }); await flush(320); };
 const statsCalls = () => api.apiGet.mock.calls.filter(([p]) => p === '/dashboard/stats');
 
+const asRole = (role) => localStorage.setItem('genesis_user', JSON.stringify({ role }));
 beforeEach(() => {
+  asRole('admin'); // painel completo; Salão/Material veem o painel enxuto
   payload = full();
   api.apiGet.mockReset();
   api.apiGet.mockImplementation(async (path, params) => {
+    if (/\/tournaments\/t1\/clock$/.test(path)) return { tournament_id: 't1', clock_status: 'stopped', level: { row_type: 'level', small_blind: 100, big_blind: 200 }, level_number: 1, remaining_ms: 1800000, server_time: Date.now(), actual_players: 300 };
     if (path !== '/dashboard/stats') return [];
     if (!params?.blocks) return payload;
     return Object.fromEntries(params.blocks.split(',').map((b) => [b, payload[b]]));
@@ -63,11 +68,75 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 
+describe('Relógios dos torneios em andamento', () => {
+  it('lista os torneios rodando com relógio; em intervalo o cartão muda de cor', async () => {
+    await mount();
+    const cards = container.querySelectorAll('[data-testid="running-clock"]');
+    expect(cards.length).toBe(2);
+    expect(container.querySelector('[data-testid="running-clocks"]').textContent).toContain('Warm Up');
+    expect(container.querySelectorAll('[data-break="true"]').length).toBe(0);
+    // parado: o estado inicial vem por REST (não fica 00:00 esperando o socket)
+    const first = container.querySelectorAll('[data-testid="running-clock"]')[0];
+    expect(first.textContent).toContain('30:00');
+    expect(first.textContent).toContain('Nível 1');
+    // chega um pulso do servidor: Warm Up em intervalo (volta no nível 6)
+    await act(async () => {
+      (sock.handlers.tournamentClock || new Set()).forEach((f) => f({
+        tournament_id: 't1', clock_status: 'running', is_break: true, level: { row_type: 'break', label: 'Break 15 min' }, level_number: null,
+        next_play_level: { level_number: 6, small_blind: 400, big_blind: 800 }, remaining_ms: 600000, server_time: Date.now(), actual_players: 300,
+      }));
+    });
+    const brk = container.querySelectorAll('[data-break="true"]');
+    expect(brk.length).toBe(1);
+    expect(brk[0].textContent).toContain('Intervalo');
+    expect(brk[0].textContent).toContain('Nível 6');
+    expect(brk[0].textContent).toContain('10:00');
+  });
+});
+
+describe('Cards do overview', () => {
+  it('só três cards: torneios ativos, fichários livres (clique lista quais) e fichas em jogo total e por torneio', async () => {
+    await mount();
+    const q = (id) => container.querySelector(`[data-testid="${id}"]`);
+    expect(q('metric-tournaments').textContent).toContain('Torneios ativos');
+    expect(q('metric-chips-in-play').textContent).toContain('340');
+    expect(q('chips-by-tournament').textContent).toContain('Warm Up');
+    expect(q('chips-by-tournament').textContent).toContain('300 fichas');
+    for (const gone of ['Fichas nos Fichários', 'Valor em Fichários', 'Chip Races Hoje']) expect(container.textContent).not.toContain(gone);
+    // os painéis abaixo dos cards continuam
+    expect(q('chip-summary')).toBeTruthy(); expect(q('timeline')).toBeTruthy(); expect(q('occurrences')).toBeTruthy();
+    expect(q('free-binders')).toBeNull();
+    await act(async () => { q('metric-free-binders').click(); });
+    expect(q('free-binders').textContent).toContain('Clássica');
+    expect(q('free-binders').textContent).toContain('T-1');
+    await act(async () => { q('metric-free-binders').click(); });
+    expect(q('free-binders')).toBeNull();
+  });
+});
+
+describe('Dashboard enxuto (Salão/Material)', () => {
+  it.each(['salao', 'material'])('%s: sem denominações, linha do tempo, feed nem detalhamento de fichários; mantém cards, ocorrências, Chip Race e reentradas', async (role) => {
+    asRole(role);
+    payload = {
+      ...full(),
+      requests: [{ _id: 'q1', type: 'CHIP_RACE', status: 'requested', tables: 4, tournament_id: { name: 'Warm Up' } }],
+      reentries: [{ tournament: { _id: 't1', name: 'Warm Up' }, stacks_available: 90, label: 'Reentrada', composition: [{ chip: c500, quantity: 2 }] }],
+    };
+    await mount();
+    for (const id of ['chip-summary', 'in-play', 'timeline', 'binder-matrix', 'flows']) expect(container.querySelector(`[data-testid="${id}"]`)).toBeNull();
+    expect(container.textContent).not.toContain('Feed de Atividades');
+    expect(panel('occurrences')).toBeTruthy();
+    expect(panel('requests').textContent).toContain('Chip Race · Warm Up · 4 mesa(s)');
+    expect(panel('reentries').textContent).toContain('90 stacks disponíveis'.replace('stacks disponíveis', 'stack(s) disponível(is)'));
+    expect(container.querySelector('[data-testid="chips-by-tournament"]')).toBeTruthy();
+  });
+});
+
 describe('Dashboard (G10)', () => {
   it('responde "onde estão as fichas": por denominação (fichários, reservado, livre, em jogo, divergência)', async () => {
     await mount();
     const t = panel('chip-summary').textContent;
-    for (const h of ['Em fichários', 'Reservado', 'Livre', 'Em jogo', 'Divergência']) expect(t).toContain(h);
+    for (const h of ['Em fichários', 'Reservado', 'Livre', 'No Salão', 'Divergência']) expect(t).toContain(h);
     const row = panel('chip-summary').querySelector('tbody tr').textContent;
     expect(row).toContain('1.000');
     expect(row).toContain('800');
@@ -139,11 +208,11 @@ describe('Dashboard (G10)', () => {
     expect(container.textContent).not.toMatch(/\bKO\b/);
   });
 
-  it('as métricas vêm do movimento (fichas nos fichários e em jogo); falha do servidor não quebra', async () => {
+  it('os cards vêm dos blocos do servidor (torneios ativos, fichários livres, fichas em jogo); falha do servidor não quebra', async () => {
     await mount();
-    expect(container.textContent).toContain('Fichas nos Fichários');
-    expect(container.textContent).toContain('1.200');
-    expect(container.textContent).toContain('Fichas em Jogo');
+    expect(container.textContent).toContain('Torneios ativos');
+    expect(container.textContent).toContain('Fichários livres');
+    expect(container.textContent).toContain('Fichas em jogo');
     act(() => root.unmount()); container.remove();
     api.apiGet.mockRejectedValue(Object.assign(new Error('x'), { status: 500 }));
     await mount();

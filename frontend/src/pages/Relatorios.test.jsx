@@ -47,7 +47,7 @@ describe('Relatorios (G10)', () => {
     const t = container.textContent;
     expect(t).toContain('1.500');
     expect(t).toContain('1.200 em fichários');
-    expect(t).toContain('300 em jogo');
+    expect(t).toContain('300 no Salão');
     const flow = container.querySelector('[data-testid="chip-flow-stats"]').textContent;
     for (const s of ['Descartadas', 'Perdidas', 'Recuperadas', 'Ocorrências abertas', '1 vermelha(s)']) expect(flow).toContain(s);
     expect(flow).toContain('valor 500');

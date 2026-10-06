@@ -1,3 +1,4 @@
+import { locale } from '../lib/i18n';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, ChevronLeft, ChevronRight, ArrowUpCircle, ArrowDownCircle, PackageCheck, Boxes, Undo2, AlertTriangle, Coins } from 'lucide-react';
@@ -30,11 +31,11 @@ const MOVEMENT_FILTERS = [
   { value: 'all', label: 'Todos os tipos' },
   ...Object.entries(MOVEMENT_META).map(([value, m]) => ({ value, label: m.label })),
 ];
-const PLACE = { external: 'Externo', binder: 'Fichário', lost: 'Divergência', play: 'Em jogo' };
+const PLACE = { external: 'Externo', binder: 'Fichário', lost: 'Divergência', play: 'No Salão' };
 
 // ─── ledger v1 (histórico anterior ao G2 + reservas de torneio) ──────────────
 
-const fmt = (n) => n.toLocaleString('pt-BR');
+const fmt = (n) => n.toLocaleString(locale());
 
 export default function LivroEstoque() {
   const { showAlert, showPrompt, showConfirm } = useAlert();
@@ -88,10 +89,10 @@ export default function LivroEstoque() {
     <div className="mx-auto max-w-5xl space-y-6 pb-12">
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-3xl font-black uppercase tracking-tighter text-gray-900 dark:text-white md:text-4xl">
-            <BookOpen className="text-genesis-red" size={30} /> Livro-razão de fichas
+          <h1 className="page-title flex items-center gap-2">
+            <BookOpen className="text-brand-fg" size={22} /> Livro-razão de fichas
           </h1>
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="page-sub">
             Toda movimentação, em ordem. Os saldos são calculados a partir daqui — nada é editado nem apagado; erros se corrigem por estorno.
           </p>
         </div>
@@ -112,15 +113,15 @@ export default function LivroEstoque() {
         </div>
       </header>
 
-      <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#111111]">
+      <div className="card overflow-hidden">
         {loading ? (
-          <div className="p-16 text-center text-gray-400">Carregando…</div>
+          <div className="p-16 text-center text-fg-subtle">Carregando…</div>
         ) : rows.length === 0 ? (
-          <div className="p-16 text-center text-gray-400">Nenhum lançamento.</div>
+          <div className="p-16 text-center text-fg-subtle">Nenhum lançamento.</div>
         ) : (
-          <ul className="divide-y divide-gray-100 dark:divide-zinc-800/60">
+          <ul className="divide-y divide-line-soft">
             {rows.map((r) => {
-              const m = MOVEMENT_META[r.type] || { label: r.type, cls: 'text-gray-500 bg-gray-500/10', icon: Boxes };
+              const m = MOVEMENT_META[r.type] || { label: r.type, cls: 'text-fg-muted bg-gray-500/10', icon: Boxes };
               const Icon = m.icon;
               const delta = r.to.kind === 'binder' ? r.quantity : r.from.kind === 'binder' ? -r.quantity : r.to.kind === 'play' ? r.quantity : -r.quantity;
               const reversed = !!r.reversed_by;
@@ -128,29 +129,29 @@ export default function LivroEstoque() {
                 <motion.li key={r._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`flex items-center gap-4 p-4 ${reversed ? 'opacity-60' : ''}`}>
                   <div className={`rounded-xl p-2 ${m.cls}`}><Icon size={18} /></div>
                   <div className="min-w-0 flex-1">
-                    <p className="flex flex-wrap items-center gap-2 text-sm font-black text-gray-900 dark:text-white">
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-fg">
                       <span className={reversed ? 'line-through' : ''}>{m.label} · {r.chip_id?.name || 'Ficha'}</span>
-                      {reversed && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-black uppercase text-gray-500 dark:bg-zinc-800">estornado</span>}
+                      {reversed && <span className="rounded-full bg-raised px-2 py-0.5 text-xs font-bold text-fg-muted dark:bg-zinc-800">estornado</span>}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-fg-muted">
                       {PLACE[r.from.kind]}{r.from.kind === 'play' ? ` ${r.tournament_id?.name || ''}` : r.from.kind === 'binder' ? ` ${r.binder_id?.name || ''}` : ''} → {PLACE[r.to.kind]}{r.to.kind === 'play' ? ` ${r.tournament_id?.name || ''}` : r.to.kind !== 'external' ? ` ${r.binder_id?.name || ''}` : ''}
                     </p>
-                    <p className="truncate text-xs text-gray-400" title={r.reason}>
-                      {r.reason || '—'} · {new Date(r.createdAt).toLocaleString('pt-BR')} · {r.user_name}
+                    <p className="truncate text-xs text-fg-subtle" title={r.reason}>
+                      {r.reason || '—'} · {new Date(r.createdAt).toLocaleString(locale())} · {r.user_name}
                     </p>
                     {reversed && (
-                      <p className="text-[11px] text-purple-500">Estornado por {r.reversed_by.user_name}: {r.reversed_by.reason}</p>
+                      <p className="text-xs text-purple-500">Estornado por {r.reversed_by.user_name}: {r.reversed_by.reason}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-right">
-                    <p className={`font-black tabular-nums ${delta >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                    <p className={`font-bold tabular-nums ${delta >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                       {delta >= 0 ? '+' : '−'}{fmt(Math.abs(delta))}
                     </p>
                     {isAdmin && r.type !== 'REVERSAL' && !reversed && (
                       <div className="flex flex-col gap-1">
-                        <button onClick={() => reverse(r, false)} title="Estornar este lançamento" className="rounded-lg border border-gray-200 p-2 text-gray-400 hover:text-purple-500 dark:border-zinc-700"><Undo2 size={16} /></button>
+                        <button onClick={() => reverse(r, false)} title="Estornar este lançamento" className="rounded-lg border border-line p-2 text-fg-subtle hover:text-purple-500"><Undo2 size={16} /></button>
                         {batchSize[r.batch_id] > 1 && (
-                          <button onClick={() => reverse(r, true)} title="Estornar o lote inteiro" className="rounded-lg border border-gray-200 px-1 py-0.5 text-[9px] font-black uppercase text-gray-400 hover:text-purple-500 dark:border-zinc-700">lote</button>
+                          <button onClick={() => reverse(r, true)} title="Estornar o lote inteiro" className="rounded-lg border border-line px-1 py-0.5 text-xs font-bold uppercase text-fg-subtle hover:text-purple-500">lote</button>
                         )}
                       </div>
                     )}
@@ -161,12 +162,12 @@ export default function LivroEstoque() {
           </ul>
         )}
 
-        <div className="flex items-center justify-between bg-gray-50 p-4 dark:bg-zinc-900/50">
-          <span className="text-xs font-bold uppercase tracking-widest text-gray-400">{pagination.total} lançamentos</span>
+        <div className="flex items-center justify-between bg-sunken p-4">
+          <span className="text-xs font-bold uppercase tracking-wide text-fg-subtle">{pagination.total} lançamentos</span>
           <div className="flex items-center gap-2">
-            <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-lg border border-gray-200 bg-white p-2 disabled:opacity-30 dark:border-zinc-700 dark:bg-zinc-800"><ChevronLeft size={18} /></button>
-            <span className="rounded-lg border border-gray-200 bg-white px-4 py-1.5 text-sm font-black dark:border-zinc-700 dark:bg-zinc-800">{page} / {pagination.pages}</span>
-            <button disabled={page >= pagination.pages} onClick={() => setPage((p) => p + 1)} className="rounded-lg border border-gray-200 bg-white p-2 disabled:opacity-30 dark:border-zinc-700 dark:bg-zinc-800"><ChevronRight size={18} /></button>
+            <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-lg border border-line bg-surface p-2 disabled:opacity-30 dark:bg-zinc-800"><ChevronLeft size={18} /></button>
+            <span className="rounded-lg border border-line bg-surface px-4 py-1.5 text-sm font-bold dark:bg-zinc-800">{page} / {pagination.pages}</span>
+            <button disabled={page >= pagination.pages} onClick={() => setPage((p) => p + 1)} className="rounded-lg border border-line bg-surface p-2 disabled:opacity-30 dark:bg-zinc-800"><ChevronRight size={18} /></button>
           </div>
         </div>
       </div>

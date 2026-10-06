@@ -55,34 +55,34 @@ export default function PayoutTemplatesModal({ open, onClose, onChanged }) {
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-[var(--overlay)]" />
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-          className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]"
+          className="card relative flex max-h-[85vh] w-full max-w-2xl flex-col shadow-2xl overflow-hidden"
         >
-          <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
-            <h2 className="text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">Templates de premiação</h2>
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X /></button>
+          <div className="flex items-center justify-between border-b border-line-soft p-6">
+            <h2 className="text-xl font-bold text-fg">Templates de premiação</h2>
+            <button type="button" onClick={onClose} className="text-fg-subtle hover:text-gray-600"><X /></button>
           </div>
 
           <div className="flex-1 space-y-4 overflow-y-auto p-6">
             {!form ? (
               <>
                 {list.map((t) => (
-                  <div key={t._id} className="flex items-center justify-between rounded-2xl border border-gray-200 p-4 dark:border-zinc-800">
+                  <div key={t._id} className="flex items-center justify-between rounded-2xl border border-line p-4">
                     <div>
-                      <p className="font-black text-gray-900 dark:text-white">{t.name}</p>
-                      <p className="text-xs text-gray-400">{t.brackets.length} faixa(s)</p>
+                      <p className="font-bold text-fg">{t.name}</p>
+                      <p className="text-xs text-fg-subtle">{t.brackets.length} faixa(s)</p>
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => setForm(structuredClone(t))} className="rounded-lg px-3 py-1.5 text-xs font-black uppercase text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10">Editar</button>
-                      <button onClick={() => remove(t._id)} className="rounded-lg p-2 text-gray-400 hover:text-red-500"><Trash2 size={15} /></button>
+                      <button onClick={() => setForm(structuredClone(t))} className="rounded-lg px-3 py-1.5 text-xs font-bold text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10">Editar</button>
+                      <button onClick={() => remove(t._id)} className="rounded-lg p-2 text-fg-subtle hover:text-red-500"><Trash2 size={15} /></button>
                     </div>
                   </div>
                 ))}
                 <button
                   onClick={() => setForm({ name: '', brackets: [emptyBracket()], notes: '' })}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-gray-200 py-4 text-xs font-black uppercase tracking-widest text-gray-400 hover:border-genesis-red hover:text-genesis-red dark:border-zinc-800"
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line py-4 text-xs font-bold uppercase tracking-wide text-fg-subtle hover:border-brand hover:text-brand-fg"
                 >
                   <Plus size={15} /> Novo template
                 </button>
@@ -93,39 +93,39 @@ export default function PayoutTemplatesModal({ open, onClose, onChanged }) {
                   value={form.name}
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   placeholder="Nome do template"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-black outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-800 dark:bg-zinc-900"
+                  className="input w-full"
                 />
                 {form.brackets.map((b, bi) => (
-                  <div key={bi} className="space-y-3 rounded-2xl border border-gray-200 p-4 dark:border-zinc-800">
-                    <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
+                  <div key={bi} className="space-y-3 rounded-2xl border border-line p-4">
+                    <div className="flex items-center gap-2 text-xs font-bold text-fg-muted">
                       <span>De</span>
-                      <input type="number" min="1" value={b.min_players} onChange={(e) => updBracket(bi, { min_players: Number(e.target.value) })} className="w-16 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-center dark:border-zinc-700 dark:bg-zinc-900" />
+                      <input type="number" min="1" value={b.min_players} onChange={(e) => updBracket(bi, { min_players: Number(e.target.value) })} className="input w-16 text-center" />
                       <span>até</span>
-                      <input type="number" min="1" placeholder="∞" value={b.max_players ?? ''} onChange={(e) => updBracket(bi, { max_players: e.target.value === '' ? null : Number(e.target.value) })} className="w-16 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-center dark:border-zinc-700 dark:bg-zinc-900" />
+                      <input type="number" min="1" placeholder="∞" value={b.max_players ?? ''} onChange={(e) => updBracket(bi, { max_players: e.target.value === '' ? null : Number(e.target.value) })} className="input w-16 text-center" />
                       <span>entradas</span>
-                      <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-black ${Math.abs(bracketTotal(b) - 100) < 0.5 ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500'}`}>{bracketTotal(b)}%</span>
-                      {form.brackets.length > 1 && <button onClick={() => setForm((f) => ({ ...f, brackets: f.brackets.filter((_, i) => i !== bi) }))} className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>}
+                      <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${Math.abs(bracketTotal(b) - 100) < 0.5 ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500'}`}>{bracketTotal(b)}%</span>
+                      {form.brackets.length > 1 && <button onClick={() => setForm((f) => ({ ...f, brackets: f.brackets.filter((_, i) => i !== bi) }))} className="text-fg-subtle hover:text-red-500"><Trash2 size={14} /></button>}
                     </div>
                     {b.payouts.map((p, pi) => (
                       <div key={pi} className="flex items-center gap-2 text-sm">
-                        <span className="w-10 font-black text-gray-400">{p.place}º</span>
-                        <input type="number" min="0" step="0.5" value={p.pct} onChange={(e) => updPayout(bi, pi, { pct: Number(e.target.value) })} className="w-20 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-center font-bold dark:border-zinc-700 dark:bg-zinc-900" />
-                        <span className="text-gray-400">%</span>
+                        <span className="w-10 font-bold text-fg-subtle">{p.place}º</span>
+                        <input type="number" min="0" step="0.5" value={p.pct} onChange={(e) => updPayout(bi, pi, { pct: Number(e.target.value) })} className="input w-20 text-center" />
+                        <span className="text-fg-subtle">%</span>
                         {b.payouts.length > 1 && <button onClick={() => updBracket(bi, { payouts: b.payouts.filter((_, i) => i !== pi) })} className="text-gray-300 hover:text-red-500"><X size={14} /></button>}
                       </div>
                     ))}
-                    <button onClick={() => updBracket(bi, { payouts: [...b.payouts, { place: b.payouts.length + 1, pct: 0 }] })} className="text-xs font-black uppercase text-genesis-red">+ colocação</button>
+                    <button onClick={() => updBracket(bi, { payouts: [...b.payouts, { place: b.payouts.length + 1, pct: 0 }] })} className="text-xs font-bold uppercase text-brand-fg">+ colocação</button>
                   </div>
                 ))}
-                <button onClick={() => setForm((f) => ({ ...f, brackets: [...f.brackets, emptyBracket()] }))} className="text-xs font-black uppercase text-gray-400 hover:text-genesis-red">+ faixa</button>
+                <button onClick={() => setForm((f) => ({ ...f, brackets: [...f.brackets, emptyBracket()] }))} className="text-xs font-bold uppercase text-fg-subtle hover:text-brand-fg">+ faixa</button>
               </>
             )}
           </div>
 
           {form && (
-            <div className="flex gap-3 border-t border-gray-100 p-4 dark:border-zinc-800">
-              <button onClick={() => setForm(null)} className="flex-1 rounded-xl bg-gray-100 py-3 text-xs font-black uppercase text-gray-600 dark:bg-zinc-800 dark:text-gray-300">Voltar</button>
-              <button onClick={save} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-genesis-red py-3 text-xs font-black uppercase text-white hover:bg-red-700"><Save size={14} /> Salvar</button>
+            <div className="flex gap-3 border-t border-line-soft p-4">
+              <button onClick={() => setForm(null)} className="flex-1 rounded-xl bg-raised py-3 text-xs font-bold text-fg-muted dark:bg-zinc-800">Voltar</button>
+              <button onClick={save} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand py-3 text-xs font-bold text-white hover:bg-brand-hover"><Save size={14} /> Salvar</button>
             </div>
           )}
         </motion.div>

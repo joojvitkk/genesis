@@ -3,10 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Package, Briefcase, Trophy, Coins,
   MessageSquare, Layers, BarChart, MonitorPlay, ClipboardList,
-  Users, BookOpen, ShieldAlert, Boxes, CalendarRange, X, LogOut, KeyRound, ShieldOff, Sun, Moon, ChevronRight
+  Users, BookOpen, ShieldAlert, CalendarRange, X, LogOut, Sun, Moon, ChevronRight, Menu
 } from 'lucide-react';
 import { can } from '../config';
-import { useAlert } from '../contexts/AlertContext';
 import { useT } from '../lib/i18n.jsx';
 
 // `area` refere-se à matriz de permissões em config.js (PERMISSIONS)
@@ -19,246 +18,146 @@ const NAV_ITEMS = [
   { to: '/estoque',      icon: Package,         key: 'nav.estoque',      area: 'estoque' },
   { to: '/livro-estoque',icon: BookOpen,        key: 'nav.livroEstoque', area: 'estoque' },
   { to: '/ocorrencias',  icon: ShieldAlert,     key: 'nav.ocorrencias',  area: 'estoque' },
-  { to: '/modelos-ficharios', icon: Boxes,      key: 'nav.modelosFicharios', area: 'ficharios' },
   { to: '/ficharios',    icon: Briefcase,       key: 'nav.ficharios',    area: 'ficharios' },
   { to: '/chat',         icon: MessageSquare,   key: 'nav.chat',         area: 'chat' },
   { to: '/modelos-stack',icon: Layers,          key: 'nav.stacks',       area: 'modelos_stack' },
   { to: '/relatorios',   icon: BarChart,        key: 'nav.relatorios',   area: 'relatorios' },
-  { to: '/auditoria',    icon: ClipboardList,   key: 'nav.auditoria',    area: 'relatorios' },
+  { to: '/auditoria',    icon: ClipboardList,   key: 'nav.auditoria',    area: 'auditoria' },
   { to: '/usuarios',     icon: Users,           key: 'nav.usuarios',     area: 'usuarios' },
 ];
 
 // Items that show in the bottom tab bar (most used, max 5)
 const BOTTOM_PRIORITY = ['/salao', '/torneios', '/chip-race', '/chat', '/estoque'];
 
-export default function Sidebar({ isOpen, onOpen, onClose, onLogout, onChangePassword, onLogoutAll, user, theme, onToggleTheme }) {
+/** Marca: wordmark em Fira Sans bold com o quadrado vermelho (único uso decorativo da cor da marca). */
+function Brand({ size = 'md' }) {
+  return (
+    <span className={`inline-flex items-center gap-2 font-bold tracking-[0.18em] text-fg ${size === 'lg' ? 'text-xl' : 'text-base'}`}>
+      <span className="inline-block h-3 w-3 rounded-sm bg-brand" aria-hidden="true" />
+      GENESIS
+    </span>
+  );
+}
+
+function UserBadge({ user }) {
+  const name = user?.name || user?.username || '?';
+  return (
+    <div className="flex items-center gap-3 min-w-0">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sunken text-sm font-semibold text-fg border border-line">
+        {name[0].toUpperCase()}
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-fg">{name}</p>
+        <p className="text-xs font-medium capitalize text-fg-subtle">{user?.role}</p>
+      </div>
+    </div>
+  );
+}
+
+function LangSwitch({ t, lang, setLang, langs }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-fg-subtle">
+      <span className="font-medium">{t('lang.label')}:</span>
+      {langs.map((l) => (
+        <button key={l} onClick={() => setLang(l)} aria-pressed={lang === l}
+          className={`rounded px-1.5 py-0.5 font-semibold uppercase ${lang === l ? 'bg-brand-soft text-brand-fg' : 'hover:text-fg'}`}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
+export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme, onToggleTheme }) {
   const location = useLocation();
-  const { showConfirm } = useAlert();
   const { t, lang, setLang, langs } = useT();
   const filtered = NAV_ITEMS.filter(i => can(user?.role, i.area)).map(i => ({ ...i, label: t(i.key) }));
-
-  const askLogoutAll = async () => {
-    if (await showConfirm('Encerrar TODAS as suas sessões (inclusive em outros aparelhos)?')) onLogoutAll?.();
-  };
-
-  // Bottom nav items: priority items user has access to, up to 4, plus "Menu" 
   const bottomItems = filtered.filter(i => BOTTOM_PRIORITY.includes(i.to)).slice(0, 4);
+  const themeLabel = theme === 'dark' ? 'Modo claro' : 'Modo escuro';
+  const ThemeIcon = theme === 'dark' ? Sun : Moon;
 
   return (
     <>
-      {/* ─── DESKTOP SIDEBAR ──────────────────────────────────── */}
-      <aside className="hidden md:flex fixed top-0 left-0 h-full w-64 bg-white dark:bg-[#111111] z-40 flex-col border-r border-gray-200 dark:border-zinc-800/50 shadow-2xl">
-        {/* Logo */}
-        <div className="h-16 flex items-center justify-between px-6 border-b border-gray-100 dark:border-white/5 shrink-0">
-          <span className="text-2xl font-black tracking-widest text-genesis-red">GENESIS</span>
-          <button
-            onClick={onToggleTheme}
-            className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all"
-          >
-            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+      {/* ─── Desktop ─────────────────────────────────────────── */}
+      <aside className="hidden md:flex fixed left-0 top-0 z-40 h-full w-60 flex-col border-r border-line bg-surface">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-line-soft px-4">
+          <Brand />
+          <button onClick={onToggleTheme} aria-label={themeLabel} title={themeLabel} className="btn btn-ghost btn-icon">
+            <ThemeIcon size={16} />
           </button>
         </div>
 
-        {/* User info */}
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-white/5 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-genesis-red/10 flex items-center justify-center text-genesis-red font-black text-sm shrink-0">
-              {(user?.name || user?.username || '?')[0].toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{user?.name || user?.username}</p>
-              <p className="text-[10px] text-genesis-red font-black uppercase tracking-widest opacity-80">{user?.role}</p>
-            </div>
-          </div>
-        </div>
+        <NavLink to="/conta" aria-label="Minha conta" title="Minha conta" className={({ isActive }) => `block shrink-0 border-b border-line-soft px-4 py-3 transition-colors hover:bg-sunken ${isActive ? 'bg-brand-soft' : ''}`}><UserBadge user={user} /></NavLink>
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <nav aria-label="Principal" className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
           {filtered.map(item => {
             const Icon = item.icon;
             return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 font-semibold text-sm group
-                  ${isActive
-                    ? 'bg-genesis-red text-white shadow-md shadow-red-500/20'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800/60 hover:text-gray-900 dark:hover:text-white'
-                  }`
-                }
-              >
-                <Icon size={18} className="shrink-0" />
+              <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}>
+                <Icon size={18} className="shrink-0" aria-hidden="true" />
                 <span className="truncate">{item.label}</span>
               </NavLink>
             );
           })}
         </nav>
 
-        {/* Conta */}
-        <div className="p-3 border-t border-gray-100 dark:border-white/5 shrink-0 space-y-0.5">
-          <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
-            <span className="font-semibold">{t('lang.label')}:</span>
-            {langs.map((l) => (
-              <button key={l} onClick={() => setLang(l)} className={`uppercase font-black tracking-widest ${lang === l ? 'text-genesis-red' : 'hover:text-gray-600 dark:hover:text-gray-200'}`}>{l}</button>
-            ))}
-          </div>
-          <button onClick={onChangePassword} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl font-semibold text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-all">
-            <KeyRound size={16} /> <span>{t('account.changePassword')}</span>
-          </button>
-          <button onClick={askLogoutAll} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl font-semibold text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-all">
-            <ShieldOff size={16} /> <span>{t('account.logoutAll')}</span>
-          </button>
-          <button
-            onClick={onLogout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold text-sm text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 transition-all"
-          >
-            <LogOut size={18} />
-            <span>{t('account.logout')}</span>
-          </button>
+        <div className="shrink-0 space-y-0.5 border-t border-line-soft p-2">
+          <LangSwitch t={t} lang={lang} setLang={setLang} langs={langs} />
+          <button onClick={onLogout} className="nav-item w-full hover:!text-danger"><LogOut size={16} aria-hidden="true" /> {t('account.logout')}</button>
         </div>
       </aside>
 
-      {/* ─── MOBILE DRAWER ────────────────────────────────────── */}
+      {/* ─── Drawer mobile ───────────────────────────────────── */}
       <AnimatePresence>
         {isOpen && (
           <>
-            {/* Backdrop */}
-            <motion.div
-              key="backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-              onClick={onClose}
-            />
-
-            {/* Drawer panel */}
-            <motion.div
-              key="drawer"
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="md:hidden fixed top-0 left-0 h-full w-72 bg-white dark:bg-[#111111] z-50 flex flex-col shadow-2xl"
-            >
-              {/* Drawer header */}
-              <div className="h-16 flex items-center justify-between px-5 border-b border-gray-100 dark:border-zinc-800 shrink-0">
-                <span className="text-xl font-black tracking-widest text-genesis-red">GENESIS</span>
-                <button onClick={onClose} className="p-2 rounded-xl text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800">
-                  <X size={20} />
-                </button>
+            <motion.div key="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}
+              className="md:hidden fixed inset-0 z-40 bg-[var(--overlay)]" onClick={onClose} />
+            <motion.div key="drawer" initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="md:hidden fixed left-0 top-0 z-50 flex h-full w-72 flex-col border-r border-line bg-surface shadow-2xl" role="dialog" aria-modal="true" aria-label="Menu">
+              <div className="flex h-14 shrink-0 items-center justify-between border-b border-line-soft px-4">
+                <Brand />
+                <button onClick={onClose} aria-label="Fechar menu" className="btn btn-ghost btn-icon"><X size={20} /></button>
               </div>
-
-              {/* User card inside drawer */}
-              <div className="px-4 py-4 border-b border-gray-100 dark:border-zinc-800 shrink-0">
-                <div className="flex items-center gap-3 bg-gray-50 dark:bg-zinc-900 rounded-2xl p-3">
-                  <div className="w-10 h-10 rounded-full bg-genesis-red flex items-center justify-center text-white font-black text-sm shrink-0">
-                    {(user?.name || user?.username || '?')[0].toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{user?.name || user?.username}</p>
-                    <p className="text-[10px] text-genesis-red font-black uppercase tracking-widest">{user?.role}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Nav items */}
-              <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
+              <NavLink to="/conta" onClick={onClose} aria-label="Minha conta" className="block shrink-0 border-b border-line-soft px-4 py-3 hover:bg-sunken"><UserBadge user={user} /></NavLink>
+              <nav aria-label="Principal" className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
                 {filtered.map(item => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.to;
                   return (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      onClick={onClose}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-semibold text-sm
-                        ${isActive
-                          ? 'bg-genesis-red text-white shadow-lg shadow-red-500/20'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800'
-                        }`}
-                    >
-                      <div className={`p-1.5 rounded-lg ${isActive ? 'bg-white/20' : 'bg-gray-100 dark:bg-zinc-800'}`}>
-                        <Icon size={16} />
-                      </div>
+                    <NavLink key={item.to} to={item.to} onClick={onClose} className={`nav-item min-h-11 ${isActive ? 'nav-item-active' : ''}`}>
+                      <Icon size={18} className="shrink-0" aria-hidden="true" />
                       <span className="flex-1">{item.label}</span>
-                      {isActive && <ChevronRight size={14} className="opacity-60" />}
+                      {isActive && <ChevronRight size={14} aria-hidden="true" />}
                     </NavLink>
                   );
                 })}
               </nav>
-
-              {/* Footer */}
-              <div className="p-4 border-t border-gray-100 dark:border-zinc-800 space-y-2 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-                <button
-                  onClick={onToggleTheme}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all"
-                >
-                  <div className="p-1.5 rounded-lg bg-gray-100 dark:bg-zinc-800">
-                    {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-                  </div>
-                  <span>{theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}</span>
-                </button>
-                <button
-                  onClick={() => { onClose(); onChangePassword?.(); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all"
-                >
-                  <div className="p-1.5 rounded-lg bg-gray-100 dark:bg-zinc-800"><KeyRound size={16} /></div>
-                  <span>{t('account.changePassword')}</span>
-                </button>
-                <div className="flex items-center gap-2 px-4 py-2 text-xs text-gray-400">
-                  <span className="font-semibold">{t('lang.label')}:</span>
-                  {langs.map((l) => (
-                    <button key={l} onClick={() => setLang(l)} className={`uppercase font-black tracking-widest ${lang === l ? 'text-genesis-red' : ''}`}>{l}</button>
-                  ))}
-                </div>
-                <button
-                  onClick={() => { onClose(); onLogout(); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
-                >
-                  <div className="p-1.5 rounded-lg bg-red-50 dark:bg-red-500/10">
-                    <LogOut size={16} />
-                  </div>
-                  <span>{t('account.logout')}</span>
-                </button>
+              <div className="shrink-0 space-y-0.5 border-t border-line-soft p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
+                <button onClick={onToggleTheme} className="nav-item min-h-11 w-full"><ThemeIcon size={16} aria-hidden="true" /> {themeLabel}</button>
+                <LangSwitch t={t} lang={lang} setLang={setLang} langs={langs} />
+                <button onClick={() => { onClose(); onLogout(); }} className="nav-item min-h-11 w-full hover:!text-danger"><LogOut size={16} aria-hidden="true" /> {t('account.logout')}</button>
               </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
 
-      {/* ─── MOBILE BOTTOM NAV ────────────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-[#111111] border-t border-gray-200 dark:border-zinc-800 flex items-stretch"
-           style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)', height: 'calc(68px + env(safe-area-inset-bottom, 0px))' }}>
+      {/* ─── Barra inferior mobile (máx. 5 itens, alvo ≥ 44px) ──── */}
+      <nav aria-label="Atalhos" className="md:hidden fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-line bg-surface"
+           style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)', height: 'calc(60px + env(safe-area-inset-bottom, 0px))' }}>
         {bottomItems.map(item => {
           const Icon = item.icon;
           const isActive = location.pathname === item.to;
           return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className="flex-1 flex flex-col items-center justify-center gap-1 pt-2 pb-1 transition-all"
-            >
-              <div className={`p-2 rounded-xl transition-all ${isActive ? 'bg-genesis-red text-white shadow-md shadow-red-500/30' : 'text-gray-400 dark:text-gray-500'}`}>
-                <Icon size={20} />
-              </div>
-              <span className={`text-[9px] font-bold uppercase tracking-wide ${isActive ? 'text-genesis-red' : 'text-gray-400 dark:text-gray-500'}`}>
-                {item.label}
-              </span>
+            <NavLink key={item.to} to={item.to} aria-current={isActive ? 'page' : undefined}
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium ${isActive ? 'text-brand-fg' : 'text-fg-subtle'}`}>
+              <Icon size={20} aria-hidden="true" />
+              <span>{item.label}</span>
             </NavLink>
           );
         })}
-        {/* "Mais" / Menu button */}
-        <button
-          onClick={onOpen}
-          className="flex-1 flex flex-col items-center justify-center gap-1 pt-2 pb-1 text-gray-400 dark:text-gray-500"
-        >
-          <div className="p-2 rounded-xl">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-          </div>
-          <span className="text-[9px] font-bold uppercase tracking-wide">Menu</span>
+        <button onClick={onOpen} className="flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium text-fg-subtle">
+          <Menu size={20} aria-hidden="true" />
+          <span>Menu</span>
         </button>
       </nav>
     </>

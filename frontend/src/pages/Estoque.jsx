@@ -126,27 +126,27 @@ export default function Estoque() {
     setIsChipModalOpen(true);
   };
 
-  const inputCls = 'w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white';
+  const inputCls = 'w-full bg-sunken  border border-line rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-brand transition-all text-fg';
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold mb-1 text-gray-900 dark:text-white">Fichas</h1>
-          <p className="text-gray-500 dark:text-gray-400">
+          <h1 className="page-title">Fichas</h1>
+          <p className="page-sub">
             Cadastro mestre: cada denominação é cadastrada uma única vez, só com valor nominal. A quantidade fica nos modelos de fichário e nos fichários.
           </p>
         </div>
 
         <div className="flex gap-3 w-full md:w-auto">
           {canMove && (
-            <button onClick={() => setIsMoveModalOpen(true)} className="flex-1 md:flex-none px-6 py-3 rounded-xl font-bold bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-white hover:border-genesis-red dark:hover:border-genesis-red transition-all flex justify-center items-center gap-2 shadow-sm">
+            <button onClick={() => setIsMoveModalOpen(true)} className="card flex-1 md:flex-none px-6 py-3 font-bold text-fg hover:border-brand dark:hover:border-brand transition-all flex justify-center items-center gap-2">
               <ArrowRightLeft size={18} />
               Movimentar
             </button>
           )}
           {isAdmin && (
-            <button onClick={openCreateModal} className="flex-1 md:flex-none px-6 py-3 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 transition-all flex justify-center items-center gap-2 shadow-lg shadow-red-500/20">
+            <button onClick={openCreateModal} className="btn btn-primary flex-1 md:flex-none flex justify-center items-center">
               <Plus size={18} />
               Nova Ficha
             </button>
@@ -155,24 +155,24 @@ export default function Estoque() {
       </div>
 
       {loading ? (
-        <div className="text-center py-20 text-gray-400 animate-pulse">Carregando fichas...</div>
+        <div className="text-center py-20 text-fg-subtle animate-pulse">Carregando fichas...</div>
       ) : (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-3xl overflow-hidden shadow-xl">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead>
-                <tr className="bg-gray-50 dark:bg-[#111111] text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50">Ficha</th>
-                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50">Valor</th>
-                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50">Cor</th>
-                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right" title="Saldo nos fichários, derivado das movimentações">Em fichários</th>
-                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right" title="Separado para torneios (alocado − enviado)">Reservado</th>
-                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Livre</th>
-                  <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Em jogo</th>
-                  {isAdmin && <th className="p-5 font-bold border-b border-gray-100 dark:border-zinc-800/50 text-right">Ações</th>}
+                <tr className="bg-sunken text-xs uppercase tracking-wide text-fg-muted">
+                  <th className="p-5 font-bold border-b border-line-soft">Ficha</th>
+                  <th className="p-5 font-bold border-b border-line-soft">Valor</th>
+                  <th className="p-5 font-bold border-b border-line-soft">Cor</th>
+                  <th className="p-5 font-bold border-b border-line-soft text-right" title="Saldo nos fichários, derivado das movimentações">Em fichários</th>
+                  <th className="p-5 font-bold border-b border-line-soft text-right" title="Separado para torneios (alocado − enviado)">Reservado</th>
+                  <th className="p-5 font-bold border-b border-line-soft text-right">Livre</th>
+                  <th className="p-5 font-bold border-b border-line-soft text-right" title="Enviadas ao Salão e ainda não devolvidas (inclui o que está nas mãos dos jogadores)">No Salão</th>
+                  {isAdmin && <th className="p-5 font-bold border-b border-line-soft text-right">Ações</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/50 text-sm md:text-base">
+              <tbody className="divide-y divide-line-soft text-sm md:text-base">
                 <AnimatePresence>
                   {chips.map((chip) => (
                     <motion.tr
@@ -180,32 +180,32 @@ export default function Estoque() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: chip.active === false ? 0.5 : 1 }}
                       exit={{ opacity: 0, x: -20 }}
-                      className="hover:bg-gray-50 dark:hover:bg-zinc-800/30 transition-colors group"
+                      className="hover:bg-sunken transition-colors group"
                     >
-                      <td className="p-5 font-bold text-gray-900 dark:text-white">
+                      <td className="p-5 font-bold text-fg">
                         <div className="flex items-center gap-3 flex-wrap">
-                          <PackageOpen size={18} className="text-genesis-red opacity-70" />
+                          <PackageOpen size={18} className="text-brand-fg opacity-70" />
                           {chip.name}
                           {chip.active === false && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400">Inativa</span>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-raised text-fg-muted">Inativa</span>
                           )}
                         </div>
                       </td>
-                      <td className="p-5 font-black text-gray-700 dark:text-gray-300">{chip.value.toLocaleString()}</td>
+                      <td className="p-5 font-bold text-fg">{chip.value.toLocaleString()}</td>
                       <td className="p-5">
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full border border-gray-200 dark:border-zinc-700 shadow-sm" style={{ backgroundColor: chip.color || 'transparent' }}></div>
-                          <span className="font-mono text-xs uppercase text-gray-500 dark:text-gray-400">{chip.color || 'N/A'}</span>
+                          <div className="w-6 h-6 rounded-full border border-line" style={{ backgroundColor: chip.color || 'transparent' }}></div>
+                          <span className="font-mono text-xs uppercase text-fg-muted">{chip.color || 'N/A'}</span>
                         </div>
                       </td>
-                      <td className="p-5 text-right font-bold text-gray-900 dark:text-white">{(balances[chip._id]?.in_binders || 0).toLocaleString()}</td>
+                      <td className="p-5 text-right font-bold text-fg">{(balances[chip._id]?.in_binders || 0).toLocaleString()}</td>
                       <td className="p-5 text-right font-bold text-amber-600 dark:text-amber-500">{(balances[chip._id]?.reserved || 0).toLocaleString()}</td>
-                      <td className="p-5 text-right font-black text-emerald-600 dark:text-emerald-500">{(balances[chip._id]?.free || 0).toLocaleString()}</td>
+                      <td className="p-5 text-right font-bold text-emerald-600 dark:text-emerald-500">{(balances[chip._id]?.free || 0).toLocaleString()}</td>
                       <td className="p-5 text-right font-bold text-teal-600 dark:text-teal-400">{(balances[chip._id]?.in_play || 0).toLocaleString()}</td>
                       {isAdmin && (
                         <td className="p-5 text-right space-x-2">
-                          <button onClick={() => openEditModal(chip)} title="Editar" className="p-2 text-gray-400 hover:text-blue-500 bg-transparent hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Edit2 size={18} /></button>
-                          <button onClick={() => handleToggleActive(chip)} title={chip.active === false ? 'Reativar' : 'Desativar'} className="p-2 text-gray-400 hover:text-red-500 bg-transparent hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Power size={18} /></button>
+                          <button onClick={() => openEditModal(chip)} title="Editar" className="p-2 text-fg-subtle hover:text-blue-500 bg-transparent hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Edit2 size={18} /></button>
+                          <button onClick={() => handleToggleActive(chip)} title={chip.active === false ? 'Reativar' : 'Desativar'} className="p-2 text-fg-subtle hover:text-red-500 bg-transparent hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Power size={18} /></button>
                         </td>
                       )}
                     </motion.tr>
@@ -213,13 +213,13 @@ export default function Estoque() {
                 </AnimatePresence>
                 {chips.length === 0 && (
                   <tr>
-                    <td colSpan={isAdmin ? 8 : 7} className="p-12 text-center text-gray-400 dark:text-gray-500 text-lg">Nenhuma ficha cadastrada.</td>
+                    <td colSpan={isAdmin ? 8 : 7} className="p-12 text-center text-fg-subtle text-lg">Nenhuma ficha cadastrada.</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-          <p className="px-5 py-3 text-xs text-gray-400 border-t border-gray-100 dark:border-zinc-800/50">
+          <p className="px-5 py-3 text-xs text-fg-subtle border-t border-line-soft">
             Saldos derivados das movimentações: a quantidade pertence ao fichário. Reservado = separado para torneios; livre = em fichários − reservado.
           </p>
         </motion.div>
@@ -233,7 +233,7 @@ export default function Estoque() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsChipModalOpen(false)}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--overlay)]"
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
@@ -241,25 +241,25 @@ export default function Estoque() {
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
               transition={{ type: 'spring', bounce: 0.3, duration: 0.4 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-3xl w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto"
+              className="card w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto"
             >
-              <div className="p-6 border-b border-gray-100 dark:border-zinc-800/50 flex justify-between items-center bg-gray-50 dark:bg-[#111111]">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">{editingChip ? 'Editar Ficha' : 'Nova Ficha'}</h2>
-                <button onClick={() => setIsChipModalOpen(false)} className="text-gray-400 hover:text-genesis-red transition-colors"><X size={24} /></button>
+              <div className="p-6 border-b border-line-soft flex justify-between items-center bg-sunken">
+                <h2 className="text-xl font-bold text-fg">{editingChip ? 'Editar Ficha' : 'Nova Ficha'}</h2>
+                <button onClick={() => setIsChipModalOpen(false)} className="text-fg-subtle hover:text-brand-fg transition-colors"><X size={24} /></button>
               </div>
               <form onSubmit={handleSaveChip} className="p-6 space-y-5">
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Valor nominal</label>
+                  <label className="block text-sm font-semibold mb-2 text-fg">Valor nominal</label>
                   <input type="number" min="0" value={chipForm.value} onChange={e => setChipForm({ ...chipForm, value: e.target.value })} className={inputCls} required placeholder="Ex: 100" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Cor</label>
+                  <label className="block text-sm font-semibold mb-2 text-fg">Cor</label>
                   <ColorPicker value={chipForm.color} onChange={(color) => setChipForm({ ...chipForm, color })} />
                 </div>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-fg-subtle">
                   A ficha é cadastrada uma única vez e reutilizada nos modelos de fichário. Nome do modelo e quantidades ficam no <b>Modelo de Fichário</b>.
                 </p>
-                <button type="submit" className="w-full py-4 rounded-xl font-bold bg-genesis-red text-white hover:bg-red-700 active:scale-95 transition-all shadow-lg mt-4">
+                <button type="submit" className="w-full py-4 rounded-xl font-bold bg-brand text-white hover:bg-brand-hover active:scale-95 transition-all mt-4">
                   Salvar Ficha
                 </button>
               </form>
@@ -275,7 +275,7 @@ export default function Estoque() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
+            className="fixed inset-0 z-50 p-4 bg-[var(--overlay)] overflow-y-auto"
             onClick={() => setIsMoveModalOpen(false)}
           >
             <div className="min-h-full flex items-center justify-center">
@@ -285,18 +285,18 @@ export default function Estoque() {
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
                 transition={{ type: 'spring', bounce: 0.3, duration: 0.4 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-3xl w-full max-w-lg shadow-2xl flex flex-col relative my-8"
+                className="card w-full max-w-lg shadow-2xl flex flex-col relative my-8"
               >
-                <div className="p-6 border-b border-gray-100 dark:border-zinc-800/50 flex justify-between items-center bg-gray-50 dark:bg-[#111111] rounded-t-3xl">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><ArrowRightLeft className="text-genesis-red"/> Movimentar Fichas</h2>
-                <button onClick={() => setIsMoveModalOpen(false)} className="text-gray-400 hover:text-genesis-red transition-colors"><X size={24} /></button>
+                <div className="p-6 border-b border-line-soft flex justify-between items-center bg-sunken rounded-t-3xl">
+                <h2 className="text-xl font-bold text-fg flex items-center gap-2"><ArrowRightLeft className="text-brand-fg"/> Movimentar Fichas</h2>
+                <button onClick={() => setIsMoveModalOpen(false)} className="text-fg-subtle hover:text-brand-fg transition-colors"><X size={24} /></button>
               </div>
               <form onSubmit={handleMoveStock} className="p-6 space-y-5">
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Tipo de Movimentação</label>
+                  <label className="block text-sm font-semibold mb-2 text-fg">Tipo de Movimentação</label>
                   <div className={`grid gap-2 ${moveTypes.length === 3 ? 'grid-cols-3' : 'grid-cols-1'}`}>
                     {moveTypes.map(o => (
-                      <label key={o.v} className={`p-3 rounded-xl border cursor-pointer transition-all text-center text-xs font-bold ${moveForm.type === o.v ? o.cls : 'border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-gray-400'}`}>
+                      <label key={o.v} className={`p-3 rounded-xl border cursor-pointer transition-all text-center text-xs font-bold ${moveForm.type === o.v ? o.cls : 'border-line text-fg-muted'}`}>
                         <input type="radio" name="type" value={o.v} checked={moveForm.type === o.v} onChange={() => setMoveForm({ ...moveForm, type: o.v })} className="hidden" />
                         {o.label}
                       </label>
@@ -304,7 +304,7 @@ export default function Estoque() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Fichário</label>
+                  <label className="block text-sm font-semibold mb-2 text-fg">Fichário</label>
                   <CustomSelect
                     options={binders.map(b => ({ value: b._id, label: b.code ? `${b.name} (${b.code})` : b.name }))}
                     value={moveForm.binder_id}
@@ -313,7 +313,7 @@ export default function Estoque() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Ficha</label>
+                  <label className="block text-sm font-semibold mb-2 text-fg">Ficha</label>
                   <CustomSelect 
                     options={chips.filter(c => c.active !== false).map(c => ({ value: c._id, label: `${c.name} · ${c.color || 's/ cor'}` }))}
                     value={moveForm.chip_id}
@@ -322,16 +322,16 @@ export default function Estoque() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Quantidade (Apenas o número)</label>
-                  <input type="number" min="1" value={moveForm.quantity} onChange={e => setMoveForm({...moveForm, quantity: e.target.value})} className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white" required placeholder="Ex: 1500" />
+                  <label className="block text-sm font-semibold mb-2 text-fg">Quantidade (Apenas o número)</label>
+                  <input type="number" min="1" value={moveForm.quantity} onChange={e => setMoveForm({...moveForm, quantity: e.target.value})} className="input w-full" required placeholder="Ex: 1500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Motivo (obrigatório)</label>
-                  <input type="text" value={moveForm.note} onChange={e => setMoveForm({...moveForm, note: e.target.value})} className="w-full bg-gray-50 dark:bg-[#111111] border border-gray-300 dark:border-zinc-700 rounded-xl px-4 py-3 focus:outline-none focus:border-genesis-red focus:ring-1 focus:ring-genesis-red transition-all text-gray-900 dark:text-white" placeholder="Ex: compra fornecedor X / ficha danificada" />
+                  <label className="block text-sm font-semibold mb-2 text-fg">Motivo (obrigatório)</label>
+                  <input type="text" value={moveForm.note} onChange={e => setMoveForm({...moveForm, note: e.target.value})} className="input w-full" placeholder="Ex: compra fornecedor X / ficha danificada" />
                 </div>
 
-              <div className="p-6 border-t border-gray-100 dark:border-zinc-800/50 bg-gray-50 dark:bg-[#111111] shrink-0 rounded-b-3xl">
-                <button type="submit" className={`w-full py-4 rounded-xl font-bold text-white active:scale-95 transition-all shadow-lg ${moveForm.type === 'entrada' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30' : moveForm.type === 'quebra' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' : 'bg-red-500 hover:bg-red-600 shadow-red-500/30'}`}>
+              <div className="p-6 border-t border-line-soft bg-sunken shrink-0 rounded-b-3xl">
+                <button type="submit" className={`w-full py-4 rounded-xl font-bold text-white active:scale-95 transition-all  ${moveForm.type === 'entrada' ? 'bg-emerald-500 hover:bg-emerald-600 ' : moveForm.type === 'quebra' ? 'bg-amber-500 hover:bg-amber-600 ' : 'bg-red-500 hover:bg-red-600 '}`}>
                   Confirmar {moveForm.type === 'entrada' ? 'Entrada' : moveForm.type === 'quebra' ? 'Quebra/Perda' : 'Saída'}
                 </button>
               </div>

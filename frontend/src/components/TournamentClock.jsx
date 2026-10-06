@@ -1,3 +1,4 @@
+import { locale } from '../lib/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Play, Pause, Square, ChevronLeft, ChevronRight, Minus, Plus, Volume2, VolumeX } from 'lucide-react';
 import { useTournamentClock, formatClock } from '../hooks/useTournamentClock';
@@ -12,13 +13,22 @@ function BlindLine({ level }) {
   if (level.row_type === 'end_registration' || level.row_type === 'end_day') {
     return <span>{level.label || (level.row_type === 'end_day' ? 'Fim do dia' : 'Fim do registro')}</span>;
   }
-  const ante = level.ante ? ` (ante ${level.ante.toLocaleString('pt-BR')})` : '';
+  const ante = level.ante ? ` (ante ${level.ante.toLocaleString(locale())})` : '';
   return (
     <span>
-      {(level.small_blind ?? 0).toLocaleString('pt-BR')} / {(level.big_blind ?? 0).toLocaleString('pt-BR')}
+      {(level.small_blind ?? 0).toLocaleString(locale())} / {(level.big_blind ?? 0).toLocaleString(locale())}
       <span className="text-[0.6em] opacity-70">{ante}</span>
     </span>
   );
+}
+
+// título do estado atual: só linhas de jogo têm número (o do cadastro da estrutura, não o índice da linha)
+function levelTitle(level, number) {
+  if (!level) return '—';
+  if (level.row_type === 'break') return /dinner/i.test(level.label || '') ? 'Dinner break' : 'Intervalo';
+  if (level.row_type === 'end_registration') return level.label || 'Fim do registro';
+  if (level.row_type === 'end_day') return level.label || 'Fim do dia';
+  return `Nível ${number ?? level.level ?? ''}`.trim();
 }
 
 const STATUS_LABEL = { running: 'Em andamento', paused: 'Pausado', stopped: 'Parado' };
@@ -66,17 +76,28 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
   };
 
   const status = clock.clock_status || 'stopped';
+  const onBreak = !!clock.is_break; // intervalo / dinner break: não pode ser confundido com um nível em andamento
+  const breakName = /dinner/i.test(clock.level?.label || '') ? 'Dinner break' : 'Intervalo';
+  const nextPlay = clock.next_play_level;
   const low = clock.clock_status === 'running' && clock.remainingMs <= 60_000;
   const isProjection = variant === 'projection';
 
   return (
     <div
-      className={`relative overflow-hidden rounded-3xl border transition-colors
-        ${isProjection ? 'border-zinc-800 bg-[#0A0A0A] text-white' : 'border-gray-200 dark:border-zinc-800 bg-white dark:bg-[#111111]'}
-        ${low ? 'ring-2 ring-genesis-red' : ''}`}
+      className={`relative overflow-hidden rounded-2xl border transition-colors
+        ${onBreak
+          ? 'border-warn bg-warn-soft text-fg'
+          : 'border-line bg-surface text-fg'}
+        ${low && !onBreak ? 'ring-2 ring-brand' : ''}`}
+      data-break={onBreak ? 'true' : undefined}
     >
+      {onBreak && (
+        <div role="status" className="bg-warn py-2 text-center text-sm font-bold tracking-wide text-[var(--on-warn)]">
+          {breakName}{nextPlay ? ` · volta no Nível ${nextPlay.level_number} (${(nextPlay.small_blind ?? 0).toLocaleString(locale())} / ${(nextPlay.big_blind ?? 0).toLocaleString(locale())})` : ''}
+        </div>
+      )}
       {flash && (
-        <div className="absolute inset-x-0 top-0 z-10 bg-genesis-red py-2 text-center text-sm font-black uppercase tracking-widest text-white animate-pulse">
+        <div className="absolute inset-x-0 top-0 z-10 bg-brand py-2 text-center text-sm font-bold tracking-wide text-white">
           {flash}
         </div>
       )}
@@ -84,26 +105,23 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
       <div className={isProjection ? 'p-8 md:p-16' : 'p-6'}>
         {/* topo: status + nível */}
         <div className="flex items-center justify-between gap-4">
-          <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest
-            ${status === 'running' ? 'bg-emerald-500/15 text-emerald-500'
-              : status === 'paused' ? 'bg-amber-500/15 text-amber-500'
-              : 'bg-gray-500/15 text-gray-400'}`}>
-            <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500 animate-pulse' : status === 'paused' ? 'bg-amber-500' : 'bg-gray-400'}`} />
+          <span className={`badge ${status === 'running' ? 'badge-ok' : status === 'paused' ? 'badge-warn' : 'badge-neutral'}`}>
+            <span className="dot" aria-hidden="true" />
             {STATUS_LABEL[status]}
           </span>
           <div className="text-right">
-            <p className={`font-black uppercase tracking-tight ${isProjection ? 'text-2xl' : 'text-sm'}`}>
-              {clock.level?.row_type === 'break' ? 'Intervalo' : `Nível ${(clock.current_level ?? 0) + 1}`}
+            <p className={`font-bold ${isProjection ? 'text-2xl' : 'text-sm'}`}>
+              {levelTitle(clock.level, clock.level_number)}
             </p>
-            {isProjection && clock.name && <p className="text-sm font-bold uppercase tracking-widest text-zinc-500">{clock.name}</p>}
+            {isProjection && clock.name && <p className="text-sm font-semibold text-fg-subtle">{clock.name}</p>}
           </div>
         </div>
 
         {/* relógio */}
         <div className="my-6 text-center">
           <p
-            className={`font-black tabular-nums leading-none tracking-tighter
-              ${low ? 'text-genesis-red' : isProjection ? 'text-white' : 'text-gray-900 dark:text-white'}
+            className={`font-mono font-semibold tabular-nums leading-none tracking-tight
+              ${low ? 'text-brand-fg' : 'text-fg'}
               ${isProjection ? 'text-[22vw] md:text-[16rem]' : 'text-6xl'}`}
           >
             {formatClock(clock.remainingMs || 0)}
@@ -112,26 +130,26 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
 
         {/* blinds atuais / próximo */}
         <div className={`grid grid-cols-2 gap-4 ${isProjection ? 'text-2xl md:text-4xl' : 'text-lg'}`}>
-          <div className={`rounded-2xl p-4 ${isProjection ? 'bg-zinc-900' : 'bg-gray-50 dark:bg-zinc-900/60'}`}>
-            <p className="mb-1 text-[0.55em] font-black uppercase tracking-widest text-zinc-500">Blinds</p>
-            <p className="font-black"><BlindLine level={clock.level} /></p>
+          <div className={`rounded-2xl p-4 bg-sunken`}>
+            <p className="mb-1 text-[0.55em] font-semibold uppercase tracking-wide text-fg-subtle">Blinds</p>
+            <p className="font-bold"><BlindLine level={clock.level} /></p>
           </div>
-          <div className={`rounded-2xl p-4 ${isProjection ? 'bg-zinc-900/60' : 'bg-gray-50 dark:bg-zinc-900/40'}`}>
-            <p className="mb-1 text-[0.55em] font-black uppercase tracking-widest text-zinc-500">Próximo</p>
-            <p className="font-black opacity-70"><BlindLine level={clock.next_level} /></p>
+          <div className={`rounded-2xl p-4 bg-sunken`}>
+            <p className="mb-1 text-[0.55em] font-semibold uppercase tracking-wide text-fg-subtle">Próximo</p>
+            <p className="font-bold opacity-70"><BlindLine level={clock.next_level} /></p>
           </div>
         </div>
 
         {/* métricas */}
         <div className={`mt-4 grid grid-cols-3 gap-4 ${isProjection ? 'text-xl md:text-3xl' : 'text-sm'}`}>
-          <Metric label="Entradas" value={(clock.actual_players ?? 0).toLocaleString('pt-BR')} projection={isProjection} />
-          <Metric label="Stack médio" value={(clock.avg_stack ?? 0).toLocaleString('pt-BR')} projection={isProjection} />
-          <Metric label="Fichas em jogo" value={(clock.total_chips_in_play ?? 0).toLocaleString('pt-BR')} projection={isProjection} />
+          <Metric label="Jogando" value={(clock.actual_players ?? 0).toLocaleString(locale())} projection={isProjection} />
+          <Metric label="Stack médio" value={clock.avg_stack == null ? 'N/A' : clock.avg_stack.toLocaleString(locale())} projection={isProjection} />
+          <Metric label="Fichas em jogo" value={(clock.total_chips_in_play ?? 0).toLocaleString(locale())} projection={isProjection} />
         </div>
 
         {/* controles */}
         {canControl && !isProjection && (
-          <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-5 dark:border-zinc-800">
+          <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-line-soft pt-5">
             {status !== 'running' && (
               <Btn onClick={() => send(status === 'paused' ? 'resume' : 'start')} disabled={busy} primary>
                 <Play size={15} /> {status === 'paused' ? 'Retomar' : 'Iniciar'}
@@ -150,7 +168,7 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
             <button
               type="button"
               onClick={() => setMuted((m) => !m)}
-              className="ml-auto rounded-xl p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              className="ml-auto rounded-xl p-2 text-fg-subtle hover:text-fg"
               title={muted ? 'Ativar som' : 'Silenciar'}
             >
               {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
@@ -159,7 +177,7 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
         )}
 
         {isProjection && !clock.connected && (
-          <p className="mt-4 text-center text-sm font-bold uppercase tracking-widest text-amber-500">Reconectando…</p>
+          <p className="mt-4 text-center text-sm font-bold uppercase tracking-wide text-warn">Reconectando…</p>
         )}
       </div>
     </div>
@@ -168,19 +186,14 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
 
 function Metric({ label, value, projection }) {
   return (
-    <div className={`rounded-2xl p-3 ${projection ? 'bg-zinc-900/40' : 'bg-gray-50 dark:bg-zinc-900/40'}`}>
-      <p className="text-[0.5em] font-black uppercase tracking-widest text-zinc-500">{label}</p>
-      <p className="font-black tabular-nums">{value}</p>
+    <div className={`rounded-2xl p-3 ${'bg-sunken'}`}>
+      <p className="text-[0.5em] font-semibold uppercase tracking-wide text-fg-subtle">{label}</p>
+      <p className="font-bold tabular-nums">{value}</p>
     </div>
   );
 }
 
 function Btn({ children, primary, danger, ...props }) {
-  const base = 'inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black uppercase tracking-wide transition-all active:scale-95 disabled:opacity-40';
-  const style = primary
-    ? 'bg-genesis-red text-white hover:bg-red-700 shadow-lg shadow-red-500/20'
-    : danger
-    ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10'
-    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700';
-  return <button type="button" className={`${base} ${style}`} {...props}>{children}</button>;
+  const variant = primary ? 'btn-primary' : danger ? 'btn-danger' : 'btn-secondary';
+  return <button type="button" className={`btn btn-sm ${variant}`} {...props}>{children}</button>;
 }

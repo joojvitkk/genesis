@@ -5,7 +5,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    react(),
+    // todo texto de interface passa por tr() (pt→en): jsx-runtime próprio em src/lib/i18n-runtime (caminho da raiz, para não virar dependência pré-empacotada)
+    react({ jsxImportSource: '/src/lib/i18n-runtime' }),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'masked-icon.svg'],

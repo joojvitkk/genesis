@@ -22,6 +22,31 @@ export default function Ficharios() {
   const [assembleRows, setAssembleRows] = useState([{ chip_id: '', quantity: '' }]);
   const [assembleReason, setAssembleReason] = useState(''); // montagem é administrativa: exige motivo (G11)
 
+  // Cadastro (admin): fichário único com composição inicial (vira o saldo inicial e UM lançamento no livro-razão)
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: '', code: '', stamp: '' });
+  const [createRows, setCreateRows] = useState([{ chip_id: '', quantity: '' }]);
+  const openCreate = () => { setCreateForm({ name: '', code: '', stamp: '' }); setCreateRows([{ chip_id: '', quantity: '' }]); setCreateOpen(true); };
+  const updateCreateRow = (i, field, value) => setCreateRows(rows => rows.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
+  const submitCreate = async () => {
+    if (!createForm.name.trim()) return showAlert('Informe o nome do fichário.', 'error');
+    const items = createRows.filter(r => r.chip_id || r.quantity);
+    if (items.some(r => !r.chip_id || !(Number(r.quantity) >= 1) || !Number.isInteger(Number(r.quantity)))) {
+      return showAlert('Cada linha da composição precisa de uma ficha e de uma quantidade inteira maior que zero.', 'error');
+    }
+    try {
+      await apiPost('/binders', {
+        name: createForm.name.trim(), code: createForm.code.trim() || undefined, stamp: createForm.stamp.trim() || undefined,
+        composition: items.map(r => ({ chip_id: r.chip_id, quantity: Number(r.quantity) })),
+      });
+      showAlert('Fichário cadastrado com o saldo inicial.', 'success');
+      setCreateOpen(false);
+      await fetchInitialData();
+    } catch (e) {
+      if (e.status !== 401) showAlert(e.message || 'Erro ao cadastrar fichário', 'error');
+    }
+  };
+
   // Multi-allocation modal state
   const [isAllocModalOpen, setIsAllocModalOpen] = useState(false);
   const [allocatingCase, setAllocatingCase] = useState(null);
@@ -85,17 +110,13 @@ export default function Ficharios() {
   };
   const updateAssembleRow = (i, field, value) => setAssembleRows(rows => rows.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
 
-  const submitAssemble = async (fromModel) => {
-    let body;
-    if (fromModel) body = { from_model: true };
-    else {
-      const items = assembleRows.filter(r => r.chip_id || r.quantity);
-      if (!items.length || items.some(r => !r.chip_id || !(Number(r.quantity) >= 1) || !Number.isInteger(Number(r.quantity)))) {
-        return showAlert('Cada linha precisa de uma ficha e de uma quantidade inteira maior que zero.', 'error');
-      }
-      if (!assembleReason.trim()) return showAlert('Informe o motivo da montagem (ex.: compra do lote, reposição).', 'error');
-      body = { items: items.map(r => ({ chip_id: r.chip_id, quantity: Number(r.quantity) })), reason: assembleReason.trim() };
+  const submitAssemble = async () => {
+    const items = assembleRows.filter(r => r.chip_id || r.quantity);
+    if (!items.length || items.some(r => !r.chip_id || !(Number(r.quantity) >= 1) || !Number.isInteger(Number(r.quantity)))) {
+      return showAlert('Cada linha precisa de uma ficha e de uma quantidade inteira maior que zero.', 'error');
     }
+    if (!assembleReason.trim()) return showAlert('Informe o motivo da montagem (ex.: compra do lote, reposição).', 'error');
+    const body = { items: items.map(r => ({ chip_id: r.chip_id, quantity: Number(r.quantity) })), reason: assembleReason.trim() };
     try {
       const res = await apiPost(`/binders/${assembleCase._id}/assemble`, body);
       showAlert(`Montagem registrada (${res.movements} lançamento(s)).`, 'success');
@@ -120,13 +141,13 @@ export default function Ficharios() {
 
   const getStatusBadge = (c) => {
     const allocs = c.allocations || [];
-    if (c.status === 'maintenance') return <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-500">Manutenção</span>;
-    if (allocs.length >= 2) return <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-500">Compartilhado ({allocs.length})</span>;
+    if (c.status === 'maintenance') return <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wider bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-500">Manutenção</span>;
+    if (allocs.length >= 2) return <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wider bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-500">Compartilhado ({allocs.length})</span>;
     if (allocs.length === 1) {
       const name = allocs[0]?.tournament_name;
-      return <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-500 truncate max-w-[150px]" title={name}>Em Uso: {name}</span>;
+      return <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wider bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-500 truncate max-w-[150px]" title={name}>Em Uso: {name}</span>;
     }
-    return <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500">Disponível</span>;
+    return <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wider bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500">Disponível</span>;
   };
 
   // animations
@@ -137,15 +158,20 @@ export default function Ficharios() {
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold mb-1 text-gray-900 dark:text-white">Fichários físicos</h1>
-          <p className="text-gray-500 dark:text-gray-400">O Modelo de Fichário é o próprio fichário: cadastre-o em Modelos de Fichário. Aqui você monta, confere e acompanha o estoque de cada um.</p>
+          <h1 className="page-title">Fichários físicos</h1>
+          <p className="page-sub">Cada fichário é uma unidade física única, com nome, estampa e composição própria. A composição informada no cadastro vira o saldo inicial; depois, o saldo só muda por movimentação.</p>
         </div>
+        {isAdmin && (
+          <button onClick={openCreate} className="btn btn-primary flex items-center">
+            <Plus size={16} /> Novo fichário
+          </button>
+        )}
       </motion.div>
 
       {loading ? (
-        <div className="text-center py-20 text-gray-400 animate-pulse">Carregando fichários...</div>
+        <div className="text-center py-20 text-fg-subtle animate-pulse">Carregando fichários...</div>
       ) : cases.length === 0 ? (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-12 text-center border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-3xl text-gray-400">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-12 text-center border-2 border-dashed border-line rounded-3xl text-fg-subtle">
           Nenhum fichário cadastrado no sistema.
         </motion.div>
       ) : (
@@ -156,25 +182,25 @@ export default function Ficharios() {
             const allocs = c.allocations || [];
 
             return (
-              <motion.div key={c._id} variants={cardAnim} className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-800 rounded-3xl shadow-lg hover:shadow-xl transition-all overflow-hidden flex flex-col">
-                <div className="p-6 border-b border-gray-100 dark:border-zinc-800/50 flex justify-between items-start bg-gray-50 dark:bg-[#111111]">
+              <motion.div key={c._id} variants={cardAnim} className="card hover: transition-all flex flex-col overflow-hidden">
+                <div className="p-6 border-b border-line-soft flex justify-between items-start bg-sunken">
                   <div className="min-w-0 flex-1 mr-3">
-                    <h3 className="font-bold text-xl text-gray-900 dark:text-white flex items-center gap-2 mb-2">
-                      <Briefcase className="text-genesis-red shrink-0" size={20} />
+                    <h3 className="font-bold text-xl text-fg flex items-center gap-2 mb-2">
+                      <Briefcase className="text-brand-fg shrink-0" size={20} />
                       <span className="truncate">{c.name}</span>
                     </h3>
                     {getStatusBadge(c)}
-                    {(c.model_id?.name || c.code) && (
-                      <p className="mt-2 text-xs text-gray-500 flex items-center gap-1.5 flex-wrap">
-                        {c.model_id?.name && <span className="inline-flex items-center gap-1"><Boxes size={11} className="text-genesis-red" /> Modelo {c.model_id.name}</span>}
-                        {c.code && <span className="font-mono px-1.5 py-0.5 rounded bg-gray-100 dark:bg-zinc-800">{c.code}</span>}
+                    {(c.stamp || c.code) && (
+                      <p className="mt-2 text-xs text-fg-muted flex items-center gap-1.5 flex-wrap">
+                        {c.stamp && <span className="inline-flex items-center gap-1"><Boxes size={11} className="text-brand-fg" /> {c.stamp}</span>}
+                        {c.code && <span className="font-mono px-1.5 py-0.5 rounded bg-raised">{c.code}</span>}
                       </p>
                     )}
                     {/* Show all allocations if shared */}
                     {allocs.length >= 2 && (
                       <div className="mt-2 space-y-1">
                         {allocs.map((al, i) => (
-                          <p key={i} className="text-xs text-gray-500 flex items-center gap-1">
+                          <p key={i} className="text-xs text-fg-muted flex items-center gap-1">
                             <Link2 size={10} className="text-purple-400" /> {al.tournament_name}
                           </p>
                         ))}
@@ -182,44 +208,44 @@ export default function Ficharios() {
                     )}
                   </div>
                   <div className="flex gap-2 shrink-0">
-                    <button onClick={() => openMatrix(c)} title="Disponibilidade por torneio" className="p-2 text-gray-400 hover:text-purple-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><Grid3x3 size={16} /></button>
+                    <button onClick={() => openMatrix(c)} title="Disponibilidade por torneio" className="card p-2 text-fg-subtle hover:text-purple-500 transition-colors"><Grid3x3 size={16} /></button>
                     {isAdmin && (
-                      <button onClick={() => openAssemble(c)} title="Montar / adicionar fichas" className="p-2 text-gray-400 hover:text-emerald-500 bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><PackagePlus size={16} /></button>
+                      <button onClick={() => openAssemble(c)} title="Montar / adicionar fichas" className="card p-2 text-fg-subtle hover:text-emerald-500 transition-colors"><PackagePlus size={16} /></button>
                     )}
                     {c.chips.length > 0 && (
-                      <button onClick={() => setCountCase(c)} title="Conferência física" className="p-2 text-gray-400 hover:text-genesis-red bg-white dark:bg-[#141414] border border-gray-200 dark:border-zinc-700 rounded-lg transition-colors shadow-sm"><PackageCheck size={16} /></button>
+                      <button onClick={() => setCountCase(c)} title="Conferência física" className="card p-2 text-fg-subtle hover:text-brand-fg transition-colors"><PackageCheck size={16} /></button>
                     )}
                   </div>
                 </div>
 
                 <div className="p-6 flex-1 flex flex-col justify-between">
                   <div>
-                    <p className="text-xs uppercase font-bold tracking-widest text-gray-400 mb-4 border-b border-gray-100 dark:border-zinc-800/50 pb-2">Conteúdo do Fichário</p>
+                    <p className="text-xs uppercase font-bold tracking-wide text-fg-subtle mb-4 border-b border-line-soft pb-2">Conteúdo do Fichário</p>
                     {c.chips.length === 0 ? (
-                      <p className="text-sm text-gray-400 italic">Fichário vazio.</p>
+                      <p className="text-sm text-fg-subtle italic">Fichário vazio.</p>
                     ) : (
                       <ul className="space-y-3 mb-6">
                         {c.chips.map((item, idx) => item.chip_id && (
                           <li key={idx} className="flex justify-between items-center text-sm font-medium">
                             <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 rounded-full border border-gray-200 dark:border-zinc-700 shadow-sm" style={{ backgroundColor: item.chip_id.color || 'transparent' }}></div>
-                              <span className="text-gray-700 dark:text-gray-300">{item.chip_id.name}</span>
+                              <div className="w-4 h-4 rounded-full border border-line" style={{ backgroundColor: item.chip_id.color || 'transparent' }}></div>
+                              <span className="text-fg">{item.chip_id.name}</span>
                             </div>
-                            <span className="font-bold text-gray-900 dark:text-white">{item.quantity.toLocaleString()} un.</span>
+                            <span className="font-bold text-fg">{item.quantity.toLocaleString()} un.</span>
                           </li>
                         ))}
                       </ul>
                     )}
                   </div>
 
-                  <div className="pt-4 border-t border-gray-100 dark:border-zinc-800/50 flex justify-between items-center">
+                  <div className="pt-4 border-t border-line-soft flex justify-between items-center">
                     <div>
-                      <p className="text-xs text-gray-500">Total Fichas</p>
-                      <p className="font-black text-gray-900 dark:text-white text-lg">{totalChips.toLocaleString()}</p>
+                      <p className="text-xs text-fg-muted">Total Fichas</p>
+                      <p className="font-bold text-fg text-lg">{totalChips.toLocaleString()}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-gray-500">Valor em Jogo (MGS)</p>
-                      <p className="font-black text-emerald-600 dark:text-emerald-500 text-lg">{totalValue.toLocaleString()}</p>
+                      <p className="text-xs text-fg-muted">Valor em Jogo (MGS)</p>
+                      <p className="font-bold text-emerald-600 dark:text-emerald-500 text-lg">{totalValue.toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
@@ -229,23 +255,63 @@ export default function Ficharios() {
         </motion.div>
       )}
 
+      {/* Cadastro de fichário (único) com composição inicial */}
+      <AnimatePresence>
+        {createOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCreateOpen(false)} className="absolute inset-0 bg-[var(--overlay)]" />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="card relative w-full max-h-[92vh] overflow-y-auto max-w-lg shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-line-soft p-6">
+                <h2 className="flex items-center gap-2 text-xl font-bold text-fg"><Briefcase size={20} className="text-brand-fg" /> Novo fichário</h2>
+                <button type="button" onClick={() => setCreateOpen(false)} aria-label="Fechar" className="text-fg-subtle hover:text-gray-600"><X /></button>
+              </div>
+              <div className="space-y-4 p-6">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <input aria-label="Nome do fichário" placeholder="Nome (ex.: Drogon)" value={createForm.name} onChange={(e) => setCreateForm(f => ({ ...f, name: e.target.value }))} className="card px-3 py-2 text-sm" />
+                  <input aria-label="Código" placeholder="Código" value={createForm.code} onChange={(e) => setCreateForm(f => ({ ...f, code: e.target.value }))} className="card px-3 py-2 text-sm" />
+                  <input aria-label="Estampa" placeholder="Estampa" value={createForm.stamp} onChange={(e) => setCreateForm(f => ({ ...f, stamp: e.target.value }))} className="card px-3 py-2 text-sm" />
+                </div>
+                <p className="text-xs text-fg-muted">Composição inicial por denominação. Ela gera o saldo inicial e um único lançamento no livro-razão (sem etapa de montagem). Depois do cadastro o saldo só muda por movimentação.</p>
+                <div className="space-y-3">
+                  {createRows.map((row, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_100px_auto] items-center gap-2 rounded-xl border border-line bg-sunken p-3 dark:bg-sunken">
+                      <CustomSelect options={chipOptions()} value={row.chip_id} onChange={(v) => updateCreateRow(i, 'chip_id', v)} placeholder="Selecione a ficha..." />
+                      <input type="number" min="1" step="1" placeholder="Qtd" aria-label="Quantidade" value={row.quantity} onChange={(e) => updateCreateRow(i, 'quantity', e.target.value)} className="card w-full px-2 py-2 text-center text-sm" />
+                      <button type="button" onClick={() => setCreateRows(rows => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : [{ chip_id: '', quantity: '' }]))} className="p-2 text-fg-subtle hover:text-red-500"><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setCreateRows(rows => [...rows, { chip_id: '', quantity: '' }])} className="flex items-center gap-1 text-sm font-bold text-brand-fg hover:text-red-700"><Plus size={14} /> Adicionar ficha</button>
+                </div>
+              </div>
+              <div className="flex gap-3 border-t border-line-soft p-4">
+                <button onClick={() => setCreateOpen(false)} className="flex-1 rounded-xl bg-raised py-3 text-xs font-bold text-fg-muted dark:bg-zinc-800">Cancelar</button>
+                <button onClick={submitCreate} className="flex-1 rounded-xl bg-brand py-3 text-xs font-bold text-white hover:bg-brand-hover">Cadastrar fichário</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Conferência física */}
       <AnimatePresence>
         {countCase && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCountCase(null)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCountCase(null)} className="absolute inset-0 bg-[var(--overlay)]" />
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-h-[92vh] overflow-y-auto max-w-md rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]"
+              className="card relative w-full max-h-[92vh] overflow-y-auto max-w-md shadow-2xl"
             >
-              <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
-                <h2 className="flex items-center gap-2 text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">
-                  <PackageCheck size={20} className="text-genesis-red" /> Conferir "{countCase.name}"
+              <div className="flex items-center justify-between border-b border-line-soft p-6">
+                <h2 className="flex items-center gap-2 text-xl font-bold text-fg">
+                  <PackageCheck size={20} className="text-brand-fg" /> Conferir "{countCase.name}"
                 </h2>
-                <button type="button" onClick={() => setCountCase(null)} className="text-gray-400 hover:text-gray-600"><X /></button>
+                <button type="button" onClick={() => setCountCase(null)} className="text-fg-subtle hover:text-gray-600"><X /></button>
               </div>
               <div className="space-y-3 p-6">
-                <p className="text-xs font-medium text-gray-500">Informe quantas fichas de cada denominação você contou. Falta vira perda (divergência) e sobra vira ajuste no livro-razão — nada é sobrescrito.</p>
+                <p className="text-xs font-medium text-fg-muted">Informe quantas fichas de cada denominação você contou. Falta vira perda (divergência) e sobra vira ajuste no livro-razão — nada é sobrescrito.</p>
                 {countCase.chips.filter((c) => c.chip_id).map((c) => {
                   const id = c.chip_id._id || c.chip_id;
                   const counted = countValues[id];
@@ -254,32 +320,32 @@ export default function Ficharios() {
                     <div key={id} className="flex items-center gap-3">
                       <div className="flex flex-1 items-center gap-2">
                         <span className="h-4 w-4 rounded-full" style={{ backgroundColor: c.chip_id.color }} />
-                        <span className="text-sm font-bold text-gray-800 dark:text-gray-100">Ficha {c.chip_id.value}</span>
-                        <span className="text-xs text-gray-400">esperado {c.quantity}</span>
+                        <span className="text-sm font-bold text-fg dark:text-gray-100">Ficha {c.chip_id.value}</span>
+                        <span className="text-xs text-fg-subtle">esperado {c.quantity}</span>
                       </div>
                       <input
                         type="number" min="0"
                         value={counted ?? ''}
                         onChange={(e) => setCountValues((v) => ({ ...v, [id]: e.target.value }))}
-                        className="w-24 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-right text-sm font-bold outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-700 dark:bg-zinc-900"
+                        className="input w-24 text-right"
                       />
-                      <span className={`w-12 text-right text-xs font-black tabular-nums ${diff === 0 ? 'text-gray-300' : diff < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                      <span className={`w-12 text-right text-xs font-bold tabular-nums ${diff === 0 ? 'text-gray-300' : diff < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                         {diff > 0 ? '+' : ''}{diff || ''}
                       </span>
                     </div>
                   );
                 })}
                 <div>
-                  <label className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">Justificativa (obrigatória para diferenças de severidade alta)</label>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Justificativa (obrigatória para diferenças de severidade alta)</label>
                   <input
                     type="text" value={countReason} onChange={(e) => setCountReason(e.target.value)} placeholder="Ex.: contagem do fim do turno"
-                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-genesis-red dark:border-zinc-700 dark:bg-zinc-900"
+                    className="input w-full"
                   />
                 </div>
               </div>
-              <div className="flex gap-3 border-t border-gray-100 p-4 dark:border-zinc-800">
-                <button onClick={() => setCountCase(null)} className="flex-1 rounded-xl bg-gray-100 py-3 text-xs font-black uppercase text-gray-600 dark:bg-zinc-800 dark:text-gray-300">Cancelar</button>
-                <button onClick={submitCount} className="flex-1 rounded-xl bg-genesis-red py-3 text-xs font-black uppercase text-white hover:bg-red-700">Registrar conferência</button>
+              <div className="flex gap-3 border-t border-line-soft p-4">
+                <button onClick={() => setCountCase(null)} className="flex-1 rounded-xl bg-raised py-3 text-xs font-bold text-fg-muted dark:bg-zinc-800">Cancelar</button>
+                <button onClick={submitCount} className="flex-1 rounded-xl bg-brand py-3 text-xs font-bold text-white hover:bg-brand-hover">Registrar conferência</button>
               </div>
             </motion.div>
           </div>
@@ -290,50 +356,42 @@ export default function Ficharios() {
       <AnimatePresence>
         {assembleCase && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setAssembleCase(null)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setAssembleCase(null)} className="absolute inset-0 bg-[var(--overlay)]" />
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-h-[92vh] overflow-y-auto max-w-lg rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]"
+              className="card relative w-full max-h-[92vh] overflow-y-auto max-w-lg shadow-2xl"
             >
-              <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
-                <h2 className="flex items-center gap-2 text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">
-                  <PackagePlus size={20} className="text-genesis-red" /> Montar "{assembleCase.name}"
+              <div className="flex items-center justify-between border-b border-line-soft p-6">
+                <h2 className="flex items-center gap-2 text-xl font-bold text-fg">
+                  <PackagePlus size={20} className="text-brand-fg" /> Montar "{assembleCase.name}"
                 </h2>
-                <button type="button" onClick={() => setAssembleCase(null)} className="text-gray-400 hover:text-gray-600"><X /></button>
+                <button type="button" onClick={() => setAssembleCase(null)} className="text-fg-subtle hover:text-gray-600"><X /></button>
               </div>
               <div className="space-y-4 p-6">
-                {assembleCase.model_id?.name && (
-                  <button
-                    type="button" onClick={() => submitAssemble(true)}
-                    className="w-full rounded-xl border-2 border-dashed border-emerald-400 p-3 text-sm font-bold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
-                  >
-                    <Boxes size={14} className="mr-2 inline" /> Lançar a composição do modelo "{assembleCase.model_id.name}"
-                  </button>
-                )}
-                <p className="text-xs text-gray-500">Ou lance fichas avulsas. Cada montagem entra no livro-razão e pode ser estornada.</p>
+                <p className="text-xs text-fg-muted">Entrada de fichas novas neste fichário. Cada montagem entra no livro-razão (com o motivo) e pode ser estornada; o saldo inicial do cadastro não é reescrito.</p>
                 <div className="space-y-3">
                   {assembleRows.map((row, i) => (
-                    <div key={i} className="grid grid-cols-[1fr_100px_auto] items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700/50 dark:bg-[#0c0c0c]">
+                    <div key={i} className="grid grid-cols-[1fr_100px_auto] items-center gap-2 rounded-xl border border-line bg-sunken p-3 dark:bg-sunken">
                       <CustomSelect options={chipOptions()} value={row.chip_id} onChange={(v) => updateAssembleRow(i, 'chip_id', v)} placeholder="Selecione a ficha..." />
                       <input
                         type="number" min="1" step="1" placeholder="Qtd" value={row.quantity} onChange={(e) => updateAssembleRow(i, 'quantity', e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 bg-white px-2 py-2 text-center text-sm text-gray-900 focus:border-genesis-red focus:outline-none dark:border-zinc-700 dark:bg-[#141414] dark:text-white"
+                        className="card w-full px-2 py-2 text-center text-sm text-gray-900 focus:border-genesis-red focus:outline-none dark:text-white"
                       />
-                      <button type="button" onClick={() => setAssembleRows(rows => rows.filter((_, idx) => idx !== i))} className="p-2 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
+                      <button type="button" onClick={() => setAssembleRows(rows => rows.filter((_, idx) => idx !== i))} className="p-2 text-fg-subtle hover:text-red-500"><Trash2 size={16} /></button>
                     </div>
                   ))}
-                  <button type="button" onClick={() => setAssembleRows(rows => [...rows, { chip_id: '', quantity: '' }])} className="flex items-center gap-1 text-sm font-bold text-genesis-red hover:text-red-700">
+                  <button type="button" onClick={() => setAssembleRows(rows => [...rows, { chip_id: '', quantity: '' }])} className="flex items-center gap-1 text-sm font-bold text-brand-fg hover:text-red-700">
                     <Plus size={14} /> Adicionar ficha
                   </button>
                   <input
                     type="text" value={assembleReason} onChange={(e) => setAssembleReason(e.target.value)} placeholder="Motivo da montagem (obrigatório)" aria-label="Motivo da montagem"
-                    className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-genesis-red focus:outline-none dark:border-zinc-700 dark:bg-[#141414] dark:text-white"
+                    className="card mt-2 w-full px-3 py-2 text-sm text-gray-900 focus:border-genesis-red focus:outline-none dark:text-white"
                   />
                 </div>
               </div>
-              <div className="flex gap-3 border-t border-gray-100 p-4 dark:border-zinc-800">
-                <button onClick={() => setAssembleCase(null)} className="flex-1 rounded-xl bg-gray-100 py-3 text-xs font-black uppercase text-gray-600 dark:bg-zinc-800 dark:text-gray-300">Cancelar</button>
-                <button onClick={() => submitAssemble(false)} className="flex-1 rounded-xl bg-genesis-red py-3 text-xs font-black uppercase text-white hover:bg-red-700">Lançar montagem</button>
+              <div className="flex gap-3 border-t border-line-soft p-4">
+                <button onClick={() => setAssembleCase(null)} className="flex-1 rounded-xl bg-raised py-3 text-xs font-bold text-fg-muted dark:bg-zinc-800">Cancelar</button>
+                <button onClick={submitAssemble} className="flex-1 rounded-xl bg-brand py-3 text-xs font-bold text-white hover:bg-brand-hover">Lançar montagem</button>
               </div>
             </motion.div>
           </div>
@@ -344,17 +402,17 @@ export default function Ficharios() {
       <AnimatePresence>
         {matrixBinder && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMatrixBinder(null)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-[32px] border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-[#111111]">
-              <div className="flex items-center justify-between border-b border-gray-100 p-6 dark:border-zinc-800">
-                <h2 className="flex items-center gap-2 text-xl font-black uppercase tracking-tight text-gray-900 dark:text-white">
-                  <Grid3x3 size={20} className="text-genesis-red" /> Disponibilidade — {matrixBinder.name}
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMatrixBinder(null)} className="absolute inset-0 bg-[var(--overlay)]" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="card relative w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl">
+              <div className="flex items-center justify-between border-b border-line-soft p-6">
+                <h2 className="flex items-center gap-2 text-xl font-bold text-fg">
+                  <Grid3x3 size={20} className="text-brand-fg" /> Disponibilidade — {matrixBinder.name}
                 </h2>
-                <button type="button" onClick={() => setMatrixBinder(null)} className="text-gray-400 hover:text-gray-600"><X /></button>
+                <button type="button" onClick={() => setMatrixBinder(null)} className="text-fg-subtle hover:text-gray-600"><X /></button>
               </div>
               <div className="space-y-3 p-6">
-                <p className="text-xs text-gray-500">O mesmo fichário pode atender mais de um torneio, desde que a soma alocada de cada ficha não passe do saldo. <b>Livre</b> = saldo − alocado.</p>
-                {matrix ? <AllocationMatrix matrix={matrix} /> : <p className="py-6 text-center text-gray-400 animate-pulse">Carregando…</p>}
+                <p className="text-xs text-fg-muted">O mesmo fichário pode atender mais de um torneio, desde que a soma alocada de cada ficha não passe do saldo. <b>Livre</b> = saldo − alocado.</p>
+                {matrix ? <AllocationMatrix matrix={matrix} /> : <p className="py-6 text-center text-fg-subtle animate-pulse">Carregando…</p>}
               </div>
             </motion.div>
           </div>
