@@ -91,7 +91,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       message: 'Login realizado',
       token: signToken(user),
       user: {
-        name: user.name, email: user.email, role: user.role,
+        name: user.name, email: user.email, role: user.role, avatar: user.avatar || null,
         must_change_password: !!user.must_change_password,
       },
     });
@@ -106,11 +106,39 @@ router.get('/me', verifyToken, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
     res.json({
-      id: user._id, name: user.name, email: user.email, role: user.role,
+      id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar || null,
       must_change_password: !!user.must_change_password,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Foto de perfil do PRÓPRIO usuário: data URL de imagem pequena (o navegador recorta em quadrado e comprime).
+const AVATAR_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const AVATAR_MAX_CHARS = 150_000; // ~110 KB de imagem: sobra para um 256×256 em JPEG
+router.put('/me/avatar', verifyToken, async (req, res) => {
+  try {
+    const image = String(req.body?.image || '');
+    if (!AVATAR_RE.test(image)) throw new HttpError(400, 'Envie uma imagem JPEG, PNG ou WebP.');
+    if (image.length > AVATAR_MAX_CHARS) throw new HttpError(413, 'Foto muito grande: use uma imagem menor.');
+    const user = await User.findByIdAndUpdate(req.user.id, { avatar: image }, { new: true });
+    if (!user) throw new HttpError(404, 'Usuário não encontrado.');
+    await logActivity('Foto de Perfil Alterada', 'system', user.email, req.user);
+    res.json({ avatar: user.avatar });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+router.delete('/me/avatar', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.user.id, { avatar: null }, { new: true });
+    if (!user) throw new HttpError(404, 'Usuário não encontrado.');
+    await logActivity('Foto de Perfil Removida', 'system', user.email, req.user);
+    res.json({ avatar: null });
+  } catch (err) {
+    sendError(res, err);
   }
 });
 
@@ -2439,6 +2467,16 @@ router.post('/chat/:id/ack', verifyToken, async (req, res) => {
     res.json(msg);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Fotos de perfil de quem conversa: { email: data URL }. Separado das mensagens para não repetir a imagem em cada uma.
+router.get('/chat/avatars', verifyToken, async (req, res) => {
+  try {
+    const users = await User.find({ avatar: { $ne: null } }).select('email avatar');
+    res.json(Object.fromEntries(users.map((u) => [u.email, u.avatar])));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
