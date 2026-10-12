@@ -12,9 +12,9 @@ import SessionBar from './SessionBar';
 import { AlertProvider } from '../contexts/AlertContext';
 
 const sessions = [
-  { _id: 's1', name: 'Dia 1A', status: 'finished', counts: { total: 12 }, chips_value: 0 },
-  { _id: 's2', name: 'Dia 1B', status: 'running', counts: { total: 5 }, chips_value: 250000 },
-  { _id: 's3', name: 'Dia Final', status: 'scheduled', counts: { total: 0 }, chips_value: 0 },
+  { _id: 's1', name: 'Dia 1A', type: 'QUALIFIER', status: 'finished', qualified_count: 7, counts: { total: 12 }, players: { active: 7 }, chips_value: 0 },
+  { _id: 's2', name: 'Dia 1B', type: 'QUALIFIER', status: 'running', counts: { total: 5 }, players: { active: 4 }, chips_value: 250000 },
+  { _id: 's3', name: 'Dia Final', type: 'FINAL', status: 'scheduled', counts: { total: 0 }, players: { active: 0, starting_players: 11 }, chips_value: 0 },
 ];
 
 let root; let container;
@@ -40,12 +40,12 @@ beforeEach(() => { api.apiPost.mockReset(); api.apiPut.mockReset(); api.apiDelet
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 
 describe('SessionBar', () => {
-  it('lista as sessões do torneio com o nº de entradas de cada uma', async () => {
+  it('lista as sessões do torneio com os jogadores ativos de cada uma', async () => {
     await mount();
     const t = container.textContent;
     for (const name of ['Dia 1A', 'Dia 1B', 'Dia Final']) expect(t).toContain(name);
-    expect(t).toContain('12');
-    expect(t).toContain('valor em jogo 250.000');
+    expect(t).toContain('valor nominal em jogo 250.000');
+    expect(t).toContain('Final'); // selo do Dia Final
   });
 
   it('clicar numa sessão a seleciona', async () => {
@@ -54,12 +54,27 @@ describe('SessionBar', () => {
     expect(onSelect).toHaveBeenCalledWith('s3');
   });
 
-  it('operador encerra a sessão em andamento (PUT status) e a tela é recarregada', async () => {
+  it('operador encerra a classificatória informando os classificados (padrão = ativos) e a tela é recarregada', async () => {
     const { onChanged } = await mount({ isAdmin: false });
     await act(async () => { button('Encerrar sessão').click(); });
     await flush();
-    expect(api.apiPut).toHaveBeenCalledWith('/tournaments/t1/sessions/s2', { status: 'finished' });
+    const dlg = document.querySelector('[role="dialog"]');
+    expect(dlg.querySelector('input').value).toBe('4');
+    await act(async () => { [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Encerrar').click(); });
+    await flush();
+    expect(api.apiPut).toHaveBeenCalledWith('/tournaments/t1/sessions/s2', { status: 'finished', qualified_count: 4 });
     expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('Dia Final: mostra os jogadores iniciais (soma dos classificados)', async () => {
+    await mount({ selectedId: 's3' });
+    expect(container.textContent).toContain('iniciais 11');
+  });
+
+  it('classificatória encerrada mostra os classificados e oferece correção auditável', async () => {
+    await mount({ selectedId: 's1' });
+    expect(container.textContent).toContain('classificados 7');
+    expect(button('Corrigir classificados')).toBeTruthy();
   });
 
   it('operador NÃO cria, renomeia, exclui nem reabre; admin pode', async () => {

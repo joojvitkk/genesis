@@ -21,6 +21,8 @@ const { escapeRegex, toInt, pick } = require('../utils/sanitize');
 const { REACTION_KINDS, publicMessage } = require('../lib/chat');
 const { paginate } = require('../lib/pagination');
 const { applyAction, clockPayload } = require('../lib/tournamentClock');
+const { clockView } = require('../lib/sessions');
+const { SESSION_TYPES } = require('../models/TournamentSession');
 const { entryContribution, summarize, payoutTable, validateTemplate } = require('../lib/tournamentFinance');
 const { postBatch, reverseMovements, balances, chipTotal } = require('../lib/movements');
 const {
@@ -318,12 +320,12 @@ router.post('/users/:id/revoke-sessions', verifyToken, requirePageAccess('usuari
 
 // ─── Dashboard (G10) ─────────────────────────────────────────────────────────
 // Tudo derivado dos MOVIMENTOS (lib/dashboard.js) — nenhuma leitura dos caches legados de quantidade.
-// `?blocks=inventory,in_play,...` refaz só os blocos pedidos (o painel atualiza por bloco em tempo real).
-// Blocos: metrics, recent, inventory, in_play, flows, occurrences, ko, conflicts, timeline, binders.
+// `?blocks=inventory,at_hall,...` refaz só os blocos pedidos (o painel atualiza por bloco em tempo real).
+// Blocos: metrics, recent, inventory, at_hall, flows, occurrences, timeline, binders, requests, free_binders, tournament_chips.
 router.get('/dashboard/stats', verifyToken, async (req, res) => {
   try {
     const asked = String(req.query.blocks || '').split(',').map((x) => x.trim()).filter(Boolean);
-    const all = ['metrics', 'recent', 'reentries', 'requests', 'free_binders', 'tournament_chips', ...Object.keys(dashboardLib.BLOCKS)];
+    const all = ['metrics', 'recent', 'requests', 'free_binders', 'tournament_chips', 'running_clocks', ...Object.keys(dashboardLib.BLOCKS)];
     const unknown = asked.filter((b) => !all.includes(b));
     if (unknown.length) throw new HttpError(400, `Bloco(s) desconhecido(s): ${unknown.join(', ')}. Use: ${all.join(', ')}.`);
     const wanted = asked.length ? asked : all;
@@ -340,7 +342,7 @@ router.get('/dashboard/stats', verifyToken, async (req, res) => {
       ]);
       out.metrics = {
         activeTournamentsCount, totalChipsInStock: chips.totals.in_binders, stockValue: chips.totals.value_in_binders,
-        chipsInPlay: chips.totals.in_play, valueInPlay: chips.totals.value_in_play, availableCases: binders.free, chipRacesToday,
+        chipsAtHall: chips.totals.at_hall, valueAtHall: chips.totals.value_at_hall, availableCases: binders.free, chipRacesToday,
       };
     }
     if (wanted.includes('recent')) {
@@ -350,39 +352,46 @@ router.get('/dashboard/stats', verifyToken, async (req, res) => {
       // o feed de atividades é auditoria administrativa: só o admin
       out.recentActivities = req.user.role === 'admin' ? await ActivityLog.find().sort({ createdAt: -1 }).limit(7) : [];
     }
-    if (wanted.includes('reentries')) {
-      // reentradas já ENVIADAS ao Salão e ainda disponíveis (mesmo saldo e nomenclatura da aba Material) — visível ao Salão e ao Material
-      const scope = await allowedTournaments(req.user);
-      const running = await Tournament.find({ status: { $in: ['running', 'paused'] }, ...(scope ? { _id: { $in: scope } } : {}) }).sort(GRID_ORDER).select('name');
-      out.reentries = [];
-      for (const t of running) {
-        const sum = await material.summary(t._id);
-        const st = sum.stacks.find((x) => x.action === 're_entry');
-        const sent = sum.rows.length ? await Movement.countDocuments({ tournament_id: t._id, type: 'SEND_REENTRY' }) : 0;
-        if (st || sent) out.reentries.push({ tournament: { _id: t._id, name: t.name }, stacks_available: st?.stacks ?? 0, label: st?.label || 'Reentrada', composition: st?.composition || [] });
-      }
-    }
     if (wanted.includes('free_binders')) {
       // fichários livres = sem alocação aberta; a lista é o que aparece ao clicar no cartão
       const used = await Allocation.distinct('binder_id', { open: true });
-      const free = await Binder.find({ _id: { $nin: used } }).sort({ name: 1 });
+      const free = await Binder.find({ _id: { $nin: used }, archived: { $ne: true } }).sort({ name: 1 });
       const shown = await binderView.present(free);
-      out.free_binders = shown.map((b) => ({ _id: b._id, name: b.name, code: b.code || null, stamp: b.stamp || null, chips: b.chips.reduce((a, c) => a + (c.quantity || 0), 0) }));
+      out.free_binders = shown.map((b) => ({ _id: b._id, name: b.name, code: b.code || null, chips_total: b.chips.reduce((a, c) => a + (c.quantity || 0), 0), chips: b.chips.map((c) => ({ chip: c.chip_id, quantity: c.quantity })) }));
     }
     if (wanted.includes('tournament_chips')) {
-      // fichas EM JOGO (Chip Count: o que as entradas já entregaram aos jogadores), por torneio em andamento
+      // fichas EM JOGO (Chip Count: o que as entradas já entregaram aos stacks dos jogadores — NUNCA o que foi só enviado
+      // ao Salão), por torneio em andamento e, dentro dele, por sessão
       const scope = await allowedTournaments(req.user);
       const live = await Tournament.find({ status: { $in: ['running', 'paused'] }, ...(scope ? { _id: { $in: scope } } : {}) }).sort(GRID_ORDER).select('name');
       const rows = [];
       for (const t of live) {
+        const sessions = (await sessionsLib.listSessions(t._id)).filter((x) => x.status !== 'finished' && x.type !== 'FINAL');
+        const per = [];
+        for (const sess of sessions) {
+          const r = await tournamentChips.chipsInPlay(t._id, { sessionId: sess._id });
+          per.push({ session: { _id: sess._id, name: sess.name, type: sess.type, status: sess.status }, quantity: r.totals.quantity, value: r.totals.value, chips: r.rows.map((x) => ({ chip: x.chip, quantity: x.quantity })) });
+        }
         const r = await tournamentChips.chipsInPlay(t._id);
-        rows.push({ tournament: { _id: t._id, name: t.name }, quantity: r.totals.quantity, value: r.totals.value, chips: r.rows.map((x) => ({ chip: x.chip, quantity: x.quantity })) });
+        rows.push({ tournament: { _id: t._id, name: t.name }, quantity: r.totals.quantity, value: r.totals.value, chips: r.rows.map((x) => ({ chip: x.chip, quantity: x.quantity })), sessions: per });
       }
       out.tournament_chips = { rows, totals: { quantity: rows.reduce((a, r) => a + r.quantity, 0), value: rows.reduce((a, r) => a + r.value, 0) } };
     }
+    if (wanted.includes('running_clocks')) {
+      // um relógio por SESSÃO em andamento/pausada (nunca um por torneio)
+      const scope = await allowedTournaments(req.user);
+      const live = await Tournament.find({ status: { $in: ['running', 'paused'] }, ...(scope ? { _id: { $in: scope } } : {}) }).sort(GRID_ORDER);
+      out.running_clocks = [];
+      for (const t of live) {
+        const sessions = await sessionsLib.listSessions(t._id);
+        const active = sessions.filter((x) => x.status !== 'finished' && x.clock_status !== 'stopped');
+        if (!sessions.length) { if (t.clock_status !== 'stopped') out.running_clocks.push(clockPayload(t)); continue; }
+        for (const sess of active) out.running_clocks.push(clockPayload(clockView(t, sess)));
+      }
+    }
     if (wanted.includes('requests')) {
       const scope = await allowedTournaments(req.user);
-      out.requests = await ConversionRequest.find({ status: { $in: conversionRequests.OPEN }, ...(scope ? { tournament_id: { $in: scope } } : {}) }).sort({ createdAt: 1 }).limit(20).populate('tournament_id', 'name');
+      out.requests = await ConversionRequest.find({ status: { $in: conversionRequests.OPEN }, ...(scope ? { tournament_id: { $in: scope } } : {}) }).sort({ createdAt: 1 }).limit(20).populate('tournament_id', 'name').populate('session_id', 'name').populate('chip_id', 'value');
     }
     Object.assign(out, await dashboardLib.stats(wanted.filter((b) => dashboardLib.BLOCKS[b])));
     res.json(out);
@@ -483,17 +492,19 @@ router.delete('/chips/:id', verifyToken, (req, res) => {
 });
 
 // ─── Fichários físicos (Binder) ──────────────────────────────────────────────
-// Cada fichário é uma UNIDADE FÍSICA ÚNICA (nome, código, estampa e composição própria) — não há "modelo de fichário".
+// Cada fichário é uma UNIDADE FÍSICA ÚNICA (nome, código e composição própria) — não há "modelo de fichário".
 // A composição informada no cadastro vira o saldo inicial: UM lote ASSEMBLY no livro-razão. Depois disso o saldo só muda por
 // movimentação (envio, retorno, transferência, conferência, ajuste identificado). Conteúdo, alocações e situação são
 // DERIVADOS na leitura (lib/binderView.js). Criar/editar/excluir só admin; a conferência é operacional.
-const BINDER_FIELDS = ['name', 'code', 'stamp', 'status'];
+const BINDER_FIELDS = ['name', 'code', 'status'];
 const CHIPS_READONLY_MSG = 'O conteúdo do fichário é derivado das movimentações e não pode ser editado: use a montagem (POST /binders/:id/assemble) ou movimentações (POST /movements).';
 const BINDER_PATHS = ['/binders'];
 
 router.get(BINDER_PATHS, verifyToken, requirePageAccess('ficharios'), async (req, res) => {
   try {
-    await paginate(res, Binder, {}, { sort: { createdAt: -1 }, query: req.query, transform: (rows) => binderView.present(rows) });
+    // arquivados saem das seleções operacionais; `?archived=true` lista só eles, `?archived=all` lista todos
+    const filter = req.query.archived === 'all' ? {} : req.query.archived === 'true' ? { archived: true } : { archived: { $ne: true } };
+    await paginate(res, Binder, filter, { sort: { createdAt: -1 }, query: req.query, transform: (rows) => binderView.present(rows) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -505,7 +516,6 @@ router.post(BINDER_PATHS, verifyToken, requirePageAccess('ficharios'), adminOnly
     data.name = String(data.name || '').trim();
     if (!data.name) throw new HttpError(400, 'Nome é obrigatório.');
     if (data.code !== undefined) data.code = String(data.code).trim() || undefined;
-    if (data.stamp !== undefined) data.stamp = String(data.stamp).trim() || undefined;
     await assertUniqueBinder(data);
     if (req.body?.chips !== undefined) throw new HttpError(400, CHIPS_READONLY_MSG);
     // composição inicial (opcional): validada ANTES de criar o fichário, para não deixar um fichário pela metade
@@ -537,7 +547,6 @@ router.put(BINDER_PATHS.map((p) => `${p}/:id`), verifyToken, requirePageAccess('
       if (!data.name) throw new HttpError(400, 'Nome é obrigatório.');
     }
     if (data.code !== undefined) data.code = String(data.code).trim() || undefined;
-    if (data.stamp !== undefined) data.stamp = String(data.stamp).trim() || undefined;
     await assertUniqueBinder({ name: data.name, code: data.code }, binder._id);
     if (req.body?.chips !== undefined || req.body?.composition !== undefined) throw new HttpError(400, CHIPS_READONLY_MSG);
     binder.set(data);
@@ -549,15 +558,62 @@ router.put(BINDER_PATHS.map((p) => `${p}/:id`), verifyToken, requirePageAccess('
   }
 });
 
+// Excluir de vez só um fichário SEM histórico (criado por engano). Com qualquer movimentação/conversão: arquivar.
+const binderHasHistory = async (binderId) => {
+  const checks = await Promise.all([
+    Movement.exists({ $or: [{ binder_id: binderId }, { 'from.id': binderId }, { 'to.id': binderId }] }),
+    Conversion.exists({ binder_id: binderId }),
+    Allocation.exists({ binder_id: binderId }),
+    Occurrence.exists({ binder_id: binderId }),
+  ]);
+  return checks.some(Boolean);
+};
 router.delete(BINDER_PATHS.map((p) => `${p}/:id`), verifyToken, requirePageAccess('ficharios'), adminOnly, async (req, res) => {
   try {
     const binder = await Binder.findById(req.params.id);
     if (!binder) throw new HttpError(404, 'Fichário não encontrado.');
-    const held = (await balances({ binder_id: binder._id })).filter((r) => r.quantity > 0);
-    if (held.length) throw new HttpError(409, 'Este fichário ainda contém fichas. Retire-as (saída/estorno) antes de excluí-lo.');
+    if (await binderHasHistory(binder._id)) {
+      throw new HttpError(409, 'Este fichário já tem histórico (movimentações, conferências ou torneios) e não pode ser excluído: arquive-o.');
+    }
     await binder.softDelete();
     await logActivity('Fichário Excluído', 'chip_case', `ID: ${req.params.id} | Nome: ${binder.name}`, req.user);
     res.json({ message: 'Fichário excluído com sucesso' });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+router.post(BINDER_PATHS.map((p) => `${p}/:id/archive`), verifyToken, requirePageAccess('ficharios'), adminOnly, async (req, res) => {
+  try {
+    const binder = await Binder.findById(req.params.id);
+    if (!binder) throw new HttpError(404, 'Fichário não encontrado.');
+    if (binder.archived) throw new HttpError(409, 'Este fichário já está arquivado.');
+    const inUse = await Allocation.findOne({ binder_id: binder._id, open: true }).populate('tournament_id', 'name');
+    if (inUse) throw new HttpError(409, `O fichário está vinculado ao torneio "${inUse.tournament_id?.name}": desvincule-o antes de arquivar.`);
+    binder.archived = true;
+    binder.archived_at = new Date();
+    binder.archived_by = req.user.name || req.user.email;
+    binder.archive_reason = String(req.body?.reason || '').trim() || undefined;
+    await binder.save();
+    await logActivity('Fichário Arquivado', 'chip_case', `ID: ${binder._id} | Nome: ${binder.name}${binder.archive_reason ? ` | ${binder.archive_reason}` : ''}`, req.user);
+    req.app.get('io')?.emit('balancesChanged', { binder_id: binder._id });
+    res.json(await binderView.presentOne(await Binder.findById(binder._id)));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+router.post(BINDER_PATHS.map((p) => `${p}/:id/unarchive`), verifyToken, requirePageAccess('ficharios'), adminOnly, async (req, res) => {
+  try {
+    const binder = await Binder.findById(req.params.id);
+    if (!binder) throw new HttpError(404, 'Fichário não encontrado.');
+    if (!binder.archived) throw new HttpError(409, 'Este fichário não está arquivado.');
+    binder.archived = false;
+    binder.archived_at = null;
+    await binder.save();
+    await logActivity('Fichário Reativado', 'chip_case', `ID: ${binder._id} | Nome: ${binder.name}`, req.user);
+    req.app.get('io')?.emit('balancesChanged', { binder_id: binder._id });
+    res.json(await binderView.presentOne(await Binder.findById(binder._id)));
   } catch (err) {
     sendError(res, err);
   }
@@ -994,82 +1050,143 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('mesas', 'operate'
   }
 });
 
-// ─── Relógio do torneio (P1) ─────────────────────────────────────────────────
-/** Todos os "Iniciar" (relógio, sessão, torneio) convergem aqui: liga o relógio se estiver parado (idempotente). */
-async function ensureClockStarted(tournamentId, req) {
+// ─── Relógio (P1) — POR SESSÃO (Simulação 2.1 §4) ───────────────────────────────
+// Cada sessão (1A, 1B…) tem o seu relógio, nível e status. Pausar/retomar/alterar uma nunca mexe na outra. O torneio só
+// guarda um resumo derivado (`syncTournamentCache`). Torneio SEM sessões (dados antigos) mantém o relógio no torneio.
+
+/** Sessão-alvo de uma ação de relógio: a informada, ou a única/em andamento; sem sessões → null (relógio do torneio). */
+async function clockTarget(tournamentId, requested) {
   const t = await Tournament.findById(tournamentId);
-  if (!t || t.clock_status !== 'stopped') return t;
-  Object.assign(t, applyAction(t, 'start'));
-  if (t.status === 'scheduled') t.status = 'running';
-  await t.save();
+  if (!t) throw new HttpError(404, 'Torneio não encontrado.');
+  const session = await sessionsLib.resolveSession(t._id, requested);
+  return { t, session };
+}
+const emitClock = (req, t, session) => {
   const io = req.app.get('io');
-  io.to(`tournament:${t._id}`).emit('tournamentClock', clockPayload(t));
-  io.emit('tournamentsChanged', { tournament_id: t._id });
+  io.to(`tournament:${t._id}`).emit('tournamentClock', clockPayload(clockView(t, session)));
+  io.emit('tournamentsChanged', { tournament_id: t._id, session_id: session?._id || null });
+};
+
+/** Todos os "Iniciar" (relógio, sessão, torneio) convergem aqui: liga o relógio da sessão se estiver parado (idempotente). */
+async function ensureClockStarted(tournamentId, req, sessionId = null) {
+  let t = await Tournament.findById(tournamentId);
+  if (!t) return null;
+  let session = null;
+  if (sessionId) session = await TournamentSession.findOne({ _id: sessionId, tournament_id: t._id });
+  else {
+    const open = (await sessionsLib.listSessions(t._id)).filter((x) => x.status !== 'finished');
+    if (open.length > 1) return t; // várias sessões: cada uma é iniciada pela sua própria ação, nunca em lote
+    session = open[0] || null;
+  }
+  const owner = session || t;
+  if (owner.clock_status !== 'stopped') return t;
+  Object.assign(owner, applyAction(clockView(t, session), 'start'));
+  if (session) {
+    if (session.status === 'scheduled') sessionsLib.applyStatus(session, 'running', { isAdmin: true });
+    await session.save();
+    t = await sessionsLib.syncTournamentCache(t._id);
+  } else {
+    if (t.status === 'scheduled') t.status = 'running';
+    await t.save();
+  }
+  emitClock(req, t, session);
   return t;
 }
 
-/** Pausar/retomar o torneio pelo botão do torneio faz o mesmo que o relógio (um único estado). */
+/** Pausar/retomar pelo botão do TORNEIO é uma ação explícita em lote: pausa as sessões que rodam / retoma as pausadas. */
 async function syncClockWithStatus(tournamentId, from, to, req) {
   const action = to === 'paused' && from === 'running' ? 'pause' : to === 'running' && from === 'paused' ? 'resume' : null;
   if (!action) return;
   const t = await Tournament.findById(tournamentId);
-  const updates = t && applyAction(t, action);
-  if (!updates || !Object.keys(updates).length) return;
-  Object.assign(t, updates);
-  await t.save();
-  req.app.get('io').to(`tournament:${t._id}`).emit('tournamentClock', clockPayload(t));
+  if (!t) return;
+  const sessions = (await sessionsLib.listSessions(t._id)).filter((x) => x.status !== 'finished');
+  if (!sessions.length) {
+    const updates = applyAction(t, action);
+    if (!updates || !Object.keys(updates).length) return;
+    Object.assign(t, updates); await t.save();
+    emitClock(req, t, null);
+    return;
+  }
+  for (const session of sessions) {
+    const updates = applyAction(clockView(t, session), action);
+    if (!updates || !Object.keys(updates).length) continue;
+    Object.assign(session, updates); await session.save();
+  }
+  const fresh = await sessionsLib.syncTournamentCache(t._id);
+  for (const session of sessions) emitClock(req, fresh, await TournamentSession.findById(session._id));
 }
 
 // Estado atual do relógio (leitura): quem abre a tela vê o valor certo na hora, sem esperar o próximo pulso do socket
-// (parados/pausados não são transmitidos). Escopo por torneio já vale via `/tournaments/:tid`.
+// (parados/pausados não são transmitidos). `?session_id=` escolhe a sessão. Escopo por torneio já vale via `/tournaments/:tid`.
 router.get('/tournaments/:id/clock', verifyToken, async (req, res) => {
   try {
-    const t = await Tournament.findById(req.params.id);
-    if (!t) throw new HttpError(404, 'Torneio não encontrado.');
-    res.json(clockPayload(t));
+    const { t, session } = await clockTarget(req.params.id, req.query.session_id);
+    res.json(clockPayload(clockView(t, session)));
   } catch (err) {
     sendError(res, err);
   }
 });
 
-router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+// Relógios de TODAS as sessões do torneio (Dashboard/telão): uma entrada por sessão, cada qual com o seu estado.
+router.get('/tournaments/:id/clocks', verifyToken, async (req, res) => {
+  try {
+    const t = await Tournament.findById(req.params.id);
+    if (!t) throw new HttpError(404, 'Torneio não encontrado.');
+    const sessions = await sessionsLib.listSessions(t._id);
+    res.json(sessions.length ? sessions.map((s) => clockPayload(clockView(t, s))) : [clockPayload(t)]);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+async function runClockAction(req, res, tournamentId, requestedSession) {
   try {
     const { action } = req.body || {};
     const seconds = Number(req.body?.seconds) || 0;
     if (!CLOCK_ACTIONS.includes(action)) {
       return res.status(400).json({ error: `Ação inválida. Use uma de: ${CLOCK_ACTIONS.join(', ')}.` });
     }
+    const { t, session } = await clockTarget(tournamentId, requestedSession);
+    if (session?.status === 'finished') throw new HttpError(409, `A sessão "${session.name}" está encerrada.`);
 
-    const t = await Tournament.findById(req.params.id);
-    if (!t) return res.status(404).json({ error: 'Torneio não encontrado' });
-
-    const updates = applyAction(t, action, { seconds });
+    const updates = applyAction(clockView(t, session), action, { seconds });
     if (updates === null) return res.status(400).json({ error: 'Ação inválida.' });
-    Object.assign(t, updates);
-    if (action === 'pause' && updates.clock_status === 'paused' && t.status === 'running') t.status = 'paused';
-    if (action === 'resume' && updates.clock_status === 'running' && t.status === 'paused') t.status = 'running';
-    if (action === 'start' && updates.clock_status && t.status === 'scheduled') {
-      t.status = 'running';
-      if (await allocationLib.activateForTournament(t._id)) req.app.get('io').emit('allocationsChanged', { tournament_id: t._id });
-    }
-    await t.save();
 
-    const payload = clockPayload(t);
-    req.app.get('io').to(`tournament:${t._id}`).emit('tournamentClock', payload);
-    req.app.get('io').emit('tournamentsChanged', { tournament_id: t._id }); // Dashboard: quem está rodando mudou
-    await logActivity('Relógio do Torneio', 'tournament', `${t.name} | ${action}${seconds ? ` (${seconds}s)` : ''}`, req.user);
+    let fresh = t;
+    if (session) {
+      Object.assign(session, updates);
+      if (action === 'start' && updates.clock_status && session.status === 'scheduled') sessionsLib.applyStatus(session, 'running', { isAdmin: true });
+      await session.save();
+      fresh = await sessionsLib.syncTournamentCache(t._id);
+    } else {
+      Object.assign(t, updates);
+      if (action === 'pause' && updates.clock_status === 'paused' && t.status === 'running') t.status = 'paused';
+      if (action === 'resume' && updates.clock_status === 'running' && t.status === 'paused') t.status = 'running';
+      if (action === 'start' && updates.clock_status && t.status === 'scheduled') t.status = 'running';
+      await t.save();
+    }
+    if (action === 'start' && updates.clock_status && fresh.status === 'running' && await allocationLib.activateForTournament(fresh._id)) {
+      req.app.get('io').emit('allocationsChanged', { tournament_id: fresh._id });
+    }
+
+    const payload = clockPayload(clockView(fresh, session));
+    emitClock(req, fresh, session); // Dashboard: quem está rodando mudou
+    await logActivity('Relógio do Torneio', 'tournament', `${t.name}${session ? ` · ${session.name}` : ''} | ${action}${seconds ? ` (${seconds}s)` : ''}`, req.user);
     res.json(payload);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    sendError(res, err);
   }
-});
+}
+router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'operate'), (req, res) => runClockAction(req, res, req.params.id, req.body?.session_id));
+router.post('/tournaments/:tid/sessions/:sid/clock', verifyToken, requirePageAccess('mesas', 'operate'), (req, res) => runClockAction(req, res, req.params.tid, req.params.sid));
 
 // ─── Ativos (quem ainda joga) (BUG-04/05): inscrições e ativos são números diferentes ───────────────────────
 // GET devolve as contagens; PUT é o ÚNICO jeito de o Salão informar os ativos (rastreado: antes → depois + motivo).
 router.get('/tournaments/:id/headcount', verifyToken, async (req, res) => {
   try {
     if (!(await Tournament.exists({ _id: req.params.id }))) throw new HttpError(404, 'Torneio não encontrado.');
-    res.json(await playersLib.playerCounts(req.params.id));
+    const session = await sessionsLib.resolveSession(req.params.id, req.query.session_id);
+    res.json(await playersLib.playerCounts(req.params.id, session?._id || null));
   } catch (err) {
     sendError(res, err);
   }
@@ -1079,9 +1196,10 @@ router.put('/tournaments/:id/active-players', verifyToken, requirePageAccess('me
     const t = await Tournament.findById(req.params.id);
     if (!t) throw new HttpError(404, 'Torneio não encontrado.');
     if (CLOSED_STATES.includes(t.status) && req.user.role !== 'admin') throw new HttpError(409, 'Torneio encerrado: só o administrador altera.');
-    const { before, after, counts } = await playersLib.setActivePlayers(t._id, req.body?.active_players, req.app.get('io'));
+    const session = await sessionsLib.resolveSession(t._id, req.body?.session_id, { open: true });
+    const { before, after, counts } = await playersLib.setActivePlayers(t._id, req.body?.active_players, req.app.get('io'), session?._id || null);
     const reason = String(req.body?.reason || '').trim();
-    await logActivity('Ativos Informados (Salão)', 'tournament', `${t.name} | ativos ${before} → ${after} | inscrições ${counts.entries_total} (${counts.entries_initial} iniciais + ${counts.entries_reentries} reentradas) | eliminados ${counts.eliminated}${reason ? ` | motivo: ${reason}` : ''}`, req.user);
+    await logActivity('Ativos Informados (Salão)', 'tournament', `${t.name}${session ? ` · ${session.name}` : ''} | ativos ${before} → ${after} | inscrições ${counts.entries_total} (${counts.entries_initial} iniciais + ${counts.entries_reentries} reentradas) | eliminados ${counts.eliminated}${reason ? ` | motivo: ${reason}` : ''}`, req.user);
     res.json(counts);
   } catch (err) {
     sendError(res, err);
@@ -1390,6 +1508,8 @@ router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('mesas', 
     const action = await tournamentChips.entryAction(tournament, type, req.body?.action);
     // a ação vai para UMA sessão (1 sessão → ela; várias → a em andamento ou `session_id`); sessão encerrada não recebe
     const session = await sessionsLib.resolveSession(tournament._id, req.body?.session_id, { open: true });
+    // Dia Final: sem buy-in nem reentrada (Simulação 2.1 §4.2) — só controle de ativos/eliminações e fichas
+    if (sessionsLib.isFinal(session) && type !== 'add-on') throw new HttpError(409, `A sessão "${session.name}" é o Dia Final: não aceita buy-in nem reentrada.`);
     const money = entryContribution(tournament, type);
     // numeração: o contador do torneio avança de forma atômica (nunca repete nem volta atrás, mesmo ao cancelar)
     const { entry_seq: lastSeq } = await Tournament.findByIdAndUpdate(tournament._id, { $inc: { entry_seq: quantity } }, { new: true }).select('entry_seq');
@@ -1402,9 +1522,9 @@ router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('mesas', 
       for (const e of entries) await seatNewEntry(tournament, e._id, session?._id);
     }
     await tournamentChips.refreshTournamentChips(tournament._id, req.app.get('io'));
-    await playersLib.refreshPlayers(tournament._id, req.app.get('io'));
+    await playersLib.refreshPlayers(tournament._id, req.app.get('io'), session?._id || null);
 
-    await logActivity('Entrada Registrada', 'tournament', `${tournament.name} | ${type}${action !== tournamentChips.defaultAction(type) ? ` (${action})` : ''}${quantity > 1 ? ` ×${quantity}` : ''} | #${entries[0].number}${quantity > 1 ? `–#${entries.at(-1).number}` : ''}`, req.user);
+    await logActivity('Entrada Registrada', 'tournament', `${tournament.name}${session ? ` · ${session.name}` : ''} | ${type}${action !== tournamentChips.defaultAction(type) ? ` (${action})` : ''}${quantity > 1 ? ` ×${quantity}` : ''} | #${entries[0].number}${quantity > 1 ? `–#${entries.at(-1).number}` : ''}`, req.user);
     if (quantity > 1) return res.status(201).json({ created: quantity, type, action });
     res.status(201).json(entries[0]);
   } catch (err) {
@@ -1429,7 +1549,7 @@ router.post('/tournaments/:tid/entries/:eid/cancel', verifyToken, requirePageAcc
     // a entrada cancelada libera o lugar
     if (entry.type !== 'add-on') await Seat.deleteOne({ ...seatScope(req.params.tid, entry.session_id), entry_id: entry._id });
     await tournamentChips.refreshTournamentChips(req.params.tid, req.app.get('io'));
-    await playersLib.refreshPlayers(req.params.tid, req.app.get('io'));
+    await playersLib.refreshPlayers(req.params.tid, req.app.get('io'), entry.session_id || null);
     await logActivity('Entrada Cancelada', 'tournament', `ID: ${req.params.eid} | ${req.body.reason}`, req.user);
     res.json({ message: 'Entrada cancelada' });
   } catch (err) {
@@ -1559,10 +1679,13 @@ router.get('/tournaments/:id/sessions', verifyToken, async (req, res) => {
     const out = [];
     for (const s of sessions) {
       const inPlay = await tournamentChips.chipsInPlay(t._id, { sessionId: s._id });
+      const players = await playersLib.playerCounts(t._id, s._id);
       out.push({
         ...s.toJSON(),
         counts: counters[String(s._id)] || { total: 0, by_type: {}, by_action: {} },
         chips_value: inPlay.totals.value,
+        players, // ativos/inscrições DESTA sessão (Dia Final: jogadores iniciais = soma dos classificados)
+        clock: clockPayload(clockView(t, s)),
       });
     }
     res.json(out);
@@ -1592,7 +1715,7 @@ router.post('/tournaments/:id/sessions', verifyToken, requirePageAccess('torneio
     const t = await Tournament.findById(req.params.id);
     if (!t) throw new HttpError(404, 'Torneio não encontrado.');
     if (CLOSED_STATES.includes(t.status)) throw new HttpError(409, 'O torneio está encerrado: não aceita novas sessões.');
-    const session = await sessionsLib.createSession(t._id, { ...pick(req.body, ['name', 'notes']), starts_at: resolveSessionStart(req.body, t) });
+    const session = await sessionsLib.createSession(t._id, { ...pick(req.body, ['name', 'notes', 'type']), starts_at: resolveSessionStart(req.body, t) });
     await logActivity('Sessão Criada', 'tournament', `${t.name} | ${session.name}`, req.user);
     res.status(201).json(session);
   } catch (err) {
@@ -1617,10 +1740,60 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
       await sessionsLib.assertUniqueName(session.tournament_id, structural.name, session._id);
     }
     session.set(structural);
+    if (req.body?.type !== undefined) {
+      if (!isAdmin) throw new HttpError(403, 'Apenas administradores mudam o tipo da sessão.');
+      if (!SESSION_TYPES.includes(req.body.type)) throw new HttpError(400, `Tipo de sessão inválido. Use: ${SESSION_TYPES.join(', ')}.`);
+      if (req.body.type !== session.type && await TournamentEntry.exists({ session_id: session._id })) throw new HttpError(409, 'A sessão já tem entradas: o tipo não pode mudar.');
+      session.type = req.body.type;
+    }
+    const wasFinished = session.status === 'finished';
     if (req.body?.status !== undefined) sessionsLib.applyStatus(session, req.body.status, { isAdmin });
+    let qualified = null;
+    if (session.status === 'finished' && !wasFinished) {
+      // encerrar: o relógio da sessão para e (classificatória) registra os classificados = ativos no encerramento
+      Object.assign(session, { clock_status: 'stopped', paused_at: null });
+      if (session.type === 'QUALIFIER') {
+        const counts = await playersLib.playerCounts(session.tournament_id, session._id);
+        const wanted = req.body?.qualified_count;
+        qualified = wanted === undefined || wanted === null || wanted === '' ? counts.active : Number(wanted);
+        if (!Number.isInteger(qualified) || qualified < 0 || qualified > 100000) throw new HttpError(400, 'Classificados deve ser um inteiro (0 ou mais).');
+        session.qualified_count = qualified;
+      }
+    } else if (wasFinished && session.status !== 'finished') {
+      session.qualified_count = null; // sessão reaberta: os classificados voltam a ser apurados no próximo encerramento
+    }
     await session.save();
-    if (req.body?.status === 'running') await ensureClockStarted(session.tournament_id, req);
-    await logActivity('Sessão Atualizada', 'tournament', `${session.name} | ${sessionBefore.status}${sessionBefore.status !== session.status ? ` → ${session.status}` : ''}${req.body?.starts_at !== undefined || req.body?.start_time !== undefined ? ' | horário de início alterado' : ''}`, req.user);
+    if (req.body?.status === 'running') await ensureClockStarted(session.tournament_id, req, session._id);
+    else if (session.status === 'finished' || wasFinished) {
+      const fresh = await sessionsLib.syncTournamentCache(session.tournament_id);
+      if (fresh) emitClock(req, fresh, session); // o relógio da sessão encerrada aparece parado nas outras telas
+    }
+    if (qualified !== null || wasFinished) await playersLib.refreshPlayers(session.tournament_id, req.app.get('io'), session._id);
+    req.app.get('io').emit('tournamentsChanged', { tournament_id: session.tournament_id, session_id: session._id });
+    await logActivity('Sessão Atualizada', 'tournament', `${session.name} | ${sessionBefore.status}${sessionBefore.status !== session.status ? ` → ${session.status}` : ''}${qualified !== null ? ` | classificados ${qualified}` : ''}${req.body?.starts_at !== undefined || req.body?.start_time !== undefined ? ' | horário de início alterado' : ''}`, req.user);
+    res.json(session);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Correção AUDITÁVEL dos classificados de uma sessão classificatória já encerrada (motivo obrigatório).
+router.put('/tournaments/:tid/sessions/:sid/qualified', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+  try {
+    const session = await TournamentSession.findOne({ _id: req.params.sid, tournament_id: req.params.tid });
+    if (!session) throw new HttpError(404, 'Sessão não encontrada.');
+    if (session.type !== 'QUALIFIER') throw new HttpError(409, 'Só sessões classificatórias têm classificados.');
+    if (session.status !== 'finished') throw new HttpError(409, 'Encerre a sessão para registrar os classificados.');
+    const to = Number(req.body?.qualified_count);
+    if (!Number.isInteger(to) || to < 0 || to > 100000) throw new HttpError(400, 'Classificados deve ser um inteiro (0 ou mais).');
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) throw new HttpError(400, 'Informe o motivo da correção.');
+    const from = session.qualified_count;
+    session.qualified_log.push({ from, to, by: req.user.name || req.user.email, reason });
+    session.qualified_count = to;
+    await session.save();
+    await playersLib.refreshPlayers(session.tournament_id, req.app.get('io'), session._id);
+    await logActivity('Classificados Corrigidos', 'tournament', `${session.name} | ${from} → ${to} | motivo: ${reason}`, req.user);
     res.json(session);
   } catch (err) {
     sendError(res, err);
@@ -1655,88 +1828,56 @@ router.get('/tournaments/:tid/sessions/:sid/chips-in-play', verifyToken, async (
   }
 });
 
-// ─── Alocações de fichas a torneios (G5) ─────────────────────────────────────
-// Reserva por DENOMINAÇÃO e QUANTIDADE (não o fichário inteiro): o mesmo fichário atende 2 torneios se a soma
-// alocada de cada ficha não passar do saldo físico. Regra `quantidade ≤ livre` no servidor (409 com o excesso).
-// Definir alocações é do admin (spec §13.1); qualquer autenticado consulta.
+// ─── Fichários do torneio (vínculo) ──────────────────────────────────────────
+// Simulação 2.1 §5: o torneio escolhe QUAL fichário usa — sem reserva por denominação/quantidade e sem bloqueio (o mesmo
+// fichário pode atender mais de um torneio). As quantidades reais vêm das movimentações. Vincular é do admin; ler, de todos.
 const ALLOCATION_POPULATE = [
-  { path: 'binder_id', select: 'name code' },
+  { path: 'binder_id', select: 'name code archived' },
   { path: 'tournament_id', select: 'name status' },
-  { path: 'chips.chip_id', select: 'name value color' },
 ];
-
-const emitAllocationConflict = (req, err, tournamentId) => {
-  if (err.allocationConflict) req.app.get('io')?.emit('allocationConflict', { ...err.allocationConflict, tournament_id: tournamentId });
-};
-const allocationView = async (id) => (await allocationLib.withHealth([await Allocation.findById(id).populate(ALLOCATION_POPULATE)]))[0];
 
 router.get('/allocations', verifyToken, async (req, res) => {
   try {
     const filter = {};
     for (const f of ['tournament_id', 'binder_id']) if (req.query[f]) filter[f] = req.query[f];
     if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
-    else if (req.query.open !== 'all') filter.open = req.query.open === 'false' ? false : true; // padrão: só as abertas
-    const rows = await Allocation.find(filter).sort({ createdAt: -1 }).populate(ALLOCATION_POPULATE);
-    res.json(await allocationLib.withHealth(rows));
+    else if (req.query.open !== 'all') filter.open = req.query.open === 'false' ? false : true; // padrão: só os vínculos abertos
+    res.json(await Allocation.find(filter).sort({ createdAt: -1 }).populate(ALLOCATION_POPULATE).lean());
   } catch (err) {
     sendError(res, err);
   }
 });
 
-// Matriz de um fichário: saldo, alocado por torneio e LIVRE de cada ficha.
-router.get('/allocations/matrix', verifyToken, requirePageAccess('ficharios'), async (req, res) => {
-  try {
-    if (!req.query.binder_id) throw new HttpError(400, 'Informe o fichário (binder_id).');
-    res.json(await allocationLib.matrix(req.query.binder_id));
-  } catch (err) {
-    sendError(res, err);
-  }
-});
-
-// { binder_id, mode: 'binder' | 'denominations' | 'quantities', chips?, chip_ids?, min_value?, max_value?, note? }
+// { binder_id } ou { binder_ids: [...] } — quantidades/denominações NÃO existem mais aqui.
 router.post('/tournaments/:id/allocations', verifyToken, requirePageAccess('torneios'), adminOnly, async (req, res) => {
-  const tournament = await Tournament.findById(req.params.id).catch(() => null);
   try {
+    const tournament = await Tournament.findById(req.params.id);
     if (!tournament) throw new HttpError(404, 'Torneio não encontrado.');
-    const alloc = await allocationLib.allocate(tournament, req.body || {}, req.user);
-    await logActivity('Fichas Alocadas', 'chip_case', `${tournament.name} | ${alloc.mode} | ${alloc.chips.length} ficha(s)`, req.user);
-    req.app.get('io')?.emit('allocationsChanged', { tournament_id: tournament._id, binder_id: alloc.binder_id });
-    res.status(201).json(await allocationView(alloc._id));
+    const ids = Array.isArray(req.body?.binder_ids) ? req.body.binder_ids : [req.body?.binder_id];
+    const created = [];
+    for (const binder_id of ids) created.push(await allocationLib.link(tournament, { binder_id, note: req.body?.note }, req.user));
+    await logActivity('Fichário Vinculado ao Torneio', 'chip_case', `${tournament.name} | ${created.length} fichário(s)`, req.user);
+    req.app.get('io')?.emit('allocationsChanged', { tournament_id: tournament._id });
+    const rows = await Allocation.find({ _id: { $in: created.map((c) => c._id) } }).populate(ALLOCATION_POPULATE).lean();
+    res.status(201).json(Array.isArray(req.body?.binder_ids) ? rows : rows[0]);
   } catch (err) {
-    emitAllocationConflict(req, err, tournament?._id);
     sendError(res, err);
   }
 });
 
-// Substitui as fichas/quantidades da alocação (a lista completa).
-router.put('/allocations/:id', verifyToken, requirePageAccess('torneios'), adminOnly, async (req, res) => {
-  const alloc = await Allocation.findById(req.params.id).catch(() => null);
-  try {
-    if (!alloc) throw new HttpError(404, 'Alocação não encontrada.');
-    await allocationLib.updateChips(alloc, req.body?.chips, req.user);
-    await logActivity('Alocação Editada', 'chip_case', `${(await Tournament.findById(alloc.tournament_id).select('name').lean())?.name} | alocação ${alloc._id} | ${alloc.chips.length} ficha(s) na lista`, req.user);
-    req.app.get('io')?.emit('allocationsChanged', { tournament_id: alloc.tournament_id, binder_id: alloc.binder_id });
-    res.json(await allocationView(alloc._id));
-  } catch (err) {
-    emitAllocationConflict(req, err, alloc?.tournament_id);
-    sendError(res, err);
-  }
-});
-
-// Liberar = devolver a capacidade (a alocação fica no histórico como `released`; nunca é apagada).
+// Desvincula (o vínculo fica no histórico como `released`; nunca é apagado).
 router.delete('/allocations/:id', verifyToken, requirePageAccess('torneios'), adminOnly, async (req, res) => {
   try {
     const alloc = await Allocation.findById(req.params.id);
-    if (!alloc) throw new HttpError(404, 'Alocação não encontrada.');
+    if (!alloc) throw new HttpError(404, 'Vínculo não encontrado.');
     await allocationLib.release(alloc, req.user);
-    await logActivity('Alocação Liberada', 'chip_case', `ID: ${alloc._id}`, req.user);
+    await logActivity('Fichário Desvinculado', 'chip_case', `ID: ${alloc._id}`, req.user);
     req.app.get('io')?.emit('allocationsChanged', { tournament_id: alloc.tournament_id, binder_id: alloc.binder_id });
-    res.json(await allocationView(alloc._id));
+    res.json(await Allocation.findById(alloc._id).populate(ALLOCATION_POPULATE).lean());
   } catch (err) {
     sendError(res, err);
   }
 });
-
 
 // ─── Templates de premiação (P2) ─────────────────────────────────────────────
 router.get('/payout-templates', verifyToken, requirePageAccess('torneios'), async (req, res) => {
@@ -1841,25 +1982,30 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
     if (t.status === 'finalized') return res.status(400).json({ error: 'Torneio já finalizado.' });
     if (!mongoose.isValidObjectId(entry_id)) return res.status(400).json({ error: 'Entrada inválida.' });
 
+    // A eliminação vale DENTRO da sessão da entrada: colocação e "campeã" nunca misturam sessões (Simulação 2.1 §4)
+    const target = await TournamentEntry.findOne({ _id: entry_id, tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] } });
+    if (!target) return res.status(400).json({ error: 'Entrada não encontrada neste torneio.' });
+    const sid = target.session_id || null;
     const [entries, elims] = await Promise.all([
-      TournamentEntry.find({ tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] } }),
+      TournamentEntry.find({ tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] }, ...(sid ? { session_id: sid } : {}) }),
       Elimination.find({ tournament_id: t._id }),
     ]);
     const eliminatedIds = new Set(elims.map((e) => String(e.entry_id)));
-    if (!entries.some((e) => String(e._id) === String(entry_id))) return res.status(400).json({ error: 'Entrada não encontrada neste torneio.' });
     if (eliminatedIds.has(String(entry_id))) return res.status(400).json({ error: 'Esta entrada já foi eliminada.' });
 
     const alive = entries.filter((e) => !eliminatedIds.has(String(e._id)));
     const remaining = alive.length;
     const position = remaining; // 8 entradas restando → quem sai é a 8ª
 
-    await Elimination.create({ tournament_id: t._id, entry_id, position });
+    await Elimination.create({ tournament_id: t._id, session_id: sid, entry_id, position });
     await Seat.deleteOne({ tournament_id: t._id, entry_id }); // libera o lugar
     // eliminar tira UM jogador dos ativos; inscrições e fichas em jogo (Chip Count) não mudam
-    await playersLib.refreshPlayers(t._id, req.app.get('io'));
+    await playersLib.refreshPlayers(t._id, req.app.get('io'), sid);
 
+    // Campeã só existe no torneio de sessão ÚNICA; com várias sessões o torneio fecha ao encerrar as sessões.
+    const single = (await TournamentSession.countDocuments({ tournament_id: t._id })) <= 1;
     // Sobrou 1 → essa é a campeã; finaliza.
-    if (remaining - 1 === 1) {
+    if (single && remaining - 1 === 1) {
       const winner = alive.find((e) => String(e._id) !== String(entry_id));
       if (winner) await Elimination.create({ tournament_id: t._id, entry_id: winner._id, position: 1 });
       await Seat.deleteMany({ tournament_id: t._id }); // torneio acabou
@@ -1882,7 +2028,7 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
       await t.save();
       await logActivity('Torneio Finalizado', 'tournament', `${t.name}`, req.user);
     } else {
-      const after = await playersLib.playerCounts(t._id);
+      const after = await playersLib.playerCounts(t._id, sid);
       await logActivity('Eliminação Registrada', 'tournament', `${t.name} | ${entryLabel(alive.find((e) => String(e._id) === String(entry_id)))} | posição ${position} | ativos agora ${after.active} (inscrições ${after.entries_total} inalteradas)`, req.user);
     }
 
@@ -1900,14 +2046,14 @@ router.post('/tournaments/:tid/eliminations/:eid/cancel', verifyToken, requirePa
     if (!String(req.body?.reason || '').trim()) throw new HttpError(400, 'Informe o motivo do cancelamento.');
     await elim.cancel({ user: req.user, reason: req.body.reason });
     // desfazer a finalização se for o caso
-    await Tournament.findByIdAndUpdate(req.params.tid, { status: 'running', finalized_at: null });
+    await Tournament.updateOne({ _id: req.params.tid, status: 'finalized' }, { status: 'running', finalized_at: null });
     // a entrada volta ao jogo → ganha um lugar de volta
     const t = await Tournament.findById(req.params.tid);
     if (t) {
       const entry = await TournamentEntry.findById(elim.entry_id);
       if (entry) await seatNewEntry(t, entry._id, entry.session_id || null);
     }
-    await playersLib.refreshPlayers(req.params.tid, req.app.get('io'));
+    await playersLib.refreshPlayers(req.params.tid, req.app.get('io'), elim.session_id || null);
     await logActivity('Eliminação Cancelada', 'tournament', `ID: ${req.params.eid} | ${req.body.reason}`, req.user);
     res.json(await buildFinance(req.params.tid));
   } catch (err) {
@@ -2205,9 +2351,10 @@ router.get('/conversion-requests', verifyToken, async (req, res) => {
       if (scope && !scope.includes(String(req.query.tournament_id))) return res.status(403).json({ error: 'Você não tem acesso a este torneio.' });
       filter.tournament_id = req.query.tournament_id;
     } else if (scope) filter.tournament_id = { $in: scope };
+    if (req.query.session_id) filter.session_id = req.query.session_id;
     if (req.query.status === 'open') filter.status = { $in: conversionRequests.OPEN };
     else if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
-    const rows = await ConversionRequest.find(filter).sort({ createdAt: -1 }).limit(100).populate('tournament_id', 'name').populate('session_id', 'name');
+    const rows = await ConversionRequest.find(filter).sort({ createdAt: -1 }).limit(100).populate('tournament_id', 'name').populate('session_id', 'name').populate('chip_id', 'name value color');
     res.json(rows);
   } catch (err) {
     sendError(res, err);
@@ -2233,8 +2380,13 @@ router.post('/conversions', verifyToken, requirePageAccess('chip_race', 'operate
     const scope = await allowedTournaments(req.user);
     if (scope && !scope.includes(String(req.body?.tournament_id))) return res.status(403).json({ error: 'Você não tem acesso a este torneio.' });
     const t = await material.openTournament(req.body?.tournament_id);
-    if (req.body?.request_id) await conversionRequests.assertOpen(req.body.request_id, { tournament_id: t._id, type: req.body.type }); // recusa ANTES de movimentar fichas
-    const c = await material.createConversion(t, req.body, req.user);
+    let body = req.body;
+    if (body.request_id) {
+      // recusa ANTES de movimentar fichas; a conversão herda a sessão do chamado e nunca pode cair em outra
+      const call = await conversionRequests.assertOpen(body.request_id, { tournament_id: t._id, type: body.type, session_id: body.session_id });
+      if (call.session_id && !body.session_id) body = { ...body, session_id: String(call.session_id) };
+    }
+    const c = await material.createConversion(t, body, req.user);
     if (req.body?.request_id) { await conversionRequests.complete(req.body.request_id, c, req.user); emitRequests(req, t._id); }
     const side = async (list) => mvDescribe(list.map((l) => ({ chip_id: l.chip_id, quantity: l.quantity })));
     await logActivity('Conversão de Fichas', 'chip_race', `${t.name} | ${c.type === 'CHIP_RACE' ? 'Chip Race' : 'Color Up'} | retirado: ${await side(c.outs)} | entregue: ${await side(c.ins)} | diferença de valor ${c.value_in - c.value_out} (quebra matemática ${c.math_breakage})${req.body?.request_id ? ` | chamado ${req.body.request_id}` : ''} | lote ${c.movement_batch_id}`, req.user);
@@ -2372,9 +2524,9 @@ router.get('/reports/data', verifyToken, requirePageAccess('relatorios'), async 
         finishedTournaments,
         totalChipRaces,
         totalChips: t.existing,                       // fichas físicas: em fichários + em jogo
-        stockValue: t.value_in_binders + t.value_in_play, // valuation = Σ valor × quantidade (saldo derivado)
-        chipsInBinders: t.in_binders, chipsInPlay: t.in_play, chipsLost: t.lost,
-        valueInBinders: t.value_in_binders, valueInPlay: t.value_in_play,
+        stockValue: t.value_in_binders + t.value_at_hall, // valuation = Σ valor × quantidade (saldo derivado)
+        chipsInBinders: t.in_binders, chipsAtHall: t.at_hall, chipsLost: t.lost,
+        valueInBinders: t.value_in_binders, valueAtHall: t.value_at_hall,
         discardedChips: flows.discarded.quantity, discardedValue: flows.discarded.value,
         lostChips: flows.lost.quantity, lostValue: flows.lost.value,
         recoveredChips: flows.recovered.quantity, recoveredValue: flows.recovered.value,
@@ -2383,10 +2535,10 @@ router.get('/reports/data', verifyToken, requirePageAccess('relatorios'), async 
       charts: {
         chipDistribution: inventory.rows.filter((r) => r.existing > 0).map((r) => ({
           name: `Ficha ${r.chip.value}`, value: r.existing, color: r.chip.color,
-          in_binders: r.in_binders, in_play: r.in_play, lost: r.lost,
+          in_binders: r.in_binders, at_hall: r.at_hall, lost: r.lost,
         })),
         byLocation: [
-          { name: 'Em fichários', value: t.in_binders }, { name: 'Em jogo', value: t.in_play },
+          { name: 'Em fichários', value: t.in_binders }, { name: 'No Salão', value: t.at_hall },
           { name: 'Em divergência', value: t.lost }
         ],
         racesByTournament,

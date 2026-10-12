@@ -24,7 +24,7 @@ async function scene() {
   const binder = await makeBinder('LISA', [{ chip, quantity: 100 }, { chip: other, quantity: 40 }]);
   const admin = await as('admin'); const mat = await as('material');
   const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
   await post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: chip._id, quantity: 30 }, { chip_id: other._id, quantity: 5 }] });
   await post(mat, `/api/tournaments/${t._id}/returns`, { binder_id: binder._id, chips: [{ chip_id: chip._id, quantity: 10 }] });
   const loss = (await post(mat, `/api/binders/${binder._id}/count`, { counts: [{ chip_id: chip._id, counted: 76 }], reason: 'caíram 4' })).body.occurrences[0]; // esperado 80 → 76

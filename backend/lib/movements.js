@@ -4,8 +4,8 @@
 //  • reverseMovements(ids, {...})   estorno: movimento inverso vinculado ao original (nunca apaga nada).
 //  • balances / balanceAt           saldo DERIVADO = Σ entradas (to) − Σ saídas (from).
 //  • (sem caches: conteúdo do fichário, totais e reservas são SEMPRE derivados na leitura)
-//  • G6: localização `play` (em jogo, id = torneio). Envios/conversões só saem do que está ALOCADO ao torneio:
-//    reservado(alocação) = alocado − enviado_líquido, com o enviado DERIVADO dos movimentos (nada é gravado).
+//  • G6: localização `play` (em jogo, id = torneio). Simulação 2.1 §5: NÃO há reserva por denominação/quantidade —
+//    o fichário não é bloqueado; as quantidades reais são definidas pelas próprias movimentações.
 //
 // Concorrência: dois débitos simultâneos na mesma localização/ficha inserem documentos diferentes e
 // não conflitariam entre si (write skew). Por isso todo débito incrementa um BalanceLock (ponto de
@@ -13,7 +13,7 @@
 // set (MongoDB standalone, só para desenvolvimento) cai num mutex em memória — seguro para UM
 // processo; produção deve usar replica set (ver README).
 const mongoose = require('mongoose');
-const { Movement, BalanceLock, Chip, Binder, Allocation, Tournament } = require('../models');
+const { Movement, BalanceLock, Chip, Binder, Tournament } = require('../models');
 const { MOVEMENT_TYPES } = require('../models/Movement');
 const { HttpError } = require('./catalog');
 const logger = require('./logger');
@@ -32,14 +32,12 @@ const RULES = {
   RECOVERY:   { reason: true,  ok: (f, t) => f.kind === 'lost' && t.kind === 'binder' },
   REVERSAL:   { reason: true,  ok: () => true }, // construído por reverseMovements a partir do original
 };
-// G6 — material no torneio. Envio/entrada de conversão: fichário → em jogo (limitado pela ALOCAÇÃO do torneio).
+// G6 — material no torneio. Envio/entrada de conversão: fichário → em jogo (limitado só pelo saldo físico).
 // Retorno/saída de conversão: em jogo → fichário.
 const TO_PLAY = { reason: false, ok: (f, t) => f.kind === 'binder' && t.kind === 'play' };
 const FROM_PLAY = { reason: false, ok: (f, t) => f.kind === 'play' && t.kind === 'binder' };
 for (const type of ['SEND_BUY_IN', 'SEND_OPTIONAL', 'SEND_REENTRY', 'SEND_ADDITIONAL', 'CHIP_RACE_IN', 'COLOR_UP_IN']) RULES[type] = TO_PLAY;
 for (const type of ['RETURN', 'CHIP_RACE_OUT', 'COLOR_UP_OUT', 'DISCARD']) RULES[type] = FROM_PLAY;
-/** Tipos que consomem a alocação do torneio (binder → play, exceto estorno). */
-const CAPPED = new Set(['SEND_BUY_IN', 'SEND_OPTIONAL', 'SEND_REENTRY', 'SEND_ADDITIONAL', 'CHIP_RACE_IN', 'COLOR_UP_IN']);
 
 function location(raw, label) {
   const kind = raw?.kind;
@@ -216,60 +214,6 @@ async function loadRefs(items) {
   return { chipById, binderById, tournamentById };
 }
 
-// ─── alocações (G5/G6): reservas por torneio que retiradas e envios precisam respeitar ──────────
-// Tipos que TIRAM fichas do fichário por decisão de gestão. LOSS fica de fora de propósito: perda
-// física é realidade (conferência) e não pode ser barrada — vira falta (shortfall) na alocação.
-const ALLOCATION_GUARDED = new Set(['WITHDRAWAL', 'ADJUSTMENT', 'REVERSAL']);
-
-/**
- * Líquido ENVIADO de fichários a torneios, derivado dos movimentos: Σ fichário→em jogo − Σ em jogo→fichário
- * (por fichário × torneio × ficha). Chave: "<fichário>:<torneio>:<ficha>".
- */
-async function sentNetMap({ binderIds, chipId, session } = {}) {
-  const match = { $or: [{ 'to.kind': 'play' }, { 'from.kind': 'play' }], binder_id: { $ne: null } };
-  if (binderIds) match.binder_id = { $in: binderIds.map(oid) };
-  if (chipId) match.chip_id = oid(chipId);
-  const rows = await Movement.aggregate([
-    { $match: match },
-    { $group: {
-      _id: { b: '$binder_id', t: { $cond: [{ $eq: ['$to.kind', 'play'] }, '$to.id', '$from.id'] }, c: '$chip_id' },
-      q: { $sum: { $cond: [{ $eq: ['$to.kind', 'play'] }, '$quantity', { $multiply: ['$quantity', -1] }] } },
-    } },
-  ]).session(session || null);
-  return new Map(rows.map((r) => [`${r._id.b}:${r._id.t}:${r._id.c}`, r.q]));
-}
-
-/**
- * Alocações abertas de um fichário com o estado por ficha: alocado (teto), enviado e RESTANTE (= reserva
- * que ainda está dentro do fichário). `deltaSent` (Map "<torneio>:<ficha>" → q) simula um lote em andamento.
- */
-async function allocationStates(binderId, { session, excludeAllocationId, chipId, deltaSent } = {}) {
-  const filter = { binder_id: oid(binderId), open: true, ...(excludeAllocationId ? { _id: { $ne: oid(excludeAllocationId) } } : {}) };
-  const allocs = await Allocation.find(filter).sort({ createdAt: 1 }).session(session || null).lean();
-  if (!allocs.length) return [];
-  const net = await sentNetMap({ binderIds: [binderId], chipId, session });
-  return allocs.map((a) => ({
-    allocation_id: a._id, tournament_id: a.tournament_id, status: a.status,
-    chips: a.chips.filter((c) => !chipId || String(c.chip_id) === String(chipId)).map((c) => {
-      const k = `${a.tournament_id}:${c.chip_id}`;
-      const sent = Math.max(0, (net.get(`${binderId}:${k}`) || 0) + (deltaSent?.get(k) || 0));
-      return { chip_id: c.chip_id, allocated: c.quantity, sent, remaining: Math.max(0, c.quantity - sent) };
-    }),
-  }));
-}
-
-/** Quanto de uma ficha está RESERVADO (ainda dentro do fichário) por alocações abertas, e por quem. */
-async function allocatedIn(binderId, chipId, opts = {}) {
-  const states = await allocationStates(binderId, { ...opts, chipId });
-  const by = states.map((st) => ({ tournament_id: st.tournament_id, quantity: st.chips[0]?.remaining || 0, allocated: st.chips[0]?.allocated || 0, sent: st.chips[0]?.sent || 0 }))
-    .filter((x) => x.allocated > 0);
-  return { total: by.reduce((a, r) => a + r.quantity, 0), by: by.filter((x) => x.quantity > 0) };
-}
-
-async function tournamentNames(ids) {
-  const docs = ids.length ? await Tournament.find({ _id: { $in: ids } }).setOptions({ withDeleted: true }).select('name') : [];
-  return new Map(docs.map((t) => [String(t._id), t.name]));
-}
 
 // ─── notificação em tempo real (G10) ─────────────────────────────────────────
 // Cada lote gravado avisa quem escuta (server.js liga isto ao socket): o dashboard refaz só o bloco afetado.
@@ -298,14 +242,8 @@ async function postBatch(specs, { user, batch_id } = {}) {
   for (const i of items) {
     if (!isDebitable(i.from)) continue;
     const k = locKey(i.from, i.chip_id);
-    const cur = debits.get(k) || { loc: i.from, chip_id: i.chip_id, requested: 0, reversal: i.type === 'REVERSAL', guarded: false, toPlay: new Map(), capped: new Map() };
+    const cur = debits.get(k) || { loc: i.from, chip_id: i.chip_id, requested: 0, reversal: i.type === 'REVERSAL' };
     cur.requested += i.quantity;
-    if (i.from.kind === 'binder' && ALLOCATION_GUARDED.has(i.type)) cur.guarded = true;
-    if (i.from.kind === 'binder' && i.to.kind === 'play') {
-      const tk = `${i.to.id}:${i.chip_id}`;
-      cur.toPlay.set(tk, (cur.toPlay.get(tk) || 0) + i.quantity);             // enviado líquido deste lote
-      if (CAPPED.has(i.type)) cur.capped.set(tk, (cur.capped.get(tk) || 0) + i.quantity); // e o que consome a alocação
-    }
     debits.set(k, cur);
   }
 
@@ -330,39 +268,6 @@ async function postBatch(specs, { user, batch_id } = {}) {
         throw new HttpError(409, msg, short.map((x) => ({
           chip_id: x.chip_id, location: { kind: x.loc.kind, id: x.loc.id }, available: x.available, requested: x.requested,
         })));
-      }
-      for (const d of debits.values()) {
-        if (d.loc.kind !== 'binder' || (!d.guarded && !d.capped.size)) continue;
-        const available = await balanceAt(d.loc, d.chip_id, session);
-        const chip = chipById.get(String(d.chip_id));
-        const binder = binderById.get(String(d.loc.id));
-
-        // envio/entrada de conversão: só até o que o torneio ainda tem RESERVADO neste fichário (alocado − enviado)
-        for (const [tk, requested] of d.capped) {
-          const [tid] = tk.split(':');
-          const st = (await allocationStates(d.loc.id, { session, chipId: d.chip_id })).find((x) => String(x.tournament_id) === tid);
-          const remaining = st?.chips[0]?.remaining || 0;
-          if (requested > remaining) {
-            const t = tournamentById.get(tid);
-            throw new HttpError(409,
-              `${chip?.name} em "${binder?.name}": o torneio "${t?.name}" tem ${remaining} reservada(s) (alocado ${st?.chips[0]?.allocated || 0}, já enviado ${st?.chips[0]?.sent || 0}), mas o lançamento pede ${requested}. `
-              + (st ? 'Aumente a alocação.' : 'Aloque o fichário ao torneio antes.'),
-              [{ chip_id: d.chip_id, binder_id: d.loc.id, tournament_id: tid, allocated: st?.chips[0]?.allocated || 0, sent: st?.chips[0]?.sent || 0, remaining, requested }]);
-          }
-        }
-
-        // o saldo que sobra não pode ficar abaixo do que está RESERVADO a torneios — spec §18.2. O que este lote envia a um
-        // torneio já sai da reserva dele (deltaSent), por isso enviar o alocado nunca é barrado por ela.
-        if (d.guarded) {
-          const held = await allocatedIn(d.loc.id, d.chip_id, { session, deltaSent: d.toPlay });
-          if (held.total > 0 && available - d.requested < held.total) {
-            const names = await tournamentNames(held.by.map((h) => h.tournament_id));
-            throw new HttpError(409,
-              `${chip?.name} em "${binder?.name}": ${held.total} estão alocadas (${held.by.map((h) => `${names.get(String(h.tournament_id)) || 'torneio'}: ${h.quantity}`).join(', ')}); `
-              + `só ${Math.max(0, available - held.total)} podem sair. Libere ou reduza a alocação antes.`,
-              [{ chip_id: d.chip_id, binder_id: d.loc.id, balance: available, requested: d.requested, allocated: held.total, free: Math.max(0, available - held.total) }]);
-          }
-        }
       }
       return Movement.insertMany(items.map((i) => ({
         ...i, batch_id: batch, user_id: user?.id || user?._id || null, user_name: user?.name || user?.email || 'Sistema',
@@ -407,26 +312,6 @@ async function reverseMovements(ids, { reason, user } = {}) {
   })), { user });
 }
 
-// ─── reservas derivadas ──────────────────────────────────────────────────────
-/**
- * Fichas RESERVADAS por ficha = Σ (alocado − enviado) das alocações abertas: o que ainda está dentro dos fichários
- * separado para algum torneio. (Enviar consome a reserva: o "livre" não muda ao enviar.)
- */
-async function reservedByChip(chipIds) {
-  const ids = chipIds ? chipIds.map(oid) : null;
-  const allocs = await Allocation.find({ open: true, ...(ids ? { 'chips.chip_id': { $in: ids } } : {}) }).lean();
-  if (!allocs.length) return new Map();
-  const net = await sentNetMap({ binderIds: [...new Set(allocs.map((a) => String(a.binder_id)))] });
-  const out = new Map();
-  for (const a of allocs) {
-    for (const c of a.chips) {
-      if (ids && !ids.some((x) => String(x) === String(c.chip_id))) continue;
-      const sent = Math.max(0, net.get(`${a.binder_id}:${a.tournament_id}:${c.chip_id}`) || 0);
-      out.set(String(c.chip_id), (out.get(String(c.chip_id)) || 0) + Math.max(0, c.quantity - sent));
-    }
-  }
-  return out;
-}
 
 /** Fichas EM JOGO num torneio (Σ recebido − Σ devolvido), por ficha; `session_id` filtra pela sessão do movimento. */
 async function playBalances({ tournament_id, session_id, chip_id } = {}) {
@@ -460,6 +345,6 @@ async function describeBatch(docs) {
 
 module.exports = {
   describeBatch,
-  postBatch, reverseMovements, balances, balanceAt, chipTotal, reservedByChip,
-  allocatedIn, allocationStates, sentNetMap, playBalances, execute, locKey, supportsTransactions, _setTransactionMode, setNotifier,
+  postBatch, reverseMovements, balances, balanceAt, chipTotal,
+  playBalances, execute, locKey, supportsTransactions, _setTransactionMode, setNotifier,
 };

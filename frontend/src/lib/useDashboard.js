@@ -4,19 +4,19 @@ import { socket } from './socket';
 
 // Qual bloco do painel cada evento em tempo real invalida (G10): o painel refaz só o que mudou.
 export const EVENT_BLOCKS = {
-  movementsPosted: ['metrics', 'inventory', 'in_play', 'flows', 'timeline', 'conflicts', 'binders', 'free_binders', 'tournament_chips'],
-  balancesChanged: ['metrics', 'inventory', 'in_play', 'free_binders', 'tournament_chips'],
-  occurrenceOpened: ['occurrences', 'conflicts', 'timeline'],
-  occurrenceUpdated: ['occurrences', 'conflicts'],
-  materialChanged: ['reentries'],
+  movementsPosted: ['metrics', 'free_binders', 'tournament_chips'],
+  balancesChanged: ['metrics', 'free_binders', 'tournament_chips'],
+  occurrenceOpened: ['occurrences'],
+  occurrenceUpdated: ['occurrences'],
   conversionRequestsChanged: ['requests'],
   chipRaceUpdated: ['metrics', 'requests', 'tournament_chips'],
   chipsInPlayChanged: ['tournament_chips'],
-  // nível/fim de dia/fim de torneio: quem está "em andamento" pode ter mudado (a lista de relógios sai do mesmo bloco)
-  tournamentsChanged: ['tournament_chips', 'metrics'],
-  tournamentLevelChanged: ['tournament_chips', 'metrics'],
-  tournamentMarker: ['tournament_chips', 'metrics'],
-  tournamentEnded: ['tournament_chips', 'metrics'],
+  playersChanged: ['running_clocks'],
+  // relógio/nível/fim de dia/fim de torneio: quem está "em andamento" (um relógio por SESSÃO) pode ter mudado
+  tournamentsChanged: ['tournament_chips', 'metrics', 'running_clocks', 'recent'],
+  tournamentLevelChanged: ['tournament_chips', 'metrics', 'running_clocks'],
+  tournamentMarker: ['tournament_chips', 'metrics', 'running_clocks'],
+  tournamentEnded: ['tournament_chips', 'metrics', 'running_clocks'],
   allocationsChanged: ['metrics', 'free_binders'],
 };
 const POLL_MS = 30000;

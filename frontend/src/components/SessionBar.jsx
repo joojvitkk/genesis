@@ -55,8 +55,25 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
   };
 
   const setStatus = (status) => run(() => apiPut(`${base}/${selected._id}`, { status }));
+  // Encerrar uma classificatória registra os CLASSIFICADOS (padrão: os jogadores ativos no encerramento; pode ser ajustado)
+  const finish = async () => {
+    if (selected.type === 'FINAL') return setStatus('finished');
+    const active = selected.players?.active ?? 0;
+    const typed = await showPrompt(`Quantos jogadores classificaram do ${selected.name}? (jogando agora: ${active})`, { title: 'Encerrar sessão', defaultValue: String(active), confirmLabel: 'Encerrar' });
+    if (typed === null || typed === undefined || typed === '') return undefined;
+    const qualified = Number(typed);
+    if (!Number.isInteger(qualified) || qualified < 0) return showAlert('Informe um número inteiro de classificados.', 'error');
+    return run(() => apiPut(`${base}/${selected._id}`, { status: 'finished', qualified_count: qualified }), `${qualified} classificado(s) registrado(s).`);
+  };
+  const correctQualified = async () => {
+    const typed = await showPrompt(`Classificados do ${selected.name} (atual: ${selected.qualified_count ?? 0}):`, { title: 'Corrigir classificados', defaultValue: String(selected.qualified_count ?? 0), confirmLabel: 'Continuar' });
+    if (typed === null || typed === undefined || typed === '') return undefined;
+    const reason = await showPrompt('Motivo da correção (fica registrado na auditoria):', { title: 'Motivo', confirmLabel: 'Corrigir' });
+    if (!reason) return undefined;
+    return run(() => apiPut(`${base}/${selected._id}/qualified`, { qualified_count: Number(typed), reason }), 'Classificados corrigidos.');
+  };
   const addSession = async () => {
-    const name = await showPrompt('Nome da nova sessão (ex.: Dia 1B, Dia Final):', { title: 'Nova sessão', confirmLabel: 'Criar' });
+    const name = await showPrompt('Nome da nova sessão (ex.: Dia 1B). Um nome com "Final" cria o Dia Final (sem buy-in nem reentrada):', { title: 'Nova sessão', confirmLabel: 'Criar' });
     if (name) await run(() => apiPost(base, { name }), 'Sessão criada.');
   };
   const rename = async () => {
@@ -90,8 +107,9 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
             >
               <span className={`h-2 w-2 rounded-full ${st.dot}`} />
               {s.name}
+              {s.type === 'FINAL' && <span className="badge badge-info">Final</span>}
               {s.starts_at && <span className="font-medium text-fg-subtle">{sessionWhen(s, timezone).split(' · ')[1]}</span>}
-              <span className="rounded-md bg-raised px-1.5 py-0.5 text-xs font-bold tabular-nums text-fg-muted dark:bg-zinc-800">{s.counts?.total ?? 0}</span>
+              <span className="rounded-md bg-raised px-1.5 py-0.5 text-xs font-bold tabular-nums text-fg-muted" title="Jogando agora">{s.players?.active ?? 0}</span>
             </button>
           );
         })}
@@ -107,16 +125,21 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
           <span className="font-bold text-fg-muted">
             {selected.name} · {(STATUS[selected.status] || STATUS.scheduled).label}
             {selected.starts_at && <span className="ml-2 text-fg-subtle">início {sessionWhen(selected, timezone)}</span>}
-            {selected.chips_value > 0 && <span className="ml-2 text-fg-subtle">valor em jogo {selected.chips_value.toLocaleString(locale())}</span>}
+            {selected.chips_value > 0 && <span className="ml-2 text-fg-subtle">valor nominal em jogo {selected.chips_value.toLocaleString(locale())}</span>}
+            {selected.type === 'FINAL' && <span className="ml-2 text-fg-subtle">iniciais {(selected.players?.starting_players ?? 0).toLocaleString(locale())}</span>}
+            {selected.type === 'QUALIFIER' && selected.status === 'finished' && <span className="ml-2 text-fg-subtle">classificados {(selected.qualified_count ?? 0).toLocaleString(locale())}</span>}
           </span>
           {canOperate && selected.status === 'scheduled' && (
             <button onClick={() => setStatus('running')} className="btn btn-success flex items-center"><Play size={12} /> Iniciar sessão</button>
           )}
           {canOperate && selected.status === 'running' && (
-            <button onClick={() => setStatus('finished')} className="btn btn-neutral flex items-center"><Flag size={12} /> Encerrar sessão</button>
+            <button onClick={finish} className="btn btn-neutral flex items-center"><Flag size={12} /> Encerrar sessão</button>
           )}
           {selected.status === 'finished' && isAdmin && (
             <button onClick={() => setStatus('running')} className="flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 font-bold text-fg-muted hover:border-brand"><RotateCcw size={12} /> Reabrir</button>
+          )}
+          {canOperate && selected.type === 'QUALIFIER' && selected.status === 'finished' && (
+            <button onClick={correctQualified} className="btn btn-secondary btn-sm">Corrigir classificados</button>
           )}
           {isAdmin && (
             <>

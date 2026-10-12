@@ -1,175 +1,64 @@
-import { locale } from '../lib/i18n';
-import { useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
-import { X, Boxes, AlertCircle } from 'lucide-react';
-import { apiGet, apiPost, apiPut } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import { useAlert } from '../contexts/AlertContext';
-import CustomSelect from './CustomSelect';
-import AllocationMatrix from './AllocationMatrix';
-
-const MODES = [
-  { v: 'binder', label: 'Fichário inteiro', hint: 'Reserva todas as fichas do fichário, na quantidade do saldo.' },
-  { v: 'denominations', label: 'Por denominação', hint: 'Escolha as denominações (ex.: só ≥ 5.000). Reserva o saldo inteiro delas.' },
-  { v: 'quantities', label: 'Quantidade', hint: 'Informe quanto de cada ficha. Não pode passar do livre.' },
-];
-const fmt = (n) => (n ?? 0).toLocaleString(locale());
+import { apiGet, apiPost } from '../lib/api';
+import { useModalDismiss } from '../hooks/useModalDismiss';
 
 /**
- * Aloca fichas de um fichário a um torneio (ou edita uma alocação existente).
- * A regra `quantidade ≤ livre` é do SERVIDOR: aqui o erro (409, com o excesso e quem segura) é exibido, não só avisado.
+ * Escolhe o(s) fichário(s) que o torneio vai usar (Simulação 2.1 §5). Só o fichário: sem reserva por denominação ou
+ * quantidade e sem bloquear o fichário — o mesmo pode atender outros torneios. As quantidades reais vêm das movimentações.
  */
-export default function AllocationModal({ tournament, editing, onClose, onDone }) {
+export default function AllocationModal({ tournament, linkedIds = [], onClose, onDone }) {
   const { showAlert } = useAlert();
   const [binders, setBinders] = useState([]);
-  const [binderId, setBinderId] = useState(editing ? (editing.binder_id?._id || editing.binder_id) : '');
-  const [matrix, setMatrix] = useState(null);
-  const [mode, setMode] = useState(editing ? 'quantities' : 'binder');
-  const [picked, setPicked] = useState({});     // denominações escolhidas: { chipId: true }
-  const [range, setRange] = useState({ min: '', max: '' });
-  const [qtys, setQtys] = useState({});         // quantidades por ficha
-  const [error, setError] = useState(null);     // { message, details }
+  const [picked, setPicked] = useState([]);
   const [busy, setBusy] = useState(false);
+  useModalDismiss(true, onClose);
 
-  useEffect(() => { if (!editing) apiGet('/binders').then(setBinders).catch(() => {}); }, [editing]);
+  const linkedKey = linkedIds.join(',');
   useEffect(() => {
-    if (!binderId) return;
-    let alive = true;
-    apiGet('/allocations/matrix', { binder_id: binderId }).then((m) => {
-      if (!alive) return;
-      setMatrix(m);
-      if (editing) setQtys(Object.fromEntries(editing.chips.map((c) => [c.chip_id?._id || c.chip_id, String(c.quantity)])));
-    }).catch((e) => showAlert(e.message || 'Erro ao carregar o fichário', 'error'));
-    return () => { alive = false; };
-  }, [binderId, editing, showAlert]);
+    apiGet('/binders').then((rows) => setBinders(rows.filter((b) => !linkedKey.split(',').includes(b._id) && b.status !== 'maintenance'))).catch(() => {});
+  }, [linkedKey]);
 
-  const binderOptions = useMemo(() => binders.map((b) => ({ value: b._id, label: b.code ? `${b.name} (${b.code})` : b.name })), [binders]);
-  const own = editing?._id;
-
-  // quais denominações a faixa de valor seleciona
-  const inRange = (row) => {
-    const min = range.min === '' ? null : Number(range.min);
-    const max = range.max === '' ? null : Number(range.max);
-    return row.balance > 0 && (min === null || row.chip.value >= min) && (max === null || row.chip.value <= max);
-  };
-
-  const submit = async () => {
-    setError(null);
-    let body;
-    if (mode === 'binder') body = { binder_id: binderId, mode };
-    else if (mode === 'denominations') {
-      const ids = Object.keys(picked).filter((k) => picked[k]);
-      const hasRange = range.min !== '' || range.max !== '';
-      if (!ids.length && !hasRange) return setError({ message: 'Escolha ao menos uma denominação ou informe uma faixa de valor.' });
-      body = { binder_id: binderId, mode, ...(ids.length ? { chip_ids: ids } : { min_value: range.min === '' ? undefined : Number(range.min), max_value: range.max === '' ? undefined : Number(range.max) }) };
-    } else {
-      const chips = Object.entries(qtys).filter(([, v]) => Number(v) > 0).map(([chip_id, v]) => ({ chip_id, quantity: Number(v) }));
-      if (!chips.length) return setError({ message: 'Informe a quantidade de ao menos uma ficha.' });
-      body = editing ? { chips } : { binder_id: binderId, mode, chips };
-    }
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const save = async () => {
+    if (!picked.length) return showAlert('Escolha ao menos um fichário.', 'error');
     setBusy(true);
     try {
-      if (editing) await apiPut(`/allocations/${editing._id}`, { chips: body.chips });
-      else await apiPost(`/tournaments/${tournament._id}/allocations`, body);
-      showAlert(editing ? 'Alocação atualizada!' : 'Fichas alocadas!', 'success');
+      await apiPost(`/tournaments/${tournament._id}/allocations`, { binder_ids: picked });
+      showAlert('Fichário vinculado ao torneio.', 'success');
       onDone();
     } catch (e) {
-      if (e.status === 401) return;
-      setError({ message: e.message || 'Erro ao alocar', details: e.data?.details });
+      if (e.status !== 401) showAlert(e.message || 'Erro ao vincular fichário', 'error');
     } finally { setBusy(false); }
   };
 
-  const control = (row, freeForMe) => {
-    if (mode === 'denominations') {
-      const checked = !!picked[row.chip._id] || (!Object.values(picked).some(Boolean) && (range.min !== '' || range.max !== '') && inRange(row));
-      return (
-        <input type="checkbox" disabled={row.balance <= 0} checked={checked} className="h-4 w-4 accent-red-600"
-          onChange={(e) => setPicked((p) => ({ ...p, [row.chip._id]: e.target.checked }))} />
-      );
-    }
-    if (mode === 'quantities') {
-      return (
-        <input type="number" min="0" max={Math.max(0, freeForMe)} step="1" placeholder="0" value={qtys[row.chip._id] ?? ''}
-          onChange={(e) => setQtys((q) => ({ ...q, [row.chip._id]: e.target.value }))}
-          className={`w-24 rounded-lg border bg-surface px-2 py-1 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-brand  ${Number(qtys[row.chip._id]) > freeForMe ? 'border-red-400' : 'border-line'}`} />
-      );
-    }
-    return <span className="text-xs text-fg-subtle">{fmt(row.balance)}</span>;
-  };
-
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={onClose} className="absolute inset-0 bg-[var(--overlay)]" />
-      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="card relative flex max-h-[92vh] w-full max-w-3xl flex-col shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between border-b border-line-soft p-6">
-          <h2 className="flex items-center gap-2 text-xl font-bold text-fg">
-            <Boxes size={20} className="text-brand-fg" /> {editing ? 'Editar alocação' : 'Alocar fichas'} — {tournament.name}
-          </h2>
-          <button onClick={onClose} className="text-fg-subtle hover:text-gray-600"><X /></button>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Vincular fichário" onClick={onClose}>
+      <div className="card max-h-[92vh] w-full max-w-lg space-y-4 overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold">Fichário do torneio · {tournament.name}</h3>
+          <button type="button" onClick={onClose} aria-label="Fechar"><X size={18} /></button>
         </div>
-
-        <div className="space-y-5 overflow-y-auto p-6">
-          {!editing && (
-            <div>
-              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Fichário</label>
-              <CustomSelect options={binderOptions} value={binderId} onChange={(v) => { setBinderId(v); setMatrix(null); setError(null); }} placeholder="Selecione o fichário..." />
-            </div>
-          )}
-
-          {matrix && (
-            <>
-              {!editing && (
-                <div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {MODES.map((m) => (
-                      <button key={m.v} type="button" onClick={() => { setMode(m.v); setError(null); }}
-                        className={`rounded-xl border p-3 text-xs font-bold transition-all ${mode === m.v ? 'border-brand bg-red-50 text-brand-fg dark:bg-red-500/10' : 'border-line text-fg-muted'}`}>{m.label}</button>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-xs text-fg-muted">{MODES.find((m) => m.v === mode).hint}</p>
-                </div>
-              )}
-
-              {mode === 'denominations' && !editing && (
-                <div className="flex flex-wrap items-center gap-3 text-xs">
-                  <span className="font-bold text-fg-muted">Faixa de valor:</span>
-                  <input type="number" min="0" placeholder="de" value={range.min} onChange={(e) => setRange({ ...range, min: e.target.value })} className="input w-24" />
-                  <input type="number" min="0" placeholder="até" value={range.max} onChange={(e) => setRange({ ...range, max: e.target.value })} className="input w-24" />
-                  <span className="text-fg-subtle">ou marque as denominações abaixo</span>
-                </div>
-              )}
-
-              <AllocationMatrix matrix={matrix} ownAllocationId={own} renderControl={control}
-                controlLabel={mode === 'quantities' ? 'Quantidade' : mode === 'denominations' ? 'Alocar' : 'Será alocado'} />
-            </>
-          )}
-
-          {error && (
-            <div className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400">
-              <AlertCircle className="mt-0.5 shrink-0" size={18} />
-              <div>
-                <p className="font-bold">{error.message}</p>
-                {error.details?.length > 0 && (
-                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
-                    {error.details.map((d, i) => (
-                      <li key={i}>
-                        {d.chip ? <b>{d.chip}</b> : null} pedido {fmt(d.requested)} · livre {fmt(d.free)} · <b>excesso {fmt(d.excess)}</b>
-                        {d.held_by?.length > 0 && ` — alocadas a: ${d.held_by.map((h) => `${h.tournament} ${fmt(h.quantity)}`).join(', ')}`}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          )}
+        <p className="text-sm text-fg-muted">Escolha qual fichário será usado. Nenhuma quantidade é reservada: o fichário continua livre para outros torneios.</p>
+        {binders.length === 0 ? <p className="py-4 text-center text-sm italic text-fg-subtle">Nenhum fichário disponível.</p> : (
+          <ul className="divide-y divide-line-soft">
+            {binders.map((b) => (
+              <li key={b._id}>
+                <label className="flex cursor-pointer items-center gap-3 py-3">
+                  <input type="checkbox" checked={picked.includes(b._id)} onChange={() => toggle(b._id)} />
+                  <span className="flex-1 font-semibold text-fg">{b.name}{b.code ? <span className="ml-2 font-mono text-xs text-fg-muted">{b.code}</span> : null}</span>
+                  <span className="text-xs text-fg-muted">{(b.chips || []).reduce((a, c) => a + c.quantity, 0).toLocaleString()} fichas</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn btn-secondary">Cancelar</button>
+          <button type="button" onClick={save} disabled={busy || !picked.length} className="btn btn-primary">Vincular</button>
         </div>
-
-        <div className="flex gap-3 border-t border-line-soft p-4">
-          <button onClick={onClose} className="flex-1 rounded-xl bg-raised py-3 text-xs font-bold text-fg-muted dark:bg-zinc-800">Cancelar</button>
-          <button onClick={submit} disabled={busy || !matrix} className="flex-1 rounded-xl bg-brand py-3 text-xs font-bold text-white hover:bg-brand-hover disabled:opacity-40">
-            {busy ? 'Alocando…' : editing ? 'Salvar alocação' : 'Alocar'}
-          </button>
-        </div>
-      </motion.div>
+      </div>
     </div>
   );
 }

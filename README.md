@@ -16,7 +16,8 @@ auditoria de operações.
 | **Financeiro do torneio** | Buy-in, rake fixo, bounty, add-on → prize pool calculado. Templates de premiação em % com faixas por nº de inscritos. Eliminações **por entrada** ("Entrada #n") → classificação final com prêmio. |
 | **Estoque** | Saldos **por fichário × ficha, derivados das movimentações** (montagem, saída, perda, ajuste, estorno). O saldo nunca fica negativo. |
 | **Livro-razão de fichas** | `Movement`: imutável, com origem → destino, fichário, motivo e usuário (`/livro-estoque`). Erro se corrige por **estorno**, nunca por edição/exclusão. É a fonte da verdade dos saldos. |
-| **Alocação de fichas** | **Parcial**, por denominação e quantidade: o mesmo fichário atende 2 torneios (ex.: ≥ 5.000 no A, ≤ 1.000 no B) se a soma alocada de cada ficha não passar do saldo físico. A regra `quantidade ≤ livre` é do servidor (409 com o excesso e quem está segurando). A reserva vale **desde que aloca**, não só quando o torneio inicia. |
+| **Sessões (Simulação 2.1)** | Cada sessão (1A, 1B, Dia Final…) tem **estado próprio**: relógio, nível, entradas, reentradas, ativos, fichas em jogo e Chip Race (`session_id` em toda consulta operacional; `tournament_id` só agrega). `QUALIFIER` registra os classificados ao encerrar (correção auditável); `FINAL` não aceita buy-in/reentrada e começa com a soma dos classificados. Migração `20261006000000-session-state` (rodar `npm run migrate`). |
+| **Fichário do torneio** | O torneio só escolhe **qual fichário** usa — sem reserva por denominação/quantidade e sem bloquear o fichário (o mesmo atende mais de um torneio). As quantidades reais vêm das movimentações. |
 | **Fichários** | Kits de fichas; alocação **por torneio** (veja acima). Conferência física compara o contado com o esperado (derivado): falta vira perda, sobra vira `FOUND` e cada diferença abre uma **ocorrência** com semáforo — nada é sobrescrito. |
 | **Fichas → Modelos de Fichário → Fichários** | Ficha é cadastro mestre (sem quantidade); o **Modelo de Fichário** define quanto de cada ficha compõe um fichário; o **Fichário físico** é a unidade real, criada a partir de um modelo. Cadastros só do admin. |
 | **Modelos de Stack** | Grade **ficha × ação** (buy-in padrão, opcional, reentrada, add-on…): quantas fichas UMA entrada recebe em cada ação. Informe só a **quantidade de ações**; o servidor calcula as fichas por denominação (e o valor). |
@@ -24,7 +25,7 @@ auditoria de operações.
 | **Chip Race / Color Up** | Lançamento por denominação do que **saiu** e do que **entrou** de jogo; o servidor calcula valor retirado, valor colocado e a **quebra matemática** (legítima — nunca vira perda física). Movimenta as fichas num lote e só se corrige por **estorno**. |
 | **Descarte de stack** | Um stack é abandonado: as fichas informadas (não precisam ser a composição original) saem do **jogo** e voltam ao fichário na hora; reduz o esperado em jogo. Valor total calculado no servidor; imutável (só estorno, admin); atualiza o painel em tempo real por socket. |
 | **Ocorrências e semáforo** | Divergência física (falta/sobra) vira **ocorrência**: verde/amarelo/vermelho pela faixa do valor nominal (configurável), justificativa, recuperação parcial ou total e histórico completo — nunca é apagada. Ocorrência vermelha dispara alerta urgente para todos. A quebra matemática do Chip Race **não** gera ocorrência. |
-| **Dashboard e relatórios** | Respondem "onde estão as fichas / o que acontece agora" **só pelos movimentos** (nenhum cache legado): estoque por denominação, matriz fichário × denominação, em jogo por torneio/sessão, fluxos, ocorrências por semáforo, conflitos de alocação e linha do tempo. O painel atualiza **por bloco** em tempo real (`movementsPosted`, `occurrenceOpened`…). Relatórios e comparativo trazem descartes, perdas, recuperações e a quebra do chip race; CSV de logs e de fichas. |
+| **Dashboard e relatórios** | Respondem "onde estão as fichas / o que acontece agora" **só pelos movimentos** (nenhum cache legado): fichas **em jogo** por torneio/sessão (o que entrou nos stacks, nunca o só-enviado), um relógio por sessão, chamados de Chip Race e ocorrências. O painel atualiza **por bloco** em tempo real (`movementsPosted`, `occurrenceOpened`…). Relatórios e comparativo trazem descartes, perdas, recuperações e a quebra do chip race; CSV de logs e de fichas. |
 | **Chat** | Chat por **evento** (o usuário escolhe o evento) com os canais `geral`, `material`, `salao` dentro de cada um, via WebSocket + alertas urgentes globais. |
 | **Relatórios / Auditoria** | Gráficos (Recharts) e log paginado de todas as ações do sistema. |
 | **Usuários** | CRUD de membros e papéis (somente admin). |
@@ -267,24 +268,25 @@ reabre uma encerrada. Excluir sessão: 409 se tiver entradas ou for a última.
 | GET | `/tournaments/:tid/sessions/:sid/chips-in-play` — fichas em jogo só daquela sessão (o do torneio é a soma) |
 
 `PUT /tournaments/:id { status: 'finished' }` → **409** com a lista de sessões pendentes; envie `finish_sessions: true` para encerrá-las junto.
-Financeiro, eliminações, relógio e blinds seguem no **torneio** (um único prize pool).
+Relógio, nível, ativos e eliminações são da **sessão**; blinds, stack e fichário são compartilhados do torneio.
 
-### Alocações de fichas — leitura: qualquer autenticado · escrita: *admin*
-`livre(fichário, ficha) = saldo físico − Σ alocações abertas (planejadas + ativas) de todos os torneios`. Pedir mais que o livre → **409**
-com `details` (`requested`, `balance`, `allocated_elsewhere`, `free`, `excess`, `held_by`); nada é gravado. A checagem roda sob os
-mesmos bloqueios das movimentações (alocar e retirar ao mesmo tempo não estoura o saldo). **Retiradas** (`WITHDRAWAL`, `ADJUSTMENT`
-saída, estorno) não podem levar o fichário abaixo do alocado; uma **perda** apurada na conferência não é barrada e vira *falta*
-(`shortfall`) na alocação. Alocações não são apagadas: liberar = `status: released` (histórico).
+### Fichário do torneio (vínculo) — leitura: qualquer autenticado · escrita: *admin*
+Sem reserva por denominação/quantidade e sem bloqueio: o vínculo só diz de qual fichário saem as fichas. Desvincular = `status: released` (histórico).
 
 | Método | Rota |
 | --- | --- |
-| POST | `/tournaments/:id/allocations` — `{ binder_id, mode, note? }` com `mode`: `binder` (fichário inteiro) · `denominations` (`chip_ids` **ou** `min_value`/`max_value`) · `quantities` (`chips: [{ chip_id, quantity }]`). Uma alocação aberta por (torneio, fichário). |
-| PUT | `/allocations/:id` — `{ chips: [{ chip_id, quantity }] }` substitui a lista (a própria alocação não conta contra si) |
-| DELETE | `/allocations/:id` — **libera** (histórico) e devolve a capacidade |
-| GET | `/allocations` — `?tournament_id=`, `?binder_id=`, `?status=`, `?open=false\|all` (padrão: só abertas); traz saldo e `shortfall` por ficha |
-| GET | `/allocations/matrix?binder_id=` — por ficha: saldo, alocado a cada torneio e **livre** (negativo = falta) — *ficharios* |
+| GET | `/allocations?tournament_id=` — vínculos abertos |
+| POST | `/tournaments/:id/allocations` — `{ binder_id }` ou `{ binder_ids: [...] }` |
+| DELETE | `/allocations/:id` — desvincula |
 
-Não existe campo de alocação gravado no torneio nem no fichário: o estado vem das alocações abertas (`GET /binders`, `GET /inventory/by-chip`).
+### Fichários: editar, arquivar, excluir
+`PUT /binders/:id` (nome, código) · `POST /binders/:id/archive` · `POST /binders/:id/unarchive` (admin) · `DELETE /binders/:id` só sem nenhum histórico (senão 409: arquive). `GET /binders` oculta arquivados (`?archived=true|all`).
+
+### Relógio, ativos e Chip Race por sessão
+`POST /tournaments/:id/clock` e `POST /tournaments/:id/sessions/:sid/clock` (`session_id` obrigatório com várias sessões) · `GET /tournaments/:id/clock?session_id=` · `GET /tournaments/:id/clocks` · `PUT /tournaments/:id/active-players { session_id }` · `PUT /tournaments/:id/sessions/:sid/qualified { qualified_count, reason }` · chamados: `POST /tournaments/:id/conversion-requests { type, chip_id, tables, session_id }`.
+
+
+Não existe campo de alocação gravado no torneio nem no fichário: o estado vem dos vínculos abertos (`GET /binders`, `GET /inventory/by-chip`).
 
 ### Torneios — *torneios* (GET liberado a qualquer autenticado)
 | Método | Rota |

@@ -38,7 +38,7 @@ async function scene() {
   })).body;
   const t = (await post(admin, '/api/tournaments', { name: 'Warm Up', date: '2026-10-01', stack_model_id: stack._id })).body;
   const tournament = await Tournament.findById(t._id);
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
   await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 10 });
   const sent = await post(mat, `/api/tournaments/${t._id}/sends`, { items: [{ action: 'buy_in', count: 10 }] });
   assert.equal(sent.status, 201, JSON.stringify(sent.body));
@@ -47,13 +47,12 @@ async function scene() {
 const discard = (h, t, body) => post(h, `/api/tournaments/${t._id}/discards`, body);
 const inPlay = async (h, t) => (await get(h, `/api/tournaments/${t._id}/chips-in-play`)).body;
 const row = (r, chip) => r.rows.find((x) => x.chip._id === String(chip._id));
-const allocRow = async (h, binder, chip) => (await get(h, `/api/allocations/matrix?binder_id=${binder._id}`)).body.chips.find((r) => r.chip._id === String(chip._id));
 
 // ─── ACEITE ──────────────────────────────────────────────────────────────────
 
 test('ACEITE: stack parcial (3×100 + 1×500) volta ao fichário; "em jogo" cai; valor total do servidor', async () => {
   const { c, binder, admin, mat, t, tournament } = await scene();
-  const before = { table100: await onTable(tournament, c[100]), bin100: await bal(binder, c[100]), inPlay: await inPlay(admin, t), alloc: await allocRow(admin, binder, c[100]) };
+  const before = { table100: await onTable(tournament, c[100]), bin100: await bal(binder, c[100]), inPlay: await inPlay(admin, t) };
 
   const res = await discard(mat, t, { chips: [{ chip_id: c[100]._id, quantity: 3 }, { chip_id: c[500]._id, quantity: 1 }], note: 'stack curto, vai reentrar' });
   assert.equal(res.status, 201, JSON.stringify(res.body));
@@ -71,10 +70,7 @@ test('ACEITE: stack parcial (3×100 + 1×500) volta ao fichário; "em jogo" cai;
   assert.equal(await onTable(tournament, c[100]), before.table100 - 3);
   assert.equal(await onTable(tournament, c[500]), 40 - 1);
   assert.equal(await bal(binder, c[100]), before.bin100 + 3);
-  const after = await allocRow(admin, binder, c[100]);
-  assert.equal(after.balance, before.alloc.balance + 3, 'o saldo do fichário sobe');
-  assert.equal(after.allocated[0].quantity, before.alloc.allocated[0].quantity + 3, 'e a reserva do torneio (restante) também');
-  assert.equal(after.free, before.alloc.free, 'sem mexer no livre dos outros');
+  assert.equal(await bal(binder, c[100]), before.bin100 + 3, 'o saldo do fichário sobe');
 
   // o "esperado em jogo" (G3) cai exatamente pelo descarte
   const now = await inPlay(admin, t);
@@ -145,14 +141,14 @@ test('validações: corpo vazio, quantidades ruins, ficha repetida/inexistente, 
   assert.equal(await Movement.countDocuments({ type: 'DISCARD' }), 0);
 });
 
-test('fichário de destino: o único alocado é o padrão; vários (ou nenhum) exigem binder_id', async () => {
+test('fichário de destino: o único vinculado é o padrão; vários (ou nenhum) exigem binder_id', async () => {
   const { c, mat, admin, t, binder } = await scene();
   const other = await makeBinder('LISA 2', [{ chip: c[100], quantity: 10 }]);
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: other._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: other._id });
 
   const amb = await discard(mat, t, { chips: [{ chip_id: c[100]._id, quantity: 2 }] });
   assert.equal(amb.status, 400);
-  assert.match(amb.body.error, /vários fichários alocados/);
+  assert.match(amb.body.error, /vários fichários/);
   const chosen = await discard(mat, t, { chips: [{ chip_id: c[100]._id, quantity: 2 }], binder_id: other._id });
   assert.equal(chosen.status, 201);
   assert.equal(chosen.body.binder.name, 'LISA 2');
@@ -186,7 +182,7 @@ test('sessão: alias /sessions/:sid/discards; várias sessões sem indicar → 4
   const admin = await as('admin'); const mat = await as('material');
   const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01', sessions: ['Dia 1A', 'Dia 1B'] })).body;
   const [s1, s2] = t.sessions;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
   await post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: c[100]._id, quantity: 100 }], session_id: s1._id });
   const body = { chips: [{ chip_id: c[100]._id, quantity: 10 }] };
 
@@ -252,7 +248,7 @@ test('fichas em jogo por sessão: o descarte só abate a sessão em que foi lan�
   const stack = (await post(admin, '/api/stacks', { name: 'S', composition: [{ chip_id: c[100]._id, quantities: { buy_in: 10 } }] })).body;
   const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01', sessions: ['Dia 1A', 'Dia 1B'], stack_model_id: stack._id })).body;
   const [s1, s2] = t.sessions;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
   for (const s of [s1, s2]) {
     await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 5, session_id: s._id });
     await post(mat, `/api/tournaments/${t._id}/sends`, { items: [{ action: 'buy_in', count: 5 }], session_id: s._id });
@@ -300,7 +296,7 @@ test('estorno bloqueado se as fichas já voltaram a ser usadas (fichário sem sa
   const binder = await makeBinder('B', [{ chip, quantity: 10 }]);
   const admin = await as('admin'); const mat = await as('material');
   const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
   const body = { chips: [{ chip_id: chip._id, quantity: 10 }] };
   await post(mat, `/api/tournaments/${t._id}/sends`, body);
   const d = (await discard(mat, t, body)).body;
@@ -407,7 +403,7 @@ for (const mode of ['auto', 'mutex']) {
     const binder = await makeBinder('B', [{ chip, quantity: 500 }]);
     const admin = await as('admin'); const mat = await as('material');
     const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
-    await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+    await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
     await post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: chip._id, quantity: 100 }] });
 
     const res = await Promise.all(Array.from({ length: 6 }, () => discard(mat, t, { chips: [{ chip_id: chip._id, quantity: 30 }] })));

@@ -4,10 +4,11 @@ import { useTournamentClock, formatClock } from '../hooks/useTournamentClock';
 
 const n = (v) => (v ?? 0).toLocaleString(locale());
 
-/** Um torneio em andamento com o relógio ao vivo (socket). Em intervalo o cartão muda de cor e diz quando volta o jogo. */
-function ClockCard({ tournament }) {
-  const clock = useTournamentClock(tournament._id);
-  const status = clock.clock_status || tournament.clock_status || 'stopped';
+/** Uma SESSÃO em andamento com o seu relógio ao vivo (socket). Em intervalo o cartão muda de cor e diz quando volta o jogo. */
+function ClockCard({ initial }) {
+  const clock = useTournamentClock(initial.tournament_id, { sessionId: initial.session_id || undefined });
+  const tournament = { name: initial.name, actual_players: initial.actual_players };
+  const status = clock.clock_status || initial.clock_status || 'stopped';
   const onBreak = !!clock.is_break;
   const paused = status === 'paused';
   const lvl = clock.level;
@@ -19,7 +20,7 @@ function ClockCard({ tournament }) {
   return (
     <li data-testid="running-clock" data-break={onBreak ? 'true' : undefined} className={`rounded-xl border p-4 transition-colors ${tone}`}>
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 truncate font-semibold text-fg">{tournament.name}</p>
+        <p className="min-w-0 truncate font-semibold text-fg">{tournament.name}{initial.session_name ? <span className="text-fg-muted"> · {initial.session_name}</span> : null}</p>
         {onBreak
           ? <span className="badge badge-warn"><Coffee size={14} aria-hidden="true" /> {breakName}</span>
           : paused ? <span className="badge badge-warn">Pausado</span>
@@ -43,15 +44,15 @@ function ClockCard({ tournament }) {
   );
 }
 
-/** Seção do Dashboard: torneios rodando agora com relógio. `tournaments` = [{ _id, name, ... }] */
-export default function RunningClocks({ tournaments = [] }) {
+/** Seção do Dashboard: um relógio por SESSÃO em andamento. `clocks` = payloads de GET /dashboard/stats (running_clocks). */
+export default function RunningClocks({ clocks = [] }) {
   return (
     <section data-testid="running-clocks" className="card">
-      <h2 className="card-title flex items-center gap-2"><Clock3 size={18} aria-hidden="true" /> Torneios em andamento</h2>
-      <p className="card-hint mb-4">Relógio ao vivo de cada torneio. Em intervalo, o cartão fica âmbar.</p>
-      {tournaments.length === 0
+      <h2 className="card-title flex items-center gap-2"><Clock3 size={18} aria-hidden="true" /> Torneios ativos</h2>
+      <p className="card-hint mb-4">Relógio ao vivo de cada sessão. Pausar uma sessão não altera as outras.</p>
+      {clocks.length === 0
         ? <p className="py-4 text-sm italic text-fg-subtle">Nenhum torneio em andamento.</p>
-        : <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{tournaments.map((t) => <ClockCard key={t._id} tournament={t} />)}</ul>}
+        : <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{clocks.map((c) => <ClockCard key={`${c.tournament_id}:${c.session_id || ''}`} initial={c} />)}</ul>}
     </section>
   );
 }

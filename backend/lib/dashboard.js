@@ -1,12 +1,11 @@
 // Dashboard e relatórios sobre a FONTE DA VERDADE (G10, spec §14, §21): tudo é derivado dos movimentos
 // (Σ to − Σ from). NADA aqui lê os caches legados de quantidade (ficha e fichário).
 //
-// A pergunta-guia: "onde estão as fichas?" (inventory, in_play) e "o que acontece agora?" (flows,
+// A pergunta-guia: "onde estão as fichas?" (inventory, at_hall) e "o que acontece agora?" (flows,
 // occurrences, conflicts, timeline). Cada bloco é uma função independente para o front refazer só o afetado.
 const mongoose = require('mongoose');
 const { Movement, Chip, Binder, Tournament, TournamentSession, Allocation, Occurrence, Conversion } = require('../models');
 const mv = require('./movements');
-const allocationLib = require('./allocation');
 
 const oid = (x) => new mongoose.Types.ObjectId(String(x));
 const ACTIVE_OCC = { $nin: ['recovered', 'closed', 'voided'] };
@@ -34,23 +33,21 @@ async function netByKindChip() {
 }
 
 // ─── inventory: onde estão as fichas ─────────────────────────────────────────
-/** Por ficha: em fichários, reservado (alocações), livre, em jogo, em divergência + valor nominal. */
+/** Por ficha: em fichários, no Salão (enviado), em divergência + valor nominal. Sem reserva: o fichário não é bloqueado. */
 async function byChip() {
   const net = await netByKindChip();
   const chips = await chipDocs([...net.keys()]);
-  const reserved = await mv.reservedByChip([...net.keys()]);
   const rows = [...net.entries()].map(([id, n]) => {
     const chip = chips.get(id) || { _id: id };
-    const res = Math.min(reserved.get(id) || 0, Math.max(0, n.binder));
     return {
-      chip, in_binders: n.binder, reserved: res, free: n.binder - res, in_play: n.play, lost: n.lost,
-      existing: n.binder + n.play, value_in_binders: n.binder * (chip.value || 0), value_in_play: n.play * (chip.value || 0),
+      chip, in_binders: n.binder, at_hall: n.play, lost: n.lost,
+      existing: n.binder + n.play, value_in_binders: n.binder * (chip.value || 0), value_at_hall: n.play * (chip.value || 0),
     };
-  }).filter((r) => r.in_binders || r.in_play || r.lost).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
+  }).filter((r) => r.in_binders || r.at_hall || r.lost).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
   const sum = (f) => rows.reduce((s, r) => s + r[f], 0);
   return {
     rows,
-    totals: { in_binders: sum('in_binders'), reserved: sum('reserved'), free: sum('free'), in_play: sum('in_play'), lost: sum('lost'), existing: sum('existing'), value_in_binders: sum('value_in_binders'), value_in_play: sum('value_in_play') },
+    totals: { in_binders: sum('in_binders'), at_hall: sum('at_hall'), lost: sum('lost'), existing: sum('existing'), value_in_binders: sum('value_in_binders'), value_at_hall: sum('value_at_hall') },
   };
 }
 
@@ -74,8 +71,8 @@ async function matrix() {
   return { chips: chipList, rows: [...byBinder.values()].sort((a, b) => String(a.binder.name).localeCompare(String(b.binder.name))) };
 }
 
-// ─── in_play: em qual torneio/sessão ─────────────────────────────────────────
-async function inPlay() {
+// ─── at_hall: fichas ENVIADAS ao Salão, por torneio/sessão (≠ "em jogo": em jogo = entregue aos stacks dos jogadores) ─────────────────────────────────────────
+async function atHall() {
   const agg = (side, sign) => Movement.aggregate([
     { $match: { [`${side}.kind`]: 'play' } },
     { $group: { _id: { t: `$${side}.id`, s: '$session_id', c: '$chip_id' }, q: { $sum: sign > 0 ? '$quantity' : { $multiply: ['$quantity', -1] } } } },
@@ -170,24 +167,14 @@ async function occurrenceStats() {
   };
 }
 
-/** Conflitos de alocação: alocações abertas que já não têm saldo (perda depois de alocar). */
-async function conflicts() {
-  const rows = await Allocation.find({ open: true }).populate([{ path: 'binder_id', select: 'name code' }, { path: 'tournament_id', select: 'name' }, { path: 'chips.chip_id', select: 'name value color' }]);
-  const healthy = await allocationLib.withHealth(rows);
-  return healthy.filter((a) => a.has_shortfall).map((a) => ({
-    allocation_id: a._id, binder: a.binder_id, tournament: a.tournament_id,
-    chips: a.chips.filter((c) => c.shortfall > 0).map((c) => ({ chip: c.chip_id, shortfall: c.shortfall, balance: c.balance })),
-  }));
-}
-
 async function timeline(limit = 15) {
   return Movement.find().sort({ createdAt: -1 }).limit(limit)
     .populate([{ path: 'chip_id', select: 'name value color' }, { path: 'binder_id', select: 'name code' }, { path: 'tournament_id', select: 'name' }]).lean();
 }
 
-/** Fichários sem nenhuma alocação aberta (o "livre" agora vem das alocações, não de um status digitado). */
+/** Fichários livres = ativos (não arquivados) e sem vínculo com torneio aberto. Só informa: nada fica bloqueado. */
 async function freeBinders() {
-  const all = await Binder.countDocuments();
+  const all = await Binder.countDocuments({ archived: { $ne: true } });
   const used = (await Allocation.distinct('binder_id', { open: true })).length;
   return { total: all, free: Math.max(0, all - used), allocated: used };
 }
@@ -195,10 +182,9 @@ async function freeBinders() {
 // ─── o painel ────────────────────────────────────────────────────────────────
 const BLOCKS = {
   inventory: async () => ({ ...(await byChip()), matrix: await matrix() }),
-  in_play: inPlay,
+  at_hall: atHall,
   flows,
   occurrences: occurrenceStats,
-  conflicts,
   timeline: () => timeline(),
   binders: freeBinders,
 };
@@ -210,4 +196,4 @@ async function stats(blocks) {
   return Object.fromEntries(entries);
 }
 
-module.exports = { stats, byChip, matrix, inPlay, flows, flowsByType, occurrenceStats, conflicts, timeline, freeBinders, netByKindChip, BLOCKS, FLOW_TYPES };
+module.exports = { stats, byChip, matrix, atHall, flows, flowsByType, occurrenceStats, timeline, freeBinders, netByKindChip, BLOCKS, FLOW_TYPES };

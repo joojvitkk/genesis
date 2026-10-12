@@ -22,7 +22,7 @@ const del = (h, url) => request(app).delete(url).set(h);
 const bal = (binder, chip) => mv.balanceAt({ kind: 'binder', id: binder._id }, chip._id);
 const onTable = async (t, chip) => (await mv.playBalances({ tournament_id: t._id, chip_id: chip._id }))[0]?.quantity || 0;
 
-// fichário com estoque, modelo de stack e torneio com o fichário INTEIRO alocado
+// fichário com estoque, modelo de stack e torneio com o fichário VINCULADO (sem reserva por quantidade)
 async function scene({ allocate = true } = {}) {
   const c = {};
   for (const [v, color] of [[100, '#000000'], [500, '#ff0000'], [1000, '#0000ff'], [5000, '#00ff00']]) c[v] = await makeChip({ value: v, color });
@@ -42,13 +42,12 @@ async function scene({ allocate = true } = {}) {
   const t = (await post(admin, '/api/tournaments', { name: 'Warm Up', date: '2026-10-01', stack_model_id: stack._id, addon_value: 100, addon_chips: 3000 })).body;
   const tournament = await Tournament.findById(t._id);
   if (allocate) {
-    const a = await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+    const a = await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
     assert.equal(a.status, 201, JSON.stringify(a.body));
   }
   return { c, binder, admin, stack, t, tournament, mat: await as('material') };
 }
 const send = (h, t, body) => post(h, `/api/tournaments/${t._id}/sends`, body);
-const allocRow = async (binder, chip) => (await get(await as('admin'), `/api/allocations/matrix?binder_id=${binder._id}`)).body.chips.find((r) => r.chip._id === String(chip._id));
 
 // ─── envio ───────────────────────────────────────────────────────────────────
 
@@ -89,45 +88,29 @@ test('envio avulso ("adicional"): fichas informadas à mão', async () => {
   assert.equal(await bal(binder, c[500]), 1950);
 });
 
-test('enviar CONSOME a reserva: o "livre" do fichário não muda e o restante da alocação cai', async () => {
+test('enviar baixa o saldo físico do fichário; não há reserva por denominação nem quantidade', async () => {
   const { c, binder, mat, tournament } = await scene();
-  const before = await allocRow(binder, c[100]);
-  assert.deepEqual([before.balance, before.allocated_total, before.free], [5000, 5000, 0]);
-
+  assert.equal(await bal(binder, c[100]), 5000);
   await send(mat, tournament, { items: [{ action: 'buy_in', count: 100 }] }); // 1.000 fichas de 100
-  const after = await allocRow(binder, c[100]);
-  assert.equal(after.balance, 4000);
-  assert.equal(after.allocated_total, 4000, 'restante reservado = alocado 5000 − enviado 1000');
-  assert.equal(after.free, 0, 'o livre continua zero: nada foi "liberado" nem "faltando" por enviar');
-  assert.deepEqual([after.allocated[0].allocated, after.allocated[0].sent, after.allocated[0].quantity], [5000, 1000, 4000]);
+  assert.equal(await bal(binder, c[100]), 4000);
+  assert.equal(await mv.chipTotal(c[100]._id), 4000, 'saldo derivado');
 
-  const total = await mv.chipTotal(c[100]._id);
-  const reserved = (await mv.reservedByChip([c[100]._id])).get(String(c[100]._id)) || 0;
-  assert.deepEqual([total, reserved, total - reserved], [4000, 4000, 0], 'saldos derivados');
-
-  const list = (await get(await as('admin'), `/api/allocations?tournament_id=${tournament._id}`)).body[0];
-  assert.equal(list.has_shortfall, false, 'enviar não vira "falta"');
-  const line = list.chips.find((x) => x.chip_id._id === String(c[100]._id));
-  assert.deepEqual([line.quantity, line.sent, line.remaining, line.balance], [5000, 1000, 4000, 4000]);
+  const link = (await get(await as('admin'), `/api/allocations?tournament_id=${tournament._id}`)).body[0];
+  assert.equal(link.chips.length, 0, 'o vínculo guarda só o fichário, sem quantidades');
+  assert.equal(link.binder_id.name, 'LISA 1');
 });
 
-test('envio além do que a alocação reserva → 409 com o que falta; nada é gravado', async () => {
-  const { c, mat, tournament, admin, binder } = await scene({ allocate: false });
-  // aloca só 300 fichas de 100 (quantidade específica)
-  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: binder._id, mode: 'quantities', chips: [{ chip_id: c[100]._id, quantity: 300 }, { chip_id: c[500]._id, quantity: 1000 }] });
+test('envio além do SALDO FÍSICO do fichário → 409 com o que falta; nada é gravado', async () => {
+  const { c, mat, tournament, binder } = await scene();
   const before = await Movement.countDocuments();
 
-  const res = await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 301 }] });
+  const res = await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 5001 }] });
   assert.equal(res.status, 409);
-  assert.match(res.body.error, /Fichas insuficientes nos fichários alocados/);
-  assert.deepEqual([res.body.details[0].requested, res.body.details[0].missing], [301, 1]);
+  assert.match(res.body.error, /Fichas insuficientes nos fichários do torneio/);
+  assert.deepEqual([res.body.details[0].requested, res.body.details[0].missing], [5001, 1]);
   assert.equal(await Movement.countDocuments(), before);
-
-  // ficha não alocada (5.000) também não sai, mesmo havendo saldo no fichário
-  const other = await send(mat, tournament, { chips: [{ chip_id: c[5000]._id, quantity: 1 }] });
-  assert.equal(other.status, 409);
-  assert.equal(await bal(binder, c[5000]), 500);
-  assert.equal((await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 300 }] })).status, 201, 'o teto exato passa');
+  assert.equal(await bal(binder, c[100]), 5000);
+  assert.equal((await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 5000 }] })).status, 201, 'o saldo exato passa');
 });
 
 test('o lote é tudo-ou-nada: um item sem saldo derruba o envio inteiro', async () => {
@@ -140,32 +123,32 @@ test('o lote é tudo-ou-nada: um item sem saldo derruba o envio inteiro', async 
   assert.equal(await bal(binder, c[100]), 5000);
 });
 
-test('envio sem alocação, ou com fichário não alocado ao torneio → 409', async () => {
+test('envio sem fichário vinculado, ou com fichário não vinculado ao torneio → 409', async () => {
   const { mat, tournament, c, admin } = await scene({ allocate: false });
   const none = await send(mat, tournament, { items: [{ action: 'buy_in', count: 1 }] });
   assert.equal(none.status, 409);
-  assert.match(none.body.error, /não tem fichas alocadas/);
+  assert.match(none.body.error, /não tem fichário/);
 
   const other = await makeBinder('Outro', [{ chip: c[100], quantity: 100 }]);
-  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: (await Binder.findOne({ name: 'LISA 1' }))._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: (await Binder.findOne({ name: 'LISA 1' }))._id });
   const wrong = await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 1 }], binder_id: other._id });
   assert.equal(wrong.status, 409);
-  assert.match(wrong.body.error, /não está alocado/);
+  assert.match(wrong.body.error, /não está vinculado/);
 });
 
-test('envio de vários fichários alocados: sai de cada um até o que ele tem reservado', async () => {
+test('envio de vários fichários vinculados: esgota o 1º e completa com o 2º', async () => {
   const { c, mat, tournament, admin, binder } = await scene({ allocate: false });
   const second = await makeBinder('LISA 2', [{ chip: c[100], quantity: 400 }]);
-  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: binder._id, mode: 'quantities', chips: [{ chip_id: c[100]._id, quantity: 600 }] });
-  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: second._id, mode: 'quantities', chips: [{ chip_id: c[100]._id, quantity: 400 }] });
+  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: binder._id });
+  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: second._id });
 
-  const res = await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 900 }] });
+  const res = await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 5300 }] });
   assert.equal(res.status, 201, JSON.stringify(res.body));
   const from = Object.fromEntries(res.body.movements.map((m) => [String(m.binder_id), m.quantity]));
-  assert.deepEqual(from, { [String(binder._id)]: 600, [String(second._id)]: 300 }, 'primeiro esgota a 1ª alocação, depois a 2ª');
-  assert.equal(await bal(binder, c[100]), 4400);
+  assert.deepEqual(from, { [String(binder._id)]: 5000, [String(second._id)]: 300 }, 'primeiro esgota o 1º fichário, depois o 2º');
+  assert.equal(await bal(binder, c[100]), 0);
   assert.equal(await bal(second, c[100]), 100);
-  assert.equal(await onTable(tournament, c[100]), 900);
+  assert.equal(await onTable(tournament, c[100]), 5300);
 });
 
 test('validações do envio: ação sem composição, corpo vazio, itens inválidos, torneio encerrado/inexistente', async () => {
@@ -196,7 +179,7 @@ test('sessão: envio grava a sessão; várias sessões sem indicar → 400; ence
   const binder = await makeBinder('B', [{ chip: c[100], quantity: 1000 }]);
   const admin = await as('admin'); const mat = await as('material');
   const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01', sessions: ['Dia 1A', 'Dia 1B'] })).body;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
   const [s1, s2] = t.sessions;
   const body = { chips: [{ chip_id: c[100]._id, quantity: 10 }] };
 
@@ -220,7 +203,7 @@ test('sessão: envio grava a sessão; várias sessões sem indicar → 400; ence
 
 // ─── retorno ─────────────────────────────────────────────────────────────────
 
-test('retorno: em jogo → fichário, por denominação; devolve a reserva ao torneio', async () => {
+test('retorno: em jogo → fichário, por denominação', async () => {
   const { c, binder, mat, tournament } = await scene();
   await send(mat, tournament, { items: [{ action: 'buy_in', count: 100 }] });
 
@@ -229,8 +212,6 @@ test('retorno: em jogo → fichário, por denominação; devolve a reserva ao to
   for (const m of res.body.movements) assert.deepEqual([m.type, m.from.kind, m.to.kind], ['RETURN', 'play', 'binder']);
   assert.equal(await onTable(tournament, c[100]), 700);
   assert.equal(await bal(binder, c[100]), 4300);
-  const row = await allocRow(binder, c[100]);
-  assert.deepEqual([row.allocated[0].sent, row.allocated[0].quantity, row.free], [700, 4300, 0], 'o que voltou fica reservado ao torneio de novo');
 });
 
 test('retorno além do que está em jogo → 409 com o saldo real; nada é gravado', async () => {
@@ -258,7 +239,7 @@ test('retorno: validações e permitido depois de o torneio encerrar', async () 
   assert.equal(await onTable(tournament, c[100]), 0);
 });
 
-test('estornar um retorno reenvia ao jogo (o estorno respeita o teto e a reserva)', async () => {
+test('estornar um retorno reenvia ao jogo', async () => {
   const { c, binder, mat, admin, tournament } = await scene();
   await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 100 }] });
   const ret = await post(mat, `/api/tournaments/${tournament._id}/returns`, { binder_id: binder._id, chips: [{ chip_id: c[100]._id, quantity: 100 }] });
@@ -268,7 +249,6 @@ test('estornar um retorno reenvia ao jogo (o estorno respeita o teto e a reserva
   assert.equal(rev.status, 201, JSON.stringify(rev.body));
   assert.equal(await onTable(tournament, c[100]), 100);
   assert.equal(String(rev.body.movements[0].tournament_id), String(tournament._id), 'o estorno mantém o torneio');
-  assert.equal((await allocRow(binder, c[100])).free, 0);
 });
 
 // ─── Chip Race / Color Up ────────────────────────────────────────────────────
@@ -421,7 +401,7 @@ test('conversão: validações de corpo, tipo, fichário e torneio', async () =>
   assert.equal((await race(s, ok)).status, 409, 'torneio encerrado');
 });
 
-test('conversão: destino das fichas retiradas — único fichário alocado é o padrão; vários exigem binder_id', async () => {
+test('conversão: destino das fichas retiradas — único fichário vinculado é o padrão; vários exigem binder_id', async () => {
   const s = await raceScene();
   const { c, tournament, admin } = s;
   const ok = { tournament_id: tournament._id, type: 'CHIP_RACE', outs: [{ chip_id: c[100]._id, quantity: 100 }], ins: [{ chip_id: c[500]._id, quantity: 20 }] };
@@ -430,10 +410,10 @@ test('conversão: destino das fichas retiradas — único fichário alocado é o
   assert.equal(auto.body.binder_id.name, 'LISA 1');
 
   const second = await makeBinder('LISA 2', [{ chip: c[5000], quantity: 10 }]);
-  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: second._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: second._id });
   const ambiguous = await post(s.mat, '/api/conversions', ok);
   assert.equal(ambiguous.status, 400);
-  assert.match(ambiguous.body.error, /vários fichários alocados/);
+  assert.match(ambiguous.body.error, /vários fichários/);
   assert.equal((await post(s.mat, '/api/conversions', { ...ok, binder_id: second._id })).status, 201);
 });
 
@@ -540,40 +520,23 @@ test('resumo: esperado × enviado × devolvido × em jogo × pendente, por ficha
 
 // ─── reserva, alocação e retiradas ───────────────────────────────────────────
 
-test('a alocação não pode ser reduzida abaixo do que já foi enviado, nem perder uma ficha com envio', async () => {
-  const { c, mat, admin, tournament, binder } = await scene({ allocate: false });
-  const a = (await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: binder._id, mode: 'quantities', chips: [{ chip_id: c[100]._id, quantity: 1000 }, { chip_id: c[500]._id, quantity: 100 }] })).body;
-  await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 400 }] });
-
-  const below = await put(admin, `/api/allocations/${a._id}`, { chips: [{ chip_id: c[100]._id, quantity: 399 }, { chip_id: c[500]._id, quantity: 100 }] });
-  assert.equal(below.status, 409);
-  assert.match(below.body.error, /Já foram enviadas 400/);
-  const drop = await put(admin, `/api/allocations/${a._id}`, { chips: [{ chip_id: c[500]._id, quantity: 100 }] });
-  assert.equal(drop.status, 409, 'não dá para tirar a ficha com envio');
-  assert.equal((await put(admin, `/api/allocations/${a._id}`, { chips: [{ chip_id: c[100]._id, quantity: 400 }, { chip_id: c[500]._id, quantity: 100 }] })).status, 200, 'exatamente o enviado pode');
-});
-
-test('retirada de estoque do fichário continua limitada ao livre depois de envios', async () => {
-  const { c, mat, admin, tournament, binder } = await scene({ allocate: false });
-  await post(admin, `/api/tournaments/${tournament._id}/allocations`, { binder_id: binder._id, mode: 'quantities', chips: [{ chip_id: c[100]._id, quantity: 3000 }] });
-  await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 1000 }] }); // saldo 4000, reservado restante 2000, livre 2000
-  const w = (q) => post(admin, '/api/movements', { type: 'WITHDRAWAL', binder_id: binder._id, chip_id: c[100]._id, quantity: q, reason: 'x' });
-  const over = await w(2001);
-  assert.equal(over.status, 409);
-  assert.match(over.body.error, /2000 estão alocadas.*só 2000 podem sair/);
-  assert.equal((await w(2000)).status, 201);
-  assert.equal(await bal(binder, c[100]), 2000, 'o reservado ao torneio (2.000) está intacto');
-});
-
-test('perda apurada na conferência depois de enviar vira FALTA só do que ainda está reservado', async () => {
+test('retirada de estoque do fichário é limitada só ao saldo físico (sem reserva) depois de envios', async () => {
   const { c, mat, admin, tournament, binder } = await scene();
-  await send(mat, tournament, { chips: [{ chip_id: c[5000]._id, quantity: 100 }] }); // 5.000: saldo 400, reservado 400
+  await send(mat, tournament, { chips: [{ chip_id: c[100]._id, quantity: 1000 }] }); // saldo 4000
+  const w = (q) => post(admin, '/api/movements', { type: 'WITHDRAWAL', binder_id: binder._id, chip_id: c[100]._id, quantity: q, reason: 'x' });
+  const over = await w(4001);
+  assert.equal(over.status, 409);
+  assert.match(over.body.error, /Saldo insuficiente/);
+  assert.equal((await w(4000)).status, 201, 'nada está reservado: o saldo todo pode sair');
+  assert.equal(await bal(binder, c[100]), 0);
+});
+
+test('perda apurada na conferência depois de enviar baixa o saldo do fichário (divergência, não reserva)', async () => {
+  const { c, mat, tournament, binder } = await scene();
+  await send(mat, tournament, { chips: [{ chip_id: c[5000]._id, quantity: 100 }] }); // 5.000: saldo 400
   const count = await post(mat, `/api/binders/${binder._id}/count`, { counts: [{ chip_id: c[5000]._id, counted: 390 }], reason: 'caíram 10' });
   assert.equal(count.status, 200, JSON.stringify(count.body));
-  const list = (await get(admin, '/api/allocations')).body[0];
-  const line = list.chips.find((x) => x.chip_id._id === String(c[5000]._id));
-  assert.deepEqual([line.balance, line.remaining, line.shortfall], [390, 400, 10]);
-  assert.equal(list.has_shortfall, true);
+  assert.equal(await bal(binder, c[5000]), 390);
 });
 
 // ─── permissões ──────────────────────────────────────────────────────────────
@@ -629,37 +592,35 @@ test('conservação: fichas em fichários + em jogo = montadas (nenhum envio/ret
 // ─── concorrência ────────────────────────────────────────────────────────────
 
 for (const mode of ['auto', 'mutex']) {
-  test(`concorrência (${mode}): 6 envios simultâneos de 30 sobre 100 reservadas → exatamente 3 passam`, async () => {
-    if (mode === 'mutex') mv._setTransactionMode(false);
-    const chip = await makeChip({ value: 100 });
-    const binder = await makeBinder('B', [{ chip, quantity: 500 }]);
-    const admin = await as('admin'); const mat = await as('material');
-    const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
-    await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'quantities', chips: [{ chip_id: chip._id, quantity: 100 }] });
-
-    const res = await Promise.all(Array.from({ length: 6 }, () => post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: chip._id, quantity: 30 }] })));
-    assert.deepEqual(res.map((r) => r.status).sort(), [201, 201, 201, 409, 409, 409], JSON.stringify(res.map((r) => r.body.error)));
-    const sent = (await mv.playBalances({ tournament_id: t._id }))[0].quantity;
-    assert.equal(sent, 90, 'nunca passa do reservado');
-    assert.ok(sent <= 100);
-    assert.equal(await bal(binder, chip), 410);
-  });
-
-  test(`concorrência (${mode}): enviar e retirar do fichário ao mesmo tempo nunca deixa o reservado sem fichas`, async () => {
+  test(`concorrência (${mode}): 6 envios simultâneos de 30 sobre um saldo de 100 → exatamente 3 passam`, async () => {
     if (mode === 'mutex') mv._setTransactionMode(false);
     const chip = await makeChip({ value: 100 });
     const binder = await makeBinder('B', [{ chip, quantity: 100 }]);
     const admin = await as('admin'); const mat = await as('material');
     const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
-    await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'quantities', chips: [{ chip_id: chip._id, quantity: 60 }] });
+    await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
 
-    // livre = 40; enviar 60 (reservado) e retirar 60 (só 40 livres) → o envio passa, a retirada não
+    const res = await Promise.all(Array.from({ length: 6 }, () => post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: chip._id, quantity: 30 }] })));
+    assert.deepEqual(res.map((r) => r.status).sort(), [201, 201, 201, 409, 409, 409], JSON.stringify(res.map((r) => r.body.error)));
+    const sent = (await mv.playBalances({ tournament_id: t._id }))[0].quantity;
+    assert.equal(sent, 90, 'nunca passa do saldo físico');
+    assert.equal(await bal(binder, chip), 10);
+  });
+
+  test(`concorrência (${mode}): enviar e retirar do fichário ao mesmo tempo nunca passa do saldo`, async () => {
+    if (mode === 'mutex') mv._setTransactionMode(false);
+    const chip = await makeChip({ value: 100 });
+    const binder = await makeBinder('B', [{ chip, quantity: 100 }]);
+    const admin = await as('admin'); const mat = await as('material');
+    const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
+    await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
+
+    // 60 + 60 > 100: exatamente um dos dois passa
     const [s, w] = await Promise.all([
       post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: chip._id, quantity: 60 }] }),
       post(admin, '/api/movements', { type: 'WITHDRAWAL', binder_id: binder._id, chip_id: chip._id, quantity: 60, reason: 'corrida' }),
     ]);
-    assert.equal(s.status, 201, JSON.stringify(s.body));
-    assert.equal(w.status, 409, JSON.stringify(w.body));
+    assert.deepEqual([s.status, w.status].sort(), [201, 409], JSON.stringify([s.body, w.body]));
     assert.equal(await bal(binder, chip), 40);
   });
 }

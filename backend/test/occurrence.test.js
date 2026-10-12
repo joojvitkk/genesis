@@ -266,7 +266,7 @@ async function tournamentScene() {
   const binder = await makeBinder('LISA 1', [{ chip: c100, quantity: 1000 }, { chip: c1000, quantity: 100 }]);
   const admin = await as('admin'); const mat = await as('material');
   const t = (await post(admin, '/api/tournaments', { name: 'Warm Up', date: '2026-10-01' })).body;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: binder._id });
   const sent = await post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: c100._id, quantity: 200 }, { chip_id: c1000._id, quantity: 10 }] });
   assert.equal(sent.status, 201, JSON.stringify(sent.body));
   return { c100, c1000, binder, admin, mat, t };

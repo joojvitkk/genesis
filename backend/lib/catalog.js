@@ -2,7 +2,7 @@
 // Funções puras de validação + consultas de apoio; as rotas só orquestram.
 const mongoose = require('mongoose');
 const {
-  Chip, BinderModel, Binder, StackModel, Allocation, Movement,
+  Chip, BinderModel, Binder, StackModel, Movement,
 } = require('../models');
 const { escapeRegex } = require('../utils/sanitize');
 
@@ -32,7 +32,6 @@ async function chipInUse(chipId) {
     Movement.exists({ chip_id: chipId }),
     BinderModel.exists({ 'composition.chip_id': chipId }),
     StackModel.exists({ 'composition.chip_id': chipId }),
-    Allocation.exists({ 'chips.chip_id': chipId }),
   ]);
   return checks.some(Boolean);
 }

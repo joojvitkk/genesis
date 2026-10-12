@@ -120,7 +120,7 @@ test('dados de outro torneio não vazam pelo material: escopo se aplica também 
   const { A, B, admin } = await scene();
   const chip = await makeChip({ value: 100 });
   const binder = await makeBinder('LISA', [{ chip, quantity: 100 }]);
-  await post(H(admin), `/api/tournaments/${B._id}/allocations`, { binder_id: binder._id, mode: 'binder' });
+  await post(H(admin), `/api/tournaments/${B._id}/allocations`, { binder_id: binder._id });
   const mat = await restricted('material', [A._id]);
   assert.equal((await post(H(mat), `/api/tournaments/${B._id}/discards`, { chips: [{ chip_id: chip._id, quantity: 1 }] })).status, 403);
   assert.equal((await post(H(mat), `/api/tournaments/${B._id}/ko-settlements`, { chip_id: chip._id, quantity: 1 })).status, 403);

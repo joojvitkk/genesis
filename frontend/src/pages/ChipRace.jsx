@@ -16,7 +16,7 @@ const CLOSED = ['finished', 'finalized'];
 
 /**
  * Chip Race / Color Up (spec §8): o operador lança o que SAIU e o que ENTROU de jogo, por denominação.
- * O SERVIDOR calcula os valores e a QUEBRA MATEMÁTICA (diferença legítima da conversão — não é perda física)
+ * Tudo é POR SESSÃO (Simulação 2.1 §9). O SERVIDOR calcula os valores e a QUEBRA MATEMÁTICA (diferença legítima da conversão — não é perda física)
  * e movimenta as fichas (em jogo ↔ fichário) num lote imutável. Erros se corrigem por estorno (admin).
  */
 export default function ChipRace() {
@@ -30,7 +30,6 @@ export default function ChipRace() {
   const [tid, setTid] = useState('');
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState('');
-  const [allocations, setAllocations] = useState([]);
   const [material, setMaterial] = useState(null);
   const [history, setHistory] = useState([]);
   const [type, setType] = useState('CHIP_RACE');
@@ -41,6 +40,7 @@ export default function ChipRace() {
   const [preview, setPreview] = useState(null);     // { value_out, value_in, math_breakage } — vem do servidor
   const [previewError, setPreviewError] = useState(null);
   const [linked, setLinked] = useState(null);     // chamado do Salão que esta conversão vai atender
+  const [chipId, setChipId] = useState('');        // denominação a retirar de jogo
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -56,28 +56,45 @@ export default function ChipRace() {
       .finally(() => setLoading(false));
   }, [showAlert]);
 
-  const loadTournament = useCallback(async (id) => {
+  const loadSessions = useCallback(async (id) => {
     if (!id) return;
     try {
-      const [s, a, m, h] = await Promise.all([
-        apiGet(`/tournaments/${id}/sessions`), apiGet('/allocations', { tournament_id: id }),
-        apiGet(`/tournaments/${id}/material`), apiGet('/conversions', { tournament_id: id }),
+      const sess = await apiGet(`/tournaments/${id}/sessions`);
+      setSessions(sess);
+      setSessionId((cur) => (sess.find((x) => x._id === cur) ? cur : (sess.length === 1 ? sess[0]._id : '')));
+    } catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao carregar as sessões', 'error'); }
+  }, [showAlert]);
+  useEffect(() => { loadSessions(tid); }, [tid, loadSessions]);
+
+  // tudo abaixo é da SESSÃO escolhida: em jogo, saldo do fichário e histórico nunca misturam sessões
+  const loadTournament = useCallback(async (id, sid) => {
+    if (!id) return;
+    try {
+      const [m, h] = await Promise.all([
+        apiGet(`/tournaments/${id}/material`, sid ? { session_id: sid } : undefined),
+        apiGet('/conversions', { tournament_id: id }),
       ]);
-      setSessions(s); setAllocations(a); setMaterial(m); setHistory(h);
-      setSessionId((cur) => (s.find((x) => x._id === cur) ? cur : (s.find((x) => x.status === 'running') || s[0])?._id || ''));
-      setBinderId((cur) => (a.find((x) => (x.binder_id?._id || x.binder_id) === cur) ? cur : (a.length === 1 ? (a[0].binder_id?._id || a[0].binder_id) : '')));
+      setMaterial(m); setHistory(h);
+      setBinderId((cur) => (m.binders.find((x) => x.binder._id === cur) ? cur : (m.binders.length === 1 ? m.binders[0].binder._id : '')));
     } catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao carregar o torneio', 'error'); }
   }, [showAlert]);
-  useEffect(() => { loadTournament(tid); }, [tid, loadTournament]);
+  useEffect(() => { loadTournament(tid, sessionId); }, [tid, sessionId, loadTournament]);
 
-  // em jogo por ficha e quanto ainda há reservado (alocação) para colocar
-  const onTable = useMemo(() => Object.fromEntries((material?.rows || []).map((r) => [r.chip._id, r.on_table])), [material]);
-  const inPlayBy = useMemo(() => Object.fromEntries((material?.rows || []).map((r) => [r.chip._id, r.in_play])), [material]);
-  const reserved = useMemo(() => {
-    const m = {};
-    allocations.forEach((a) => a.chips.forEach((l) => { const id = l.chip_id?._id || l.chip_id; m[id] = (m[id] || 0) + (l.remaining || 0); }));
-    return m;
-  }, [allocations]);
+  // quantidade EM JOGO por ficha (já nos stacks dos jogadores da sessão) e saldo FÍSICO do fichário de onde saem as fichas a colocar
+  // com várias sessões, nada é calculado até a sessão ser escolhida (o cálculo nunca mistura sessões)
+  const needsSession = sessions.length > 1 && !sessionId;
+  const inPlayBy = useMemo(() => needsSession ? {} : Object.fromEntries((material?.rows || []).map((r) => [r.chip._id, r.in_play])), [material, needsSession]);
+  const onHallBy = useMemo(() => needsSession ? {} : Object.fromEntries((material?.rows || []).map((r) => [r.chip._id, r.on_table])), [material, needsSession]);
+  const binders = useMemo(() => material?.binders || [], [material]);
+  const chosen = binders.find((b) => b.binder._id === binderId);
+  const binderBal = useMemo(() => {
+    if (chosen) return chosen.balances;
+    const sum = {};
+    binders.forEach((b) => Object.entries(b.balances).forEach(([k, v]) => { sum[k] = (sum[k] || 0) + v; }));
+    return sum;
+  }, [binders, chosen]);
+  const session = sessions.find((x) => x._id === sessionId);
+  const selectedChip = chips.find((c) => c._id === chipId);
 
   const lines = (map) => Object.entries(map).filter(([, v]) => Number(v) > 0).map(([chip_id, v]) => ({ chip_id, quantity: Number(v) }));
 
@@ -93,13 +110,23 @@ export default function ChipRace() {
     return () => clearTimeout(timer);
   }, [outs, ins]);
 
-  const reset = () => { setOuts({}); setIns({}); setNote(''); setPreview(null); setLinked(null); };
+  const reset = () => { setOuts({}); setIns({}); setNote(''); setPreview(null); setLinked(null); setChipId(''); };
+
+  // um chamado que deixou de estar em aberto (cancelado/concluído) nunca pode continuar selecionado
+  const syncLinked = useCallback((rows) => {
+    setLinked((cur) => (cur && !rows.some((r) => r._id === cur._id && ['requested', 'in_preparation', 'ready'].includes(r.status)) ? null : cur));
+  }, []);
+  const onLink = (r) => {
+    setLinked(r);
+    if (r) { setType(r.type); setChipId(r.chip_id?._id || r.chip_id || ''); const sid = r.session_id?._id || r.session_id; if (sid) setSessionId(sid); }
+  };
 
   const submit = async () => {
     const o = lines(outs); const i = lines(ins);
     if (!tid) return showAlert('Selecione o torneio.', 'error');
     if (!o.length || !i.length) return showAlert('Lance o que saiu (Retirado) e o que entrou (Colocado).', 'error');
-    if (allocations.length > 1 && !binderId) return showAlert('Escolha o fichário que recebe as fichas retiradas.', 'error');
+    if (sessions.length > 0 && !sessionId) return showAlert('Selecione a sessão.', 'error');
+    if (binders.length > 1 && !binderId) return showAlert('Escolha o fichário que recebe as fichas retiradas.', 'error');
     const summary = preview
       ? `Retirado ${fmt(preview.value_out)} · Colocado ${fmt(preview.value_in)} · quebra matemática ${signed(preview.math_breakage)}.`
       : '';
@@ -109,7 +136,7 @@ export default function ChipRace() {
       await apiPost('/conversions', { tournament_id: tid, type, session_id: sessionId || undefined, binder_id: binderId || undefined, outs: o, ins: i, note: note.trim() || undefined, request_id: linked?._id });
       showAlert('Conversão registrada!', 'success');
       reset();
-      await loadTournament(tid);
+      await loadTournament(tid, sessionId);
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao registrar a conversão', 'error');
     } finally { setBusy(false); }
@@ -121,7 +148,7 @@ export default function ChipRace() {
     try {
       await apiPost(`/conversions/${c._id}/reverse`, { reason });
       showAlert('Conversão estornada.', 'success');
-      await loadTournament(tid);
+      await loadTournament(tid, sessionId);
     } catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao estornar', 'error'); }
   };
 
@@ -143,36 +170,37 @@ export default function ChipRace() {
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="md:col-span-2">
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Torneio</label>
-              <CustomSelect options={tournamentOptions} value={tid} onChange={(v) => { setTid(v); reset(); }} placeholder="Torneio…" />
+              <label className="label">Torneio</label>
+              <CustomSelect options={tournamentOptions} value={tid} onChange={(v) => { setTid(v); setSessionId(''); reset(); }} placeholder="Torneio…" />
             </div>
-            {sessions.length > 1 && (
+            {sessions.length > 0 && (
               <div>
-                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Sessão</label>
-                <CustomSelect options={sessions.map((s) => ({ value: s._id, label: s.name }))} value={sessionId} onChange={setSessionId} />
+                <label className="label">Sessão</label>
+                <CustomSelect options={sessions.map((x) => ({ value: x._id, label: x.name }))} value={sessionId} onChange={(v) => { setSessionId(v); setOuts({}); setIns({}); setPreview(null); setLinked(null); }} placeholder="Sessão…" />
               </div>
             )}
-            {allocations.length > 1 && (
+            {binders.length > 1 && (
               <div>
-                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-fg-subtle">Fichas retiradas vão para</label>
-                <CustomSelect options={allocations.map((a) => ({ value: a.binder_id?._id, label: a.binder_id?.name }))} value={binderId} onChange={setBinderId} placeholder="Fichário…" />
+                <label className="label">Fichas retiradas vão para</label>
+                <CustomSelect options={binders.map((b) => ({ value: b.binder._id, label: b.binder.name }))} value={binderId} onChange={setBinderId} placeholder="Fichário…" />
               </div>
             )}
           </div>
 
+          {needsSession && <p className="text-sm text-fg-muted">Selecione a sessão: o Chip Race / Color Up é calculado por sessão.</p>}
+
           <ConversionRequests
-            tournamentId={tid} sessionId={sessionId} role={role}
-            linkedId={linked?._id}
-            onLink={(r) => { setLinked(r); if (r) setType(r.type); }}
+            tournamentId={tid} sessionId={sessionId} sessions={sessions} chips={chips} role={role}
+            linkedId={linked?._id} onLink={onLink} onLoaded={syncLinked}
           />
 
-          {allocations.length === 0 && (
-            <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
-              <AlertCircle className="mt-0.5 shrink-0" size={18} /> Este torneio não tem fichas alocadas: o administrador precisa alocar um fichário antes de haver conversão.
+          {binders.length === 0 && (
+            <div className="flex gap-3 rounded-xl border border-warn bg-warn-soft p-4 text-sm text-fg">
+              <AlertCircle className="mt-0.5 shrink-0" size={18} /> Este torneio não tem fichário: o administrador precisa vincular um fichário ao torneio antes de haver conversão.
             </div>
           )}
 
-          <div className="card p-6">
+          <div className="card">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex gap-2">
                 {TYPES.map((t) => (
@@ -180,8 +208,20 @@ export default function ChipRace() {
                 ))}
               </div>
               {!canOperate && <span className="text-xs font-bold text-fg-subtle">Somente consulta — o Salão solicita pelo chamado acima e o Material registra a conversão.</span>}
-              {linked && <span className="text-xs font-bold text-brand-fg">Atendendo chamado: {TYPES.find((t) => t.v === linked.type).label} · {linked.tables} mesa(s)</span>}
+              {linked && <span className="text-xs font-bold text-brand-fg">Atendendo chamado: {TYPES.find((t) => t.v === linked.type).label} · ficha {fmt(linked.chip_id?.value)} · {linked.tables} mesa(s)</span>}
             </div>
+
+            {session && (
+              <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="session-base">
+                <div className="rounded-xl bg-sunken p-3"><p className="text-xs font-semibold uppercase text-fg-subtle">Sessão</p><p className="font-semibold text-fg">{session.name}</p></div>
+                <div className="rounded-xl bg-sunken p-3"><p className="text-xs font-semibold uppercase text-fg-subtle">Jogando (ativos)</p><p className="font-semibold tabular-nums text-fg">{fmt(session.players?.active)}</p></div>
+                <div className="rounded-xl bg-sunken p-3"><p className="text-xs font-semibold uppercase text-fg-subtle">Mesas abertas</p><p className="font-semibold tabular-nums text-fg">{linked ? fmt(linked.tables) : '—'}</p></div>
+                <div className="rounded-xl bg-sunken p-3">
+                  <p className="text-xs font-semibold uppercase text-fg-subtle">Ficha a retirar{selectedChip ? ` (${fmt(selectedChip.value)})` : ''}</p>
+                  <p className="font-semibold tabular-nums text-fg">{selectedChip ? `${fmt(inPlayBy[chipId] || 0)} em jogo${linked ? ` · ~${fmt(Math.ceil((inPlayBy[chipId] || 0) / linked.tables))} por mesa` : ''}` : '—'}</p>
+                </div>
+              </div>
+            )}
 
             <p className="mb-3 text-xs text-fg-muted">A mesma denominação pode estar em Retirado e em Colocado (ex.: retirar 500 e devolver parte aos jogadores). O valor é calculado sobre tudo que foi lançado; no fichário só movimenta a diferença líquida.</p>
             <div className="overflow-x-auto">
@@ -189,19 +229,19 @@ export default function ChipRace() {
                 <thead>
                   <tr className="text-xs uppercase tracking-wide text-fg-subtle">
                     <th className="py-2 pr-3 text-left font-bold">Ficha</th>
-                    <th className="px-2 py-2 text-right font-bold" title="Fichas já entregues aos jogadores (Chip Count)">Em jogo</th>
+                    <th className="px-2 py-2 text-right font-bold" title="Fichas já nos stacks dos jogadores desta sessão (Chip Count)">Quantidade em jogo</th>
                     <th className="px-2 py-2 text-center font-bold text-red-500">Retirado</th>
-                    <th className="px-2 py-2 text-right font-bold" title="Saldo ainda reservado ao torneio nos fichários alocados — de onde saem as fichas a colocar">Reservado no fichário</th>
+                    <th className="px-2 py-2 text-right font-bold" title="Saldo físico atual do fichário — de onde saem as fichas a colocar">Saldo físico do fichário</th>
                     <th className="px-2 py-2 text-center font-bold text-emerald-600">Colocado</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line-soft">
                   {chips.map((c) => {
-                    const playing = onTable[c._id] || 0;
-                    const res = reserved[c._id] || 0;
+                    const playing = Math.max(inPlayBy[c._id] || 0, onHallBy[c._id] || 0);
+                    const res = binderBal[c._id] || 0;
                     const o = Number(outs[c._id]) || 0; const n = Number(ins[c._id]) || 0;
                     return (
-                      <tr key={c._id}>
+                      <tr key={c._id} className={c._id === chipId ? 'bg-sunken' : ''}>
                         <td className="py-2 pr-3">
                           <span className="inline-flex items-center gap-2 font-bold text-fg">
                             <span className="h-3 w-3 rounded-full border border-line" style={{ backgroundColor: c.color }} /> {fmt(c.value)}
@@ -223,8 +263,8 @@ export default function ChipRace() {
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-              {[['Valor retirado', preview?.value_out, 'text-red-500'], ['Valor colocado', preview?.value_in, 'text-emerald-600'], ['Quebra matemática', preview?.math_breakage, 'text-amber-500', true]].map(([label, v, cls, sign]) => (
-                <div key={label} className="rounded-2xl bg-sunken p-4 dark:bg-sunken">
+              {[['Valor retirado', preview?.value_out, 'text-fg'], ['Valor colocado', preview?.value_in, 'text-fg'], ['Quebra matemática (diferença de conversão)', preview?.math_breakage, 'text-warn', true]].map(([label, v, cls, sign]) => (
+                <div key={label} className="rounded-xl bg-sunken p-4">
                   <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">{label}</p>
                   <p className={`text-2xl font-bold tabular-nums ${cls}`}>{v === undefined || v === null ? '—' : sign ? signed(v) : fmt(v)}</p>
                 </div>
@@ -239,7 +279,7 @@ export default function ChipRace() {
             {canOperate && (
               <div className="mt-5 flex flex-col gap-3 md:flex-row">
                 <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Observação (opcional) — ex.: nível 6, mesas 1 a 4" className="input flex-1" />
-                <button onClick={submit} disabled={busy || allocations.length === 0} className="btn btn-primary disabled:opacity-40">
+                <button onClick={submit} disabled={busy || binders.length === 0} className="btn btn-primary disabled:opacity-40">
                   {busy ? 'Registrando…' : `Registrar ${TYPES.find((t) => t.v === type).label}`}
                 </button>
               </div>

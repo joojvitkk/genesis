@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { Maximize2, ArrowLeft } from 'lucide-react';
 import TournamentClock from '../components/TournamentClock';
 import { apiGet } from '../lib/api';
@@ -10,7 +10,8 @@ import { apiGet } from '../lib/api';
 export default function Telao() {
   const { id } = useParams();
   const [name, setName] = useState('');
-  const [running, setRunning] = useState([]); // sessões em andamento (Dia 1A, 1B…): a TV mostra QUAL sessão está no ar
+  const [sessions, setSessions] = useState([]); // cada sessão (Dia 1A, 1B…) tem o seu relógio: a TV mostra UMA por vez
+  const [params, setParams] = useSearchParams();
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
@@ -18,9 +19,12 @@ export default function Telao() {
       .then((t) => setName(t.name))
       .catch((e) => { if (e.status === 404) setNotFound(true); });
     apiGet(`/tournaments/${id}/sessions`)
-      .then((list) => setRunning((list || []).filter((x) => x.status === 'running').map((x) => x.name)))
+      .then((list) => setSessions((list || []).filter((x) => x.status !== 'finished' || (list || []).length === 1)))
       .catch(() => {});
   }, [id]);
+
+  const wanted = params.get('session');
+  const current = sessions.find((x) => x._id === wanted) || sessions.find((x) => x.clock?.clock_status === 'running') || sessions.find((x) => x.status === 'running') || sessions[0];
 
   const goFullscreen = () => {
     document.documentElement.requestFullscreen?.().catch(() => {});
@@ -55,11 +59,19 @@ export default function Telao() {
       </div>
 
       <div className="mx-auto max-w-6xl">
-        <TournamentClock tournamentId={id} variant="projection" />
+        {sessions.length > 1 && (
+          <div className="mb-4 flex flex-wrap justify-center gap-2" role="tablist" aria-label="Sessão exibida">
+            {sessions.map((x) => (
+              <button key={x._id} type="button" role="tab" aria-selected={current?._id === x._id} onClick={() => setParams({ session: x._id })}
+                className={`btn btn-sm ${current?._id === x._id ? 'btn-primary' : 'btn-secondary'}`}>{x.name}</button>
+            ))}
+          </div>
+        )}
+        {(sessions.length === 0 || current) && <TournamentClock key={current?._id || 'torneio'} tournamentId={id} sessionId={current?._id} variant="projection" />}
       </div>
 
       {name && (
-        <p className="mt-6 text-center text-xs font-bold uppercase tracking-[0.4em] text-zinc-500">{name}{running.length ? ` · ${running.join(' + ')}` : ''}</p>
+        <p className="mt-6 text-center text-xs font-bold uppercase tracking-[0.4em] text-zinc-500">{name}{current && sessions.length > 1 ? ` · ${current.name}` : ''}</p>
       )}
     </div>
   );

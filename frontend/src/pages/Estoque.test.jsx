@@ -1,4 +1,4 @@
-// Estoque (G10): a tabela de fichas mostra o saldo DERIVADO (GET /inventory/by-chip), não o cache da ficha.
+// Fichas (Simulação 2.1 §6): cadastro mestre de denominações — nome, valor nominal e cor; sem estoque nem soma entre fichários.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
@@ -44,43 +44,28 @@ beforeEach(async () => {
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 
 describe('Estoque (G10)', () => {
-  it('colunas derivadas: em fichários, reservado, livre, em jogo — e o cache legado não aparece', () => {
+  it('só cadastro: denominação, valor e cor — sem em fichário, reservado, livre, no Salão nem números legados', () => {
     const head = container.querySelector('thead').textContent;
-    for (const h of ['Em fichários', 'Reservado', 'Livre', 'No Salão']) expect(head).toContain(h);
-    expect(head).not.toContain('*');
-    const cells = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent.includes('Ficha 100')).querySelectorAll('td');
-    expect([...cells].slice(3, 7).map((c) => c.textContent)).toEqual(['1.000', '200', '800', '250']);
+    for (const h of ['Ficha', 'Valor', 'Cor']) expect(head).toContain(h);
+    for (const gone of ['Em fichários', 'Reservado', 'Livre', 'No Salão']) expect(head).not.toContain(gone);
+    expect(api.apiGet).not.toHaveBeenCalledWith('/inventory/by-chip');
     for (const legacy of ['999.999', '888.888', '777.777', '424.242']) expect(container.textContent).not.toContain(legacy);
-  });
-
-  it('ficha sem movimento aparece com zeros (não some nem mostra o cache)', () => {
-    const cells = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent.includes('Ficha 5')).querySelectorAll('td');
-    expect([...cells].slice(3, 7).map((c) => c.textContent)).toEqual(['0', '0', '0', '0']);
-  });
-
-  it('falha do endpoint de saldos não derruba a lista de fichas', async () => {
-    act(() => root.unmount()); container.remove();
-    api.apiGet.mockImplementation(async (path) => { if (path === '/inventory/by-chip') throw new Error('x'); return path === '/chips' ? chips : []; });
-    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-    await act(async () => { root.render(<AlertProvider><Estoque /></AlertProvider>); });
-    await flush(80);
     expect(container.textContent).toContain('Ficha 100');
+    expect(container.textContent).toContain('Ficha 5');
   });
 
-  it('permissão por AÇÃO: admin cadastra e movimenta; material só opera (perda), sem cadastrar ficha; salão só consulta', async () => {
+  it('permissão por AÇÃO: só o admin cadastra denominações; material e salão só consultam', async () => {
     expect(button('Nova Ficha')).toBeTruthy();
-    expect(button('Movimentar')).toBeTruthy();
+    expect(button('Movimentar')).toBeFalsy(); // movimentação é do fichário
     expect(container.querySelector('button[title="Editar"]')).toBeTruthy();
 
     await mountAs('material');
     expect(button('Nova Ficha')).toBeFalsy();
     expect(container.querySelector('button[title="Editar"]')).toBeFalsy();
     expect(container.querySelector('button[title="Desativar"]')).toBeFalsy();
-    expect(button('Movimentar')).toBeTruthy();
 
     await mountAs('salao');
     expect(button('Nova Ficha')).toBeFalsy();
-    expect(button('Movimentar')).toBeFalsy();
     expect(container.textContent).toContain('Ficha 100');
   });
 
