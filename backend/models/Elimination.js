@@ -3,6 +3,7 @@ const cancellable = require('../lib/cancellable');
 
 const EliminationSchema = new mongoose.Schema({
   tournament_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament', required: true, index: true },
+  session_id: { type: mongoose.Schema.Types.ObjectId, ref: 'TournamentSession', default: null }, // sessão da entrada eliminada
   entry_id: { type: mongoose.Schema.Types.ObjectId, ref: 'TournamentEntry', required: true }, // a ENTRADA eliminada (não há cadastro de jogadores)
   position: { type: Number, required: true },   // colocação final (1 = campeão)
   prize_awarded: { type: Number, default: 0 },  // prêmio da colocação (preenchido ao finalizar)

@@ -29,7 +29,7 @@ async function scene() {
   const admin = await as('admin'); const mat = await as('material'); const sal = await as('salao');
   const t = (await post(admin, '/api/tournaments', { name: 'Warm Up', date: '2026-10-01', sessions: ['Dia 1A', 'Dia 1B'] })).body;
   const [s1, s2] = t.sessions;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: A._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: A._id });
 
   const send = (session, chips) => post(mat, `/api/tournaments/${t._id}/sends`, { chips, session_id: session._id });
   assert.equal((await send(s1, [{ chip_id: c100._id, quantity: 200 }, { chip_id: c500._id, quantity: 20 }])).status, 201);
@@ -74,20 +74,20 @@ test('ACEITE: "quantas existem, onde estão, em que torneio/sessão, retornadas,
   const chip = (c) => d.inventory.rows.find((r) => String(r.chip._id) === String(c._id));
 
   // ficha 100: montadas 1500 → 1000+500. Em jogo: 200+100 −10 retorno −5 descarte −5 (chip race) = 280. Divergência: −4 perdidas +1 recuperada = 3
-  assert.deepEqual([chip(c100).in_play, chip(c100).lost], [280, 3]);
+  assert.deepEqual([chip(c100).at_hall, chip(c100).lost], [280, 3]);
   assert.equal(chip(c100).in_binders, 1500 - 300 + 10 + 5 + 5 - 4 + 1, 'em fichários');
-  assert.equal(chip(c100).existing, chip(c100).in_binders + chip(c100).in_play);
+  assert.equal(chip(c100).existing, chip(c100).in_binders + chip(c100).at_hall);
   assert.equal(chip(c100).existing + chip(c100).lost, 1500, 'conservação: existentes + em divergência = montadas');
   // 500: 200 montadas, +20 enviadas, +2 conversão; 1 perdida em jogo
-  assert.deepEqual([chip(c500).in_play, chip(c500).lost, chip(c500).existing + chip(c500).lost], [21, 1, 200]);
+  assert.deepEqual([chip(c500).at_hall, chip(c500).lost, chip(c500).existing + chip(c500).lost], [21, 1, 200]);
 
   // onde: em qual torneio e sessão
-  const row = d.in_play.rows.find((r) => String(r.tournament._id) === t._id);
+  const row = d.at_hall.rows.find((r) => String(r.tournament._id) === t._id);
   assert.equal(row.tournament.name, 'Warm Up');
   const bySession = Object.fromEntries(row.sessions.filter((s) => s.session).map((s) => [String(s.session._id), s]));
   assert.equal(bySession[s1._id].quantity, (await mv.playBalances({ tournament_id: t._id, session_id: s1._id })).reduce((a, r) => a + r.quantity, 0));
   assert.equal(bySession[s2._id].quantity, (await mv.playBalances({ tournament_id: t._id, session_id: s2._id })).reduce((a, r) => a + r.quantity, 0));
-  assert.equal(row.quantity, chip(c100).in_play + chip(c500).in_play);
+  assert.equal(row.quantity, chip(c100).at_hall + chip(c500).at_hall);
   assert.equal(row.value, 280 * 100 + 21 * 500);
   assert.deepEqual(row.chips.map((c) => c.chip.value), [100, 500]);
 
@@ -121,7 +121,7 @@ test('?blocks= devolve só o que foi pedido; bloco desconhecido → 400; todos o
   const only = await stats(admin, '?blocks=flows,occurrences');
   assert.deepEqual(Object.keys(only).sort(), ['flows', 'occurrences']);
   const all = await stats(admin);
-  for (const k of ['metrics', 'recentTournaments', 'recentActivities', 'inventory', 'in_play', 'flows', 'occurrences', 'conflicts', 'timeline', 'binders']) assert.ok(k in all, k);
+  for (const k of ['metrics', 'recentTournaments', 'recentActivities', 'inventory', 'at_hall', 'flows', 'occurrences', 'timeline', 'binders']) assert.ok(k in all, k);
   const bad = await get(admin, '/api/dashboard/stats?blocks=flows,xpto');
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /xpto/);
@@ -137,13 +137,13 @@ test('métricas (formato que o painel já usa) agora derivam dos movimentos; "fi
   assert.equal(m.stockValue, b.totals.value);
   assert.equal(m.availableCases, 1, 'A está alocada ao torneio; B está livre');
   assert.equal(m.chipRacesToday, 1);
-  assert.ok(m.chipsInPlay > 0 && m.valueInPlay > 0);
+  assert.ok(m.chipsAtHall > 0 && m.valueAtHall > 0);
   const bl = (await stats(admin, '?blocks=binders')).binders;
   assert.deepEqual([bl.total, bl.free, bl.allocated], [2, 1, 1]);
   assert.ok(A && B);
 });
 
-test('ocorrências: abertas por semáforo, recuperadas e o que ainda falta; conflitos de alocação', async () => {
+test('ocorrências: abertas por semáforo, recuperadas e o que ainda falta', async () => {
   const { admin, A, c100, mat } = await scene();
   const o = (await stats(admin, '?blocks=occurrences')).occurrences;
   assert.deepEqual(o.open_by_severity, { GREEN: 2, YELLOW: 0, RED: 0 });
@@ -153,20 +153,12 @@ test('ocorrências: abertas por semáforo, recuperadas e o que ainda falta; conf
 
   // uma alocação SAUDÁVEL (B, de outro torneio) não pode aparecer como conflito
   const other = (await post(admin, '/api/tournaments', { name: 'Outro', date: '2026-10-02' })).body;
-  assert.equal((await post(admin, `/api/tournaments/${other._id}/allocations`, { binder_id: (await Binder.findOne({ name: 'LISA B' }))._id, mode: 'binder' })).status, 201);
+  assert.equal((await post(admin, `/api/tournaments/${other._id}/allocations`, { binder_id: (await Binder.findOne({ name: 'LISA B' }))._id })).status, 201);
 
   // fechar uma ocorrência tira das abertas (mas o registro fica)
   const list = (await get(admin, '/api/occurrences?status=active')).body;
   await post(admin, `/api/occurrences/${list[0]._id}/close`, { justification: 'perda definitiva' });
   assert.equal((await stats(admin, '?blocks=occurrences')).occurrences.open_total, 1);
-
-  // A está alocada ao torneio (fichário inteiro): uma perda depois disso vira conflito de alocação
-  await post(mat, `/api/binders/${A._id}/count`, { counts: [{ chip_id: c100._id, counted: 10 }] }); // quase tudo some do fichário
-  const conflicts = (await stats(admin, '?blocks=conflicts')).conflicts;
-  assert.equal(conflicts.length, 1);
-  assert.equal(conflicts[0].binder.name, 'LISA A');
-  assert.equal(conflicts[0].tournament.name, 'Warm Up');
-  assert.ok(conflicts[0].chips.some((c) => c.chip.value === 100 && c.shortfall > 0));
 });
 
 test('linha do tempo: movimentos recentes, mais novos primeiro, com ficha/fichário/torneio; limitada a 15', async () => {
@@ -180,17 +172,17 @@ test('linha do tempo: movimentos recentes, mais novos primeiro, com ficha/fichá
   assert.ok(tl.some((m) => m.tournament_id?.name === 'Warm Up'));
 });
 
-test('GET /inventory/by-chip: em fichários, reservado, livre, em jogo — o Estoque não usa mais o cache da ficha', async () => {
+test('GET /inventory/by-chip: em fichários, no Salão e divergência (sem reserva) — o Estoque não usa mais o cache da ficha', async () => {
   const c100 = await makeChip({ value: 100 });
   const A = await makeBinder('A', [{ chip: c100, quantity: 100 }]);
   const admin = await as('admin'); const mat = await as('material');
   const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: A._id, mode: 'quantities', chips: [{ chip_id: c100._id, quantity: 30 }] });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: A._id });
   let r = (await get(mat, '/api/inventory/by-chip')).body.rows[0];
-  assert.deepEqual([r.in_binders, r.reserved, r.free, r.in_play], [100, 30, 70, 0]);
+  assert.deepEqual([r.in_binders, r.at_hall, r.reserved], [100, 0, undefined]);
   await post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: c100._id, quantity: 10 }] });
   r = (await get(mat, '/api/inventory/by-chip')).body.rows[0];
-  assert.deepEqual([r.in_binders, r.reserved, r.free, r.in_play], [90, 20, 70, 10], 'enviar consome a reserva; o livre não muda');
+  assert.deepEqual([r.in_binders, r.at_hall], [90, 10]);
   assert.equal((await get(await as('salao'), '/api/inventory/by-chip')).status, 200);
   assert.equal((await request(app).get('/api/inventory/by-chip')).status, 401);
 });
@@ -202,15 +194,15 @@ test('relatórios: estoque, valor, distribuição, perdas e recuperações vêm 
   const r = (await get(mat, '/api/reports/data')).body;
   const inv = (await stats(admin, '?blocks=inventory')).inventory.totals;
   assert.equal(r.stats.totalChips, inv.existing);
-  assert.equal(r.stats.stockValue, inv.value_in_binders + inv.value_in_play);
-  assert.deepEqual([r.stats.chipsInBinders, r.stats.chipsInPlay, r.stats.chipsLost], [inv.in_binders, inv.in_play, inv.lost]);
+  assert.equal(r.stats.stockValue, inv.value_in_binders + inv.value_at_hall);
+  assert.deepEqual([r.stats.chipsInBinders, r.stats.chipsAtHall, r.stats.chipsLost], [inv.in_binders, inv.at_hall, inv.lost]);
   assert.deepEqual([r.stats.discardedChips, r.stats.discardedValue, r.stats.lostChips, r.stats.recoveredChips, r.stats.recoveredValue], [5, 500, 5, 1, 100]);
   assert.equal(r.stats.openOccurrences, 2);
   assert.equal(r.stats.totalChipRaces, 1);
   const dist = Object.fromEntries(r.charts.chipDistribution.map((c) => [c.name, c]));
-  assert.deepEqual([dist['Ficha 100'].in_play, dist['Ficha 100'].in_binders], [280, 1500 - 300 + 10 + 5 + 5 - 4 + 1]);
+  assert.deepEqual([dist['Ficha 100'].at_hall, dist['Ficha 100'].in_binders], [280, 1500 - 300 + 10 + 5 + 5 - 4 + 1]);
   assert.equal(r.charts.chipDistribution.reduce((s, c) => s + c.value, 0), r.stats.totalChips);
-  assert.deepEqual(r.charts.byLocation.map((x) => x.name), ['Em fichários', 'Em jogo', 'Em divergência']);
+  assert.deepEqual(r.charts.byLocation.map((x) => x.name), ['Em fichários', 'No Salão', 'Em divergência']);
   assert.equal((await get(sal, '/api/reports/data')).status, 403);
 });
 
@@ -239,7 +231,7 @@ test('cada lote gravado notifica (fichas, fichários, torneios e tipos afetados)
   mv.setNotifier((p) => seen.push(p));
   const admin = await as('admin');
   const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: A._id, mode: 'binder' });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: A._id });
   await post(await as('material'), `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: c100._id, quantity: 5 }] });
 
   assert.equal(seen.length, 1);
@@ -266,7 +258,7 @@ test('estornos abatem os fluxos: envio, descarte e chip race estornados saem do 
   const A = await makeBinder('A', [{ chip: c100, quantity: 1000 }, { chip: c500, quantity: 100 }]);
   const admin = await as('admin'); const mat = await as('material');
   const t = (await post(admin, '/api/tournaments', { name: 'T', date: '2026-10-01' })).body;
-  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: A._id, mode: 'quantities', chips: [{ chip_id: c100._id, quantity: 200 }, { chip_id: c500._id, quantity: 50 }] });
+  await post(admin, `/api/tournaments/${t._id}/allocations`, { binder_id: A._id });
   const send = (await post(mat, `/api/tournaments/${t._id}/sends`, { chips: [{ chip_id: c100._id, quantity: 100 }, { chip_id: c500._id, quantity: 10 }] })).body;
   const discard = (await post(mat, `/api/tournaments/${t._id}/discards`, { chips: [{ chip_id: c100._id, quantity: 10 }] })).body;
   const conv = (await post(mat, '/api/conversions', { tournament_id: t._id, type: 'CHIP_RACE', binder_id: A._id, outs: [{ chip_id: c100._id, quantity: 5 }], ins: [{ chip_id: c500._id, quantity: 2 }] })).body;
@@ -281,5 +273,5 @@ test('estornos abatem os fluxos: envio, descarte e chip race estornados saem do 
   assert.deepEqual([f.sent.quantity, f.sent.value, f.discarded.quantity, f.discarded.value], [0, 0, 0, 0]);
   assert.deepEqual([f.chip_race.out.quantity, f.chip_race.in.quantity, f.chip_race.count, f.chip_race.math_breakage], [0, 0, 0, 0], 'conversão estornada não conta (nem a quebra)');
   const inv = (await stats(admin, '?blocks=inventory')).inventory.totals;
-  assert.deepEqual([inv.in_play, inv.in_binders], [0, 1000 + 100], 'tudo voltou para o fichário');
+  assert.deepEqual([inv.at_hall, inv.in_binders], [0, 1000 + 100], 'tudo voltou para o fichário');
 });

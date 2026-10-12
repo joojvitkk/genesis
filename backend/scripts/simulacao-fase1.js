@@ -107,7 +107,7 @@ const eq = (id, desc, obtido, esperado) => check(JSON.stringify(obtido) === JSON
   const st2 = (await call('post', adm, '/api/stacks', { name: `Sim Reentrada 2x ${Date.now()}`, composition: [{ chip_id: c25._id, quantities: { buy_in: 1, re_entry: 2 } }] })).body;
   const shen = await Binder.findOne({ name: 'Clássica' });
   const r = (await call('post', adm, '/api/tournaments', { name: 'Sim Reentradas', date: '2026-10-04', start_time: '15:00', stack_model_id: st2._id })).body;
-  const al = await call('post', adm, `/api/tournaments/${r._id}/allocations`, { binder_id: shen._id, mode: 'quantities', chips: [{ chip_id: c25._id, quantity: 200 }] });
+  const al = await call('post', adm, `/api/tournaments/${r._id}/allocations`, { binder_id: shen._id });
   check(al.status === 201, 'BUG-07', 'alocação de 200 × 25.000 do fichário Clássica (saldo livre)', 201, [al.status, al.body.error]);
   eq('BUG-06', 'envio de 100 reentradas (200 fichas)', (await call('post', mat, `/api/tournaments/${r._id}/sends`, { items: [{ action: 're_entry', count: 100 }] })).status, 201);
   const row = async () => { const s = (await get(mat, `/api/tournaments/${r._id}/material`)).body; return { ...s.rows.find((x) => x.chip.value === 25000), stacks: s.stacks }; };

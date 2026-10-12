@@ -6,7 +6,7 @@
 // mapeado para a ação no torneio (`stack_models`) ou, na falta, o padrão (`stack_model_id`).
 // Entradas antigas com `stack_model_id` próprio (o operador escolhia por entrada) continuam honradas.
 const mongoose = require('mongoose');
-const { Tournament, TournamentEntry, StackModel, Chip, Conversion, Movement } = require('../models');
+const { Tournament, TournamentSession, TournamentEntry, StackModel, Chip, Conversion, Movement } = require('../models');
 const { HttpError } = require('./catalog');
 const calc = require('./stackCalc');
 
@@ -186,6 +186,12 @@ async function refreshTournamentChips(tournamentId, io) {
   const starting = buyInModel ? calc.stackValue(buyInModel, 'buy_in', chips) : tournament.starting_stack || 0;
 
   await Tournament.updateOne({ _id: tournamentId }, { $set: { chips_value_in_play: result.totals.value, starting_stack: starting } });
+  // cada sessão guarda o SEU valor em jogo (o relógio da sessão mostra o dela, nunca o do torneio inteiro)
+  const sessions = await TournamentSession.find({ tournament_id: tournamentId, type: { $ne: 'FINAL' } }).select('_id').lean();
+  for (const s of sessions) {
+    const r = await chipsInPlay(tournamentId, { sessionId: s._id });
+    await TournamentSession.updateOne({ _id: s._id }, { $set: { chips_value_in_play: r.totals.value } });
+  }
   io?.emit('chipsInPlayChanged', { tournament_id: tournamentId, chips_value_in_play: result.totals.value });
   return { ...result, starting_stack: starting };
 }

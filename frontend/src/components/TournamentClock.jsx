@@ -36,7 +36,7 @@ const STATUS_LABEL = { running: 'Em andamento', paused: 'Pausado', stopped: 'Par
 /**
  * variant: "panel" (dentro do app, com controles) | "projection" (tela cheia da TV)
  */
-export default function TournamentClock({ tournamentId, variant = 'panel', canControl = false, onFlash }) {
+export default function TournamentClock({ tournamentId, sessionId, variant = 'panel', canControl = false, onFlash }) {
   const [muted, setMuted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(null);
@@ -49,6 +49,7 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
   };
 
   const clock = useTournamentClock(tournamentId, {
+    sessionId,
     onLevel: () => doFlash('Novo nível'),
     onMarker: (p) => doFlash(p.label || (p.row_type === 'end_day' ? 'Fim do dia' : 'Registro encerrado'), 5),
     onEnded: () => doFlash('Torneio encerrado', 4),
@@ -70,7 +71,7 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
     setBusy(true);
     try {
       beep(0); // "acorda" o AudioContext no primeiro clique
-      await apiPost(`/tournaments/${tournamentId}/clock`, { action, seconds });
+      await apiPost(`/tournaments/${tournamentId}/clock`, { action, seconds, session_id: sessionId || undefined });
     } catch { /* toast é responsabilidade da página */ }
     finally { setBusy(false); }
   };
@@ -113,6 +114,7 @@ export default function TournamentClock({ tournamentId, variant = 'panel', canCo
             <p className={`font-bold ${isProjection ? 'text-2xl' : 'text-sm'}`}>
               {levelTitle(clock.level, clock.level_number)}
             </p>
+            {clock.session_name && <p className={`font-semibold text-fg-subtle ${isProjection ? 'text-sm' : 'text-xs'}`}>{clock.session_name}</p>}
             {isProjection && clock.name && <p className="text-sm font-semibold text-fg-subtle">{clock.name}</p>}
           </div>
         </div>

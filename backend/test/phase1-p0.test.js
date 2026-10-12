@@ -60,12 +60,13 @@ test('BUG-01: iniciar pela sessão, pelo torneio ou pelo relógio chega ao MESMO
   const sa = (await get(admin, `/api/tournaments/${a._id}/sessions`)).body[0];
   assert.equal((await put(admin, `/api/tournaments/${a._id}/sessions/${sa._id}`, { status: 'running' })).status, 200);
   const ta = await Tournament.findById(a._id);
-  assert.equal(ta.clock_status, 'running');
+  assert.equal(ta.clock_status, 'running', 'resumo derivado das sessões');
   assert.equal(ta.status, 'running');
-  const startedAt = ta.level_started_at.getTime();
+  // o relógio é da SESSÃO (Simulação 2.1 §4)
+  const startedAt = (await TournamentSession.findById(sa._id)).level_started_at.getTime();
   // repetir (sessão já rodando → transição inválida) ou pelo relógio não reinicia
   await post(admin, `/api/tournaments/${a._id}/clock`, { action: 'start' });
-  assert.equal((await Tournament.findById(a._id)).level_started_at.getTime(), startedAt);
+  assert.equal((await TournamentSession.findById(sa._id)).level_started_at.getTime(), startedAt);
 
   // 2) pelo botão do torneio (status = running)
   const b = await newTournament(admin);

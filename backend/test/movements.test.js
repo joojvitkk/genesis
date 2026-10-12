@@ -278,18 +278,39 @@ test('regras: quantidade, motivo, origem/destino e referências inválidas são 
   assert.equal(await Movement.countDocuments(), 1);
 });
 
-test('fichário excluído não recebe fichas; excluir exige fichário vazio', async () => {
+test('fichário com histórico não se exclui (arquiva); arquivado some da lista operacional e volta ao reativar', async () => {
   const h = await as('admin');
   const chip = await makeChip({ value: 5 });
   const binder = await makeBinder('B', [{ chip, quantity: 10 }]);
-
   const blocked = await request(app).delete(`/api/binders/${binder._id}`).set(h);
   assert.equal(blocked.status, 409);
-  assert.match(blocked.body.error, /ainda contém fichas/);
+  assert.match(blocked.body.error, /arquive-o/);
 
-  await post(h, '/api/movements', { type: 'WITHDRAWAL', binder_id: binder._id, chip_id: chip._id, quantity: 10, reason: 'devolvido' });
-  assert.equal((await request(app).delete(`/api/binders/${binder._id}`).set(h)).status, 200);
-  assert.equal((await post(h, '/api/movements', { type: 'ASSEMBLY', binder_id: binder._id, chip_id: chip._id, quantity: 1 })).status, 400);
+  const arch = await request(app).post(`/api/binders/${binder._id}/archive`).set(h).send({ reason: 'fichário antigo' });
+  assert.equal(arch.status, 200, JSON.stringify(arch.body));
+  assert.equal(arch.body.archived, true);
+  assert.equal((await request(app).get('/api/binders').set(h)).body.length, 0, 'some da operação');
+  assert.equal((await request(app).get('/api/binders?archived=true').set(h)).body.length, 1);
+  assert.equal((await request(app).get('/api/movements').set(h)).status, 200, 'histórico/Livro Razão seguem acessíveis');
+  const mv = require('../lib/movements');
+  assert.equal(await mv.balanceAt({ kind: 'binder', id: binder._id }, chip._id), 10);
+  assert.equal((await request(app).post(`/api/binders/${binder._id}/unarchive`).set(await as('material')).send({})).status, 403, 'só admin reativa');
+  assert.equal((await request(app).post(`/api/binders/${binder._id}/unarchive`).set(h).send({})).status, 200);
+  assert.equal((await request(app).get('/api/binders').set(h)).body.length, 1);
+});
+
+test('fichário sem histórico, criado por engano, pode ser excluído de vez', async () => {
+  const h = await as('admin');
+  const b = (await request(app).post('/api/binders').set(h).send({ name: 'Engano' })).body;
+  assert.equal((await request(app).delete(`/api/binders/${b._id}`).set(h)).status, 200);
+});
+
+test('fichário excluído (sem histórico) não recebe fichas', async () => {
+  const h = await as('admin');
+  const b = (await request(app).post('/api/binders').set(h).send({ name: 'Vazio' })).body;
+  await request(app).delete(`/api/binders/${b._id}`).set(h);
+  const chip = await makeChip({ value: 5 });
+  assert.equal((await post(h, '/api/movements', { type: 'ASSEMBLY', binder_id: b._id, chip_id: chip._id, quantity: 1 })).status, 400);
 });
 
 test('a ficha movimentada fica com valor/cor/tipo travados', async () => {

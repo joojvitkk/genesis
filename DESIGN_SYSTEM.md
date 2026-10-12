@@ -164,8 +164,8 @@ Fecha com `Esc` e clique no fundo (`hooks/useModalDismiss`). Fundo `bg-[var(--ov
 ### 3.6 Tabela densa — `.table-dense`
 Cabeçalho 12 px maiúsculo `fg-subtle`; células 14 px tabulares; linha com hover `sunken`; coluna numérica com `.num-col` (alinhada à direita). Em telas estreitas a tabela fica dentro de `overflow-x-auto` (nunca rolagem horizontal da página).
 
-### 3.7 Relógio de torneio no Dashboard — `components/RunningClocks.jsx`
-Seção "Torneios em andamento": um cartão por torneio rodando, com relógio ao vivo (socket) em Fira Code, nível de **jogo** + blinds e quantos estão jogando. **Em intervalo/dinner break** o cartão muda de cor (`border-warn bg-warn-soft ring-1 ring-warn`), mostra o selo `Intervalo` com ícone `Coffee` e "Volta no Nível N · blinds". Pausado: fundo `sunken` + selo "Pausado". Último minuto do nível: dígitos em `brand-fg`.
+### 3.7 Relógio no Dashboard — `components/RunningClocks.jsx` (um cartão por **sessão**)
+Seção "Torneios ativos": um cartão por **sessão** rodando/pausada (nome do torneio + sessão; pausar uma não muda a outra), com relógio ao vivo (socket) em Fira Code, nível de **jogo** + blinds e quantos estão jogando. **Em intervalo/dinner break** o cartão muda de cor (`border-warn bg-warn-soft ring-1 ring-warn`), mostra o selo `Intervalo` com ícone `Coffee` e "Volta no Nível N · blinds". Pausado: fundo `sunken` + selo "Pausado". Último minuto do nível: dígitos em `brand-fg`.
 
 ### 3.8 Avatar (foto do usuário) — `components/Avatar.jsx`
 `<Avatar user={user} size="xs|sm|md|lg|xl" />`: imagem redonda com borda `line`; **sem foto, a inicial do nome** sobre `sunken`. É decorativo (`alt=""`): o nome sempre aparece ao lado. Tamanhos: `xs` 20 (listas compactas) · `sm` 32 (mensagens do chat) · `md` 36 (menu) · `lg` 48 (cartão de usuário) · `xl` 96 (Minha conta). Cada usuário troca a **própria** foto em *Minha conta → Dados → Foto de perfil* (`PUT/DELETE /me/avatar`): o navegador recorta o centro em quadrado de 256 px, converte para JPEG e comprime (`lib/image.js › fileToAvatarDataURL`); o servidor só aceita JPEG/PNG/WebP (SVG é recusado) e até ~150 mil caracteres. No **Chat** a foto vem de `GET /chat/avatars` (mapa `{e-mail: foto}`, uma vez por sessão e de novo quando aparece um remetente novo), nunca embutida em cada mensagem. Novas telas que mostram uma pessoa devem usar `Avatar` ao lado do nome.
@@ -208,7 +208,7 @@ Seção "Torneios em andamento": um cartão por torneio rodando, com relógio ao
 
 ## 6. Telão (projeção)
 
-Rota `/torneios/:id/telao`. Raiz com classe `dark` (tema escuro forçado), sem sidebar. Relógio em **Fira Code** gigante (`text-[22vw] md:text-[16rem]`), contraste máximo. **Intervalo / dinner break:** cartão com `border-warn bg-warn-soft`, faixa `bg-warn` com "Intervalo" ou "Dinner break · volta no Nível N (blinds)". Nível exibido = nº do nível de **jogo** da estrutura (intervalos e marcadores não contam). Mostrar a **sessão** no ar (Dia 1A + 1B). No último minuto de cada nível os dígitos ficam em `brand-fg`.
+Rota `/torneios/:id/telao`. Raiz com classe `dark` (tema escuro forçado), sem sidebar. Relógio em **Fira Code** gigante (`text-[22vw] md:text-[16rem]`), contraste máximo. **Intervalo / dinner break:** cartão com `border-warn bg-warn-soft`, faixa `bg-warn` com "Intervalo" ou "Dinner break · volta no Nível N (blinds)". Nível exibido = nº do nível de **jogo** da estrutura (intervalos e marcadores não contam). Cada sessão tem o seu relógio: o telão mostra **uma sessão por vez** (abas quando houver mais de uma; `?session=`). No último minuto de cada nível os dígitos ficam em `brand-fg`.
 
 ---
 
@@ -257,15 +257,17 @@ Rota `/torneios/:id/telao`. Raiz com classe `dark` (tema escuro forçado), sem s
 |---|---|
 | **Inscrições** | Entradas iniciais + reentradas (acumulado; não muda ao eliminar) |
 | **Jogando** | Jogadores ativos agora (informado pelo Salão; eliminar reduz) |
-| **Enviado** | Movimentação física ao Salão (acumulado) |
+| **Enviado ao Salão** | Quantidade física entregue como previsão/reserva operacional (acumulado). **Nunca** usar o rótulo "em jogo" para isto |
 | **No Salão** | Enviado − devolvido ± conversões (saldo físico no Salão) |
-| **Em jogo** | O que as entradas já entregaram aos jogadores (= Chip Count) |
+| **Em jogo** | Só o que as entradas já incorporaram aos stacks dos jogadores (= Chip Count), **por sessão**. Campo e rótulo diferentes de "enviado" |
 | **Disponível no Salão** | No Salão − em jogo (ainda não usado) |
 | **Falta enviar** | Em jogo − No Salão, quando positivo |
-| **Reservado** | Separado para torneios dentro do fichário (alocação) |
-| **Livre** | Saldo − reservado |
-| **Fichário** | Unidade física única (nome, código, estampa); **não existe "modelo de fichário"** |
-| **Chamado** | Pedido do Salão ao Material (Chip Race/Color Up): solicitado → em preparo → fichas prontas → concluído / cancelado |
+| **Fichário do torneio** | Só a escolha de qual fichário o torneio usa. **Não existe reserva** por denominação/quantidade nem bloqueio do fichário; "Reservado"/"Livre" foram removidos |
+| **Fichário** | Unidade física única (nome, código); sem "estampa", sem "valor em jogo", sem total monetário; **não existe "modelo de fichário"**. Com histórico não se exclui: **arquiva** (some das seleções, histórico permanece; reativar é do admin) |
+| **Ficha (Fichas)** | Denominação: nome, valor nominal e cor. A aba só cadastra — não soma estoque entre fichários |
+| **Sessão** | 1A, 1B… cada uma com relógio, nível, entradas, ativos, fichas em jogo e Chip Race **próprios**. Tipo `QUALIFIER` (permite buy-in/reentrada; ao encerrar registra os **classificados**) ou `FINAL` (Dia Final: sem buy-in/reentrada; jogadores iniciais = soma dos classificados) |
+| **Chamado** | Pedido do Salão ao Material (Chip Race/Color Up), **por sessão e por denominação a retirar**: Solicitado → Em preparo → Pronto (opcional) → Concluído / Cancelado. Cancelar afeta só aquele chamado |
+| **Quebra matemática** | Diferença de conversão (colocado − retirado); não é perda física. Valores são **nominais de jogo**, nunca financeiros |
 
 Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, ativos, relógio, sessões, solicita trocas) · **Material** (fichas, envio/retorno, atende chamados; só consulta o Salão).
 

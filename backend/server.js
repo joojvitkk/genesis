@@ -7,7 +7,8 @@ const { Server } = require('socket.io');
 const app = require('./app');
 const logger = require('./lib/logger');
 const CHANNELS = ['general', 'material', 'salao'];
-const { User, ChatMessage, Tournament, Event } = require('./models');
+const { User, ChatMessage, Tournament, TournamentSession, Event } = require('./models');
+const sessionsLib = require('./lib/sessions');
 const { publicMessage } = require('./lib/chat');
 const { decodeToken } = require('./middlewares/authMiddleware');
 const logActivity = require('./services/activityLogger');
@@ -73,7 +74,11 @@ io.on('connection', (socket) => {
     socket.join(`tournament:${id}`);
     try {
       const t = await Tournament.findById(id);
-      if (t) socket.emit('tournamentClock', clockPayload(t));
+      if (!t) return;
+      // um relógio por sessão: quem entra recebe o estado atual de cada uma (parados/pausados não recebem pulso)
+      const sessions = await sessionsLib.listSessions(t._id);
+      if (sessions.length) sessions.forEach((x) => socket.emit('tournamentClock', clockPayload(sessionsLib.clockView(t, x))));
+      else socket.emit('tournamentClock', clockPayload(t));
     } catch (e) {
       logger.error({ err: e }, 'joinTournament failed');
     }
@@ -156,25 +161,40 @@ function startClockRunner() {
   if (clockTimer) return;
   clockTimer = setInterval(async () => {
     try {
-      const running = await Tournament.find({ clock_status: 'running' });
       const now = Date.now();
-      for (const t of running) {
-        const adv = autoAdvance(t, now);
+      // Cada SESSÃO roda o seu próprio relógio; torneios sem sessões (dados antigos) ainda rodam no torneio.
+      const sessions = await TournamentSession.find({ clock_status: 'running' });
+      const tournaments = new Map();
+      const tournamentOf = async (id) => {
+        const k = String(id);
+        if (!tournaments.has(k)) tournaments.set(k, await Tournament.findById(id));
+        return tournaments.get(k);
+      };
+      const tick = async (owner, t, session) => {
+        const view = sessionsLib.clockView(t, session);
+        const room = `tournament:${t._id}`;
+        const sid = session ? String(session._id) : null;
+        const adv = autoAdvance(view, now);
         if (adv) {
-          Object.assign(t, adv.updates);
-          await t.save();
+          Object.assign(owner, adv.updates);
+          await owner.save();
           for (const ev of adv.events) {
-            if (ev.type === 'level') {
-              io.to(`tournament:${t._id}`).emit('tournamentLevelChanged', { tournament_id: String(t._id), level: ev.level });
-            } else if (ev.type === 'marker') {
-              io.to(`tournament:${t._id}`).emit('tournamentMarker', { tournament_id: String(t._id), row_type: ev.row_type, label: ev.label });
-            } else if (ev.type === 'ended') {
-              io.to(`tournament:${t._id}`).emit('tournamentEnded', { tournament_id: String(t._id) });
-            }
+            if (ev.type === 'level') io.to(room).emit('tournamentLevelChanged', { tournament_id: String(t._id), session_id: sid, level: ev.level });
+            else if (ev.type === 'marker') io.to(room).emit('tournamentMarker', { tournament_id: String(t._id), session_id: sid, row_type: ev.row_type, label: ev.label });
+            else if (ev.type === 'ended') io.to(room).emit('tournamentEnded', { tournament_id: String(t._id), session_id: sid });
           }
-          logActivity('Nível do Torneio Avançou', 'tournament', `${t.name} | nível ${levelNumber(t.blind_structure || [], t.current_level) ?? '-'} (linha ${t.current_level + 1})`, { name: 'Relógio' });
+          if (session && owner.clock_status !== 'running') await sessionsLib.syncTournamentCache(t._id);
+          logActivity('Nível do Torneio Avançou', 'tournament', `${t.name}${session ? ` · ${session.name}` : ''} | nível ${levelNumber(t.blind_structure || [], owner.current_level) ?? '-'} (linha ${owner.current_level + 1})`, { name: 'Relógio' });
         }
-        io.to(`tournament:${t._id}`).emit('tournamentClock', clockPayload(t, now));
+        io.to(room).emit('tournamentClock', clockPayload(sessionsLib.clockView(t, session), now));
+      };
+      for (const session of sessions) {
+        const t = await tournamentOf(session.tournament_id);
+        if (t) await tick(session, t, session);
+      }
+      const hasSessions = new Set((await TournamentSession.distinct('tournament_id')).map(String));
+      for (const t of await Tournament.find({ clock_status: 'running' })) {
+        if (!hasSessions.has(String(t._id))) await tick(t, t, null);
       }
     } catch (e) {
       logger.error({ err: e }, 'clock runner tick failed');

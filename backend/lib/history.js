@@ -87,15 +87,11 @@ async function reconcile(binderId) {
     if (incoming && m.type === 'ASSEMBLY' && String(m.batch_id) === firstBatch) r.opening += m.quantity; // saldo inicial do cadastro
     else (incoming ? r.entries : r.exits)[m.type] = ((incoming ? r.entries : r.exits)[m.type] || 0) + m.quantity;
   }
-  const states = await require('./movements').allocationStates(id);
-  const reserved = new Map();
-  for (const st of states) for (const c of st.chips || []) reserved.set(String(c.chip_id), (reserved.get(String(c.chip_id)) || 0) + c.remaining);
   const chips = new Map((await Chip.find({ _id: { $in: [...by.keys()] } }).setOptions({ withDeleted: true }).select('name value').lean()).map((c) => [String(c._id), c]));
   const rows = [...by.values()].map((r) => {
     const inn = Object.values(r.entries).reduce((a, b) => a + b, 0);
     const out = Object.values(r.exits).reduce((a, b) => a + b, 0);
-    const res = Math.min(reserved.get(r.chip_id) || 0, Math.max(0, r.balance));
-    return { chip: chips.get(r.chip_id) || { _id: r.chip_id }, ...r, total_in: inn, total_out: out, explained: r.opening + inn - out === r.balance, reserved: res, free: Math.max(0, r.balance - res) };
+    return { chip: chips.get(r.chip_id) || { _id: r.chip_id }, ...r, total_in: inn, total_out: out, explained: r.opening + inn - out === r.balance };
   }).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
   return { binder: { _id: binder._id, name: binder.name }, rows, explained: rows.every((r) => r.explained) };
 }

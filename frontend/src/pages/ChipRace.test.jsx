@@ -5,7 +5,7 @@ import { act } from 'react';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-const api = vi.hoisted(() => ({ apiGet: vi.fn(), apiPost: vi.fn() }));
+const api = vi.hoisted(() => ({ apiGet: vi.fn(), apiPost: vi.fn(), apiPut: vi.fn() }));
 vi.mock('../lib/api', () => api);
 const auth = vi.hoisted(() => ({ role: 'material' }));
 vi.mock('../lib/auth', () => ({ getStoredUser: () => ({ role: auth.role }) }));
@@ -18,9 +18,11 @@ const c500 = { _id: 'c500', name: 'Ficha 500', value: 500, color: '#f00' };
 const data = {
   '/tournaments': [{ _id: 't1', name: 'Warm Up', status: 'running' }, { _id: 't0', name: 'Encerrado', status: 'finished' }],
   '/chips': [c100, c500],
-  '/tournaments/t1/sessions': [{ _id: 's1', name: 'Dia Único', status: 'running' }],
-  '/allocations': [{ _id: 'a1', binder_id: { _id: 'b1', name: 'LISA 1' }, chips: [{ chip_id: c500, remaining: 300 }, { chip_id: c100, remaining: 0 }] }],
-  '/tournaments/t1/material': { rows: [{ chip: c100, on_table: 2000, in_play: 2000 }, { chip: c500, on_table: 0, in_play: 0 }] },
+  '/tournaments/t1/sessions': [{ _id: 's1', name: 'Dia Único', status: 'running', players: { active: 40 } }],
+  '/tournaments/t1/material': {
+    rows: [{ chip: c100, on_table: 2000, in_play: 2000 }, { chip: c500, on_table: 0, in_play: 0 }],
+    binders: [{ binder: { _id: 'b1', name: 'LISA 1' }, balances: { c500: 300 } }],
+  },
   '/conversions': [
     { _id: 'v1', type: 'CHIP_RACE', status: 'active', outs: [{ chip_id: c100, quantity: 100 }], ins: [{ chip_id: c500, quantity: 20 }], value_out: 10000, value_in: 10000, math_breakage: 0, createdAt: '2026-10-01T12:00:00Z', user_name: 'Maria', binder_id: { name: 'LISA 1' } },
     { _id: 'v2', type: 'COLOR_UP', status: 'reversed', reverse_reason: 'erro', outs: [{ chip_id: c100, quantity: 50 }], ins: [{ chip_id: c500, quantity: 10 }], value_out: 5000, value_in: 5500, math_breakage: 500, createdAt: '2026-10-01T13:00:00Z', user_name: 'João' },
@@ -46,28 +48,30 @@ async function mount(role = 'material') {
 }
 
 beforeEach(() => {
-  api.apiGet.mockReset(); api.apiPost.mockReset();
+  api.apiGet.mockReset(); api.apiPost.mockReset(); api.apiPut.mockReset(); api.apiPut.mockResolvedValue({});
   api.apiGet.mockImplementation(async (path) => data[path] ?? []);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 
 describe('Chip Race / Color Up', () => {
-  it('escolhe o torneio em andamento e mostra em jogo × reservado por ficha', async () => {
+  it('escolhe o torneio em andamento e mostra a quantidade em jogo × saldo físico do fichário por ficha', async () => {
     await mount();
     const t = container.textContent;
     expect(t).toContain('Warm Up');
     expect(t).not.toContain('Encerrado · ');
     expect(t).toContain('2.000');            // em jogo: 100
-    expect(t).toContain('300');              // reservado para colocar: 500
+    expect(t).toContain('300');              // saldo físico do fichário (500)
+    expect(t).toContain('Saldo físico do fichário');
+    expect(t).not.toContain('Reservado');
     expect(container.textContent).toContain('não é perda física');
   });
 
-  it('só habilita Retirado onde há fichas em jogo e Colocado onde há reserva', async () => {
+  it('só habilita Retirado onde há fichas em jogo e Colocado onde há saldo no fichário', async () => {
     await mount();
     expect(outInput(0).disabled).toBe(false);   // 100 tem 2.000 em jogo
-    expect(inInput(0).disabled).toBe(true);     // 100 não tem reserva
+    expect(inInput(0).disabled).toBe(true);     // 100 não tem saldo no fichário
     expect(outInput(1).disabled).toBe(true);    // 500 não tem nada em jogo
-    expect(inInput(1).disabled).toBe(false);    // 500 tem 300 reservadas
+    expect(inInput(1).disabled).toBe(false);    // 500 tem 300 no fichário
   });
 
   it('valores e quebra exibidos são os do SERVIDOR (não uma conta local)', async () => {
@@ -145,5 +149,43 @@ describe('Chip Race / Color Up', () => {
     await flush();
     expect(container.textContent).toContain('tem 2000');
     expect(outInput(0).value).toBe('9999');
+  });
+});
+
+describe('Chip Race / Color Up — por sessão e chamados', () => {
+  const call = (over = {}) => ({ _id: 'r1', type: 'CHIP_RACE', status: 'in_preparation', tables: 4, chip_id: c100, session_id: { _id: 's1', name: 'Dia Único' }, tournament_id: { _id: 't1' }, snapshot: { active_players: 40, in_play_quantity: 2000 }, estimate: { players_per_table: 10, per_table: [{ value: 100, per_table: 500 }] }, requested_by: 'Ana', createdAt: '2026-10-01T12:00:00Z', ...over });
+
+  it('com chamado selecionado mostra jogadores ativos da SESSÃO, mesas e a quantidade em jogo da denominação', async () => {
+    data['/conversion-requests'] = [call()];
+    await mount();
+    await act(async () => { button('Registrar a troca deste chamado').click(); });
+    const base = container.querySelector('[data-testid="session-base"]').textContent;
+    expect(base).toContain('Dia Único'); expect(base).toContain('40'); expect(base).toContain('2.000 em jogo'); expect(base).toContain('500 por mesa');
+    delete data['/conversion-requests'];
+  });
+
+  it('um chamado cancelado deixa de estar vinculado: a próxima troca não leva o id antigo', async () => {
+    data['/conversion-requests'] = [call()];
+    api.apiPost.mockImplementation(async (path) => (path === '/conversions/preview' ? { value_out: 1, value_in: 2, math_breakage: 1 } : {}));
+    await mount();
+    await act(async () => { button('Registrar a troca deste chamado').click(); });
+    // cancela pela tela (com confirmação): o servidor passa a devolver o chamado como cancelado
+    data['/conversion-requests'] = [call({ status: 'cancelled' })];
+    await act(async () => { button('Cancelar chamado').click(); });
+    await flush();
+    await act(async () => { button('Confirmar').click(); });
+    await flush();
+    expect(api.apiPut).toHaveBeenCalledWith('/conversion-requests/r1', { status: 'cancelled' });
+    await act(async () => { setValue(outInput(0), '10'); });
+    await act(async () => { setValue(inInput(1), '1'); });
+    await flush(400);
+    await act(async () => { button('Registrar Chip Race').click(); });
+    await flush();
+    await act(async () => { button('Confirmar').click(); });
+    await flush();
+    const body = api.apiPost.mock.calls.find((c) => c[0] === '/conversions')?.[1];
+    expect(body).toBeTruthy();
+    expect(body.request_id).toBeUndefined();
+    delete data['/conversion-requests'];
   });
 });

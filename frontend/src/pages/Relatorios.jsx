@@ -92,10 +92,10 @@ export default function Relatorios() {
     exportToCSV(rows, `genesis-relatorio-${new Date().toISOString().slice(0, 10)}`);
   };
 
-  // CSV do estoque: distribuição das fichas pelo saldo derivado (em fichários, em jogo, divergência)
+  // CSV do estoque: distribuição das fichas pelo saldo derivado (em fichários, no Salão, divergência)
   const handleExportChips = () => {
     const rows = (data?.charts?.chipDistribution || []).map((c) => ({
-      ficha: c.name, em_ficharios: c.in_binders, em_jogo: c.in_play, em_divergencia: c.lost, existentes: c.value,
+      ficha: c.name, em_ficharios: c.in_binders, no_salao: c.at_hall, em_divergencia: c.lost, existentes: c.value,
     }));
     if (rows.length === 0) return showAlert('Nada para exportar.', 'info');
     exportToCSV(rows, `genesis-fichas-${new Date().toISOString().slice(0, 10)}`);
@@ -220,8 +220,8 @@ export default function Relatorios() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
         <StatCard title="Torneios" value={data.stats.totalTournaments} subValue={`${data.stats.finishedTournaments} finalizados`} icon={<Trophy size={20}/>} color="bg-blue-500" />
         <StatCard title="Chip Races" value={data.stats.totalChipRaces} subValue="Confirmados" icon={<Activity size={20}/>} color="bg-amber-500" />
-        <StatCard title="Total de Fichas" value={data.stats.totalChips.toLocaleString()} subValue={`${(data.stats.chipsInBinders || 0).toLocaleString()} em fichários · ${(data.stats.chipsInPlay || 0).toLocaleString()} no Salão`} icon={<Coins size={20}/>} color="bg-emerald-500" />
-        <StatCard title="Valor em Fichas" value={(data.stats.stockValue || 0).toLocaleString(locale())} subValue="Σ valor × saldo derivado" icon={<Coins size={20}/>} color="bg-violet-500" />
+        <StatCard title="Total de Fichas" value={data.stats.totalChips.toLocaleString(locale())} subValue={`${(data.stats.chipsInBinders || 0).toLocaleString(locale())} em fichários · ${(data.stats.chipsAtHall || 0).toLocaleString(locale())} no Salão`} icon={<Coins size={20}/>} color="bg-emerald-500" />
+        <StatCard title="Valor nominal das fichas" value={(data.stats.stockValue || 0).toLocaleString(locale())} subValue="Σ valor nominal × saldo (não é valor financeiro)" icon={<Coins size={20}/>} color="bg-violet-500" />
         <StatCard title="Logs Totais" value={data.pagination.total} subValue="Registros" icon={<Clock size={20}/>} color="bg-purple-500" />
       </div>
 

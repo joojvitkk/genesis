@@ -2,10 +2,11 @@
 //
 //   Evento → Torneio → Sessões (Dia 1A, 1B, Dia Final…)
 //
-// A sessão separa as AÇÕES (entradas) e as MESAS; o vínculo operacional (fichários, modelos de
-// stack) é do torneio e vale para todas as sessões (spec §18.8).
-const { TournamentSession, TournamentEntry } = require('../models');
+// A sessão tem o seu PRÓPRIO estado em execução (Simulação 2.1 §4): relógio, nível, entradas, ativos, fichas em
+// jogo e Chip Race. A estrutura (blinds, fichário, modelos de stack) é do torneio e compartilhada (spec §18.8).
+const { Tournament, TournamentSession, TournamentEntry } = require('../models');
 const { HttpError } = require('./catalog');
+const { SESSION_TYPES } = require('../models/TournamentSession');
 const { escapeRegex } = require('../utils/sanitize');
 
 // scheduled → running → finished. Reabrir uma sessão encerrada (finished → running) é só do admin.
@@ -38,6 +39,63 @@ async function resolveSession(tournamentId, requested, { open = false } = {}) {
   return session;
 }
 
+/** Toda consulta operacional usa a sessão; `tournament_id` só agrega. Torneio SEM sessões (dados muito antigos) → null. */
+const isFinal = (session) => session?.type === 'FINAL';
+
+/**
+ * "Visão de relógio" de uma sessão: a estrutura de blinds é do torneio, o estado em execução é da sessão.
+ * Sem sessão devolve o próprio torneio (compatível com torneios anteriores ao G4).
+ */
+function clockView(tournament, session) {
+  if (!session) return tournament;
+  return {
+    _id: tournament._id, session_id: session._id, session_name: session.name, session_type: session.type,
+    name: tournament.name,
+    blind_structure: tournament.blind_structure,
+    starting_stack: tournament.starting_stack,
+    clock_status: session.clock_status, current_level: session.current_level, level_started_at: session.level_started_at,
+    paused_at: session.paused_at, clock_adjust_seconds: session.clock_adjust_seconds,
+    actual_players: session.actual_players, entries_initial: session.entries_initial, entries_reentries: session.entries_reentries,
+    chips_value_in_play: session.chips_value_in_play,
+  };
+}
+
+/** Grava as atualizações de relógio no dono do estado (sessão ou, sem sessões, o torneio). */
+async function saveClock(tournament, session, updates) {
+  const owner = session || tournament;
+  Object.assign(owner, updates);
+  await owner.save();
+  return owner;
+}
+
+/**
+ * Cache de relógio/status do TORNEIO derivado das sessões (só para listagens e Dashboard): rodando se alguma sessão
+ * roda, pausado se nenhuma roda e alguma está pausada. Cada sessão continua dona do seu próprio relógio.
+ */
+async function syncTournamentCache(tournamentId) {
+  const t = await Tournament.findById(tournamentId);
+  if (!t) return null;
+  const all = await listSessions(tournamentId);
+  if (!all.length) return t;
+  const live = all.filter((s) => s.status !== 'finished');
+  const anyRunning = live.some((s) => s.clock_status === 'running');
+  const anyPaused = live.some((s) => s.clock_status === 'paused');
+  t.clock_status = anyRunning ? 'running' : anyPaused ? 'paused' : 'stopped';
+  if (!['finished', 'finalized'].includes(t.status)) {
+    if (anyRunning) t.status = 'running';
+    else if (anyPaused) t.status = 'paused';
+    else if (t.status === 'paused') t.status = 'running';
+  }
+  await t.save();
+  return t;
+}
+
+/** Soma dos classificados das sessões classificatórias ENCERRADAS = jogadores iniciais do Dia Final. */
+async function qualifiedTotal(tournamentId) {
+  const rows = await TournamentSession.find({ tournament_id: tournamentId, type: 'QUALIFIER', status: 'finished' }).select('qualified_count').lean();
+  return rows.reduce((sum, r) => sum + (r.qualified_count || 0), 0);
+}
+
 async function assertUniqueName(tournamentId, name, excludeId) {
   const q = { tournament_id: tournamentId, name: new RegExp(`^${escapeRegex(name)}$`, 'i') };
   if (excludeId) q._id = { $ne: excludeId };
@@ -45,14 +103,15 @@ async function assertUniqueName(tournamentId, name, excludeId) {
 }
 
 /** Cria uma sessão no fim da sequência. */
-async function createSession(tournamentId, { name, starts_at, notes } = {}) {
+async function createSession(tournamentId, { name, starts_at, notes, type } = {}) {
   const clean = String(name || '').trim();
   if (!clean) throw new HttpError(400, 'Nome da sessão é obrigatório.');
+  if (type !== undefined && !SESSION_TYPES.includes(type)) throw new HttpError(400, `Tipo de sessão inválido. Use: ${SESSION_TYPES.join(', ')}.`);
   await assertUniqueName(tournamentId, clean);
   const last = await TournamentSession.findOne({ tournament_id: tournamentId }).sort({ order: -1 });
   return new TournamentSession({
     tournament_id: tournamentId, name: clean, order: (last?.order || 0) + 1,
-    starts_at: starts_at || null, notes,
+    starts_at: starts_at || null, notes, type: type || (/final/i.test(clean) ? 'FINAL' : 'QUALIFIER'),
   }).save();
 }
 
@@ -102,4 +161,4 @@ async function sessionCounters(tournamentId) {
   return out;
 }
 
-module.exports = { TRANSITIONS, listSessions, resolveSession, createSession, applyStatus, pendingSessions, finishAll, sessionCounters, assertUniqueName };
+module.exports = { isFinal, clockView, saveClock, syncTournamentCache, qualifiedTotal, TRANSITIONS, listSessions, resolveSession, createSession, applyStatus, pendingSessions, finishAll, sessionCounters, assertUniqueName };

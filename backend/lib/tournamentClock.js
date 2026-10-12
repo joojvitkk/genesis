@@ -138,6 +138,10 @@ function clockPayload(t, now = Date.now()) {
   const chipsValue = t.chips_value_in_play != null ? t.chips_value_in_play : players * stack;
   return {
     tournament_id: String(t._id),
+    // Sessão dona deste relógio (Simulação 2.1 §4): cada sessão classificatória tem o seu. null = torneio sem sessões.
+    session_id: t.session_id ? String(t.session_id) : null,
+    session_name: t.session_name || null,
+    session_type: t.session_type || null,
     name: t.name,
     clock_status: t.clock_status || 'stopped',
     current_level: cur,

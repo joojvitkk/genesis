@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Trophy, Plus, Clock,
-  ChevronRight, Trash2, Edit2,
+  ChevronRight, Trash2,
   Play, Pause, CheckCircle2, Users, Copy,
   Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, History, Package, Coffee, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -44,8 +44,11 @@ export default function Torneios() {
   const { showAlert, showConfirm, showPrompt } = useAlert();
   const [searchParams] = useSearchParams();
   const [tournaments, setTournaments] = useState([]);
-  const [allocations, setAllocations] = useState([]);   // alocações ABERTAS de fichas deste torneio (por denominação/quantidade)
-  const [allocModal, setAllocModal] = useState(null);     // null | { editing? }
+  const [allocations, setAllocations] = useState([]);   // fichários VINCULADOS (abertos) a este torneio
+  const [binderBalances, setBinderBalances] = useState({}); // saldo físico por ficha nos fichários vinculados (da sessão selecionada)
+  const [allocModal, setAllocModal] = useState(null);     // modal para vincular fichário a um torneio já criado
+  const [binderList, setBinderList] = useState([]);       // fichários ativos para escolher na criação do torneio
+  const [createBinders, setCreateBinders] = useState([]);  // ids escolhidos na criação (só o fichário; sem quantidades)
   const [stackModels, setStackModels] = useState([]);
   const [entries, setEntries] = useState([]);
   const [counts, setCounts] = useState(null);             // inscrições × ativos do torneio (servidor)
@@ -79,7 +82,7 @@ export default function Torneios() {
     }
   }, [searchParams]);
 
-  const [form, setForm] = useState({
+  const emptyForm = () => ({
     name: '',
     date: new Date().toISOString().split('T')[0],
     start_time: '20:00',
@@ -91,6 +94,7 @@ export default function Torneios() {
     sessions_text: '',
     notes: ''
   });
+  const [form, setForm] = useState(emptyForm);
 
   const fetchTournaments = useCallback(async () => {
     try {
@@ -135,21 +139,25 @@ export default function Torneios() {
       sessionRef.current = current?._id || null;
       setSelectedSessionId(sessionRef.current);
 
-      const [entriesData, sessionData] = await Promise.all([
+      const [entriesData, sessionData, materialData] = await Promise.all([
         apiGet(`/tournaments/${id}/entries`, { session_id: current?._id }),
         current ? apiGet(`/tournaments/${id}/sessions/${current._id}/chips-in-play`) : Promise.resolve(null),
+        apiGet(`/tournaments/${id}/material`).catch(() => null),
       ]);
       setEntries(entriesData);
       setSessionInPlay(sessionData);
-      fetchTournamentCounts(id);
+      const bal = {};
+      (materialData?.binders || []).forEach((b) => Object.entries(b.balances).forEach(([k, v]) => { bal[k] = (bal[k] || 0) + v; }));
+      setBinderBalances(bal);
+      fetchTournamentCounts(id, current?._id);
     } catch (e) {
       if (e.status !== 401) console.error(e);
     }
   };
 
-  const fetchTournamentCounts = async (id) => {
+  const fetchTournamentCounts = async (id, sid = sessionRef.current) => {
     try {
-      const c = await apiGet(`/tournaments/${id}/headcount`);
+      const c = await apiGet(`/tournaments/${id}/headcount`, sid ? { session_id: sid } : undefined);
       setCounts(c);
       setActiveInput(String(c.active));
     } catch (e) {
@@ -159,7 +167,7 @@ export default function Torneios() {
 
   const handleSetActive = async () => {
     try {
-      const c = await apiPut(`/tournaments/${selectedTournament._id}/active-players`, { active_players: Number(activeInput) });
+      const c = await apiPut(`/tournaments/${selectedTournament._id}/active-players`, { active_players: Number(activeInput), session_id: selectedSessionId || undefined });
       setCounts(c);
       setActiveInput(String(c.active));
       setSelectedTournament((prev) => ({ ...prev, actual_players: c.active }));
@@ -192,7 +200,8 @@ export default function Torneios() {
     fetchTournaments();
     fetchStackModels();
     apiGet('/events').then(setEvents).catch(() => {});
-  }, [fetchTournaments]);
+    if (isAdmin) apiGet('/binders').then(setBinderList).catch(() => {});
+  }, [fetchTournaments, isAdmin]);
 
   // Timer para persistência com debounce (edição de blinds / composição de stack)
   const saveTimer = React.useRef(null);
@@ -240,7 +249,7 @@ export default function Torneios() {
       setForm(f => ({ ...f, entry_quantity: 1 }));
       fetchFloorData(selectedTournament._id);
       fetchTournaments();
-      fetchTournamentCounts(selectedTournament._id);
+      fetchTournamentCounts(selectedTournament._id, selectedSessionId);
     } catch (e) {
       if (e.status === 0) {
         enqueue(path, body);
@@ -296,7 +305,7 @@ export default function Torneios() {
     setIsCreateModalOpen(true);
   };
 
-  const closeCreateModal = () => { setIsCreateModalOpen(false); setDuplicateOf(null); setEditing(null); setCopyExtra({}); };
+  const closeCreateModal = () => { setCreateBinders([]); setIsCreateModalOpen(false); setDuplicateOf(null); setEditing(null); setCopyExtra({}); };
 
   const handleCreateTournament = async (e) => {
     e.preventDefault();
@@ -315,10 +324,11 @@ export default function Torneios() {
       // sessões/fases: uma por linha ou separadas por vírgula (só o admin as define; sem isso nasce "Dia Único")
       const { sessions_text, ...rest } = form;
       const names = isAdmin ? sessions_text.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) : [];
-      await apiPost('/tournaments', {
+      const created = await apiPost('/tournaments', {
         ...rest, ...copyExtra, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
         sessions: names.length ? names : undefined,
       });
+      if (isAdmin && createBinders.length) await apiPost(`/tournaments/${created._id}/allocations`, { binder_ids: createBinders });
       showAlert(duplicateOf ? 'Torneio duplicado!' : 'Torneio criado!', 'success');
       closeCreateModal();
       fetchTournaments();
@@ -438,30 +448,23 @@ export default function Torneios() {
     if (await handleUpdateTournament(selectedTournament._id, { stack_model_id: modelId || null })) fetchFloorData(selectedTournament._id);
   };
 
-  // fichas ALOCADAS a este torneio (por denominação e quantidade) — só para comparar com a necessidade
-  const inCases = {};
-  let casesValue = 0;
-  allocations.forEach((a) => a.chips.forEach((l) => {
-    const id = l.chip_id?._id || l.chip_id;
-    inCases[id] = (inCases[id] || 0) + l.quantity;
-    casesValue += l.quantity * (l.chip_id?.value || 0);
-  }));
-
   const releaseAllocation = async (alloc) => {
     const name = alloc.binder_id?.name || 'fichário';
-    if (!(await showConfirm(`Liberar a alocação de "${name}"? As fichas voltam a ficar livres para outros torneios.`))) return;
+    if (!(await showConfirm(`Desvincular o fichário "${name}" deste torneio? As movimentações já feitas permanecem no histórico.`))) return;
     try {
       await apiDelete(`/allocations/${alloc._id}`);
-      showAlert('Alocação liberada', 'success');
+      showAlert('Fichário desvinculado', 'success');
       fetchAllocations(selectedTournament._id);
-    } catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao liberar alocação', 'error'); }
+    } catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao desvincular fichário', 'error'); }
   };
 
   const eventName = (id) => events.find((ev) => ev._id === id)?.name;
-  const sessionClosed = sessions.find((x) => x._id === selectedSessionId)?.status === 'finished';
+  const selectedSession = sessions.find((x) => x._id === selectedSessionId);
+  const sessionClosed = selectedSession?.status === 'finished';
+  const isFinalSession = selectedSession?.type === 'FINAL'; // Dia Final: sem buy-in nem reentrada
   // entradas: bloqueadas com o torneio encerrado OU a sessão encerrada
   // o Material só consulta as entradas: quem lança é o Salão (ou o admin)
-  const entriesLocked = ['finished', 'finalized'].includes(selectedTournament?.status) || sessionClosed || !canOperateFloor;
+  const entriesLocked = ['finished', 'finalized'].includes(selectedTournament?.status) || sessionClosed || isFinalSession || !canOperateFloor;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12">
@@ -471,7 +474,7 @@ export default function Torneios() {
           <p className="page-sub">Gerenciamento central de eventos e logística de fichas.</p>
         </div>
         {canManage && (
-          <button onClick={() => { setDuplicateOf(null); setCopyExtra({}); setIsCreateModalOpen(true); }} className="px-6 py-3 rounded-xl font-bold bg-brand text-white hover:bg-brand-hover transition-all flex items-center gap-2">
+          <button onClick={() => { setDuplicateOf(null); setCopyExtra({}); setEditing(null); setForm(emptyForm()); setCreateBinders([]); setIsCreateModalOpen(true); }} className="px-6 py-3 rounded-xl font-bold bg-brand text-white hover:bg-brand-hover transition-all flex items-center gap-2">
             <Plus size={18} /> Novo Torneio
           </button>
         )}
@@ -521,7 +524,7 @@ export default function Torneios() {
       {allocModal && selectedTournament && (
         <AllocationModal
           tournament={selectedTournament}
-          editing={allocModal.editing}
+          linkedIds={allocations.map((a) => a.binder_id?._id)}
           onClose={() => setAllocModal(null)}
           onDone={() => { setAllocModal(null); fetchAllocations(selectedTournament._id); fetchTournaments(); }}
         />
@@ -607,7 +610,7 @@ export default function Torneios() {
               {/* Scrollable content */}
               <div className="overflow-y-auto flex-1">
 
-              {['salao', 'material'].includes(activeTab) && (
+              {['salao', 'material', 'logistica'].includes(activeTab) && (
                 <div className="px-4 md:px-8 pt-6">
                   <SessionBar
                     tournamentId={selectedTournament._id}
@@ -630,21 +633,26 @@ export default function Torneios() {
                   <div className="lg:col-span-2 space-y-8">
                     {/* Inscrições × jogadores ativos (BUG-04/05): números distintos, cada um com a sua regra */}
                     <div className="card p-6">
-                      <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><Users className="text-brand-fg" /> Inscrições e jogadores</h3>
+                      <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><Users className="text-brand-fg" /> Inscrições e jogadores{selectedSession && sessions.length > 1 ? ` · ${selectedSession.name}` : ''}</h3>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 text-center">
-                        {[
+                        {(isFinalSession ? [
+                          ['Iniciais (classificados)', counts?.starting_players],
+                          ['Eliminados', counts?.eliminated],
+                        ] : [
                           ['Entradas iniciais', counts?.entries_initial],
                           ['Reentradas', counts?.entries_reentries],
                           ['Inscrições totais', counts?.entries_total],
                           ['Eliminados', counts?.eliminated],
-                        ].map(([label, v]) => (
+                        ]).map(([label, v]) => (
                           <div key={label} className="rounded-2xl bg-sunken dark:bg-sunken border border-line p-3">
                             <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">{label}</p>
                             <p className="text-2xl font-bold text-fg">{v ?? '—'}</p>
                           </div>
                         ))}
                       </div>
-                      <p className="text-xs text-fg-subtle mb-4">Inscrições totais = entradas iniciais + reentradas (acumulado, não muda ao eliminar). Jogando = quem ainda está na mesa.</p>
+                      <p className="text-xs text-fg-subtle mb-4">{isFinalSession
+                        ? 'Dia Final: os jogadores iniciais são a soma dos classificados das sessões classificatórias encerradas. Não há buy-in nem reentrada.'
+                        : 'Inscrições totais = entradas iniciais + reentradas (acumulado, não muda ao eliminar). Jogando = quem ainda está na mesa. Os números são desta sessão.'}</p>
                       <div className="flex items-center gap-4 bg-sunken dark:bg-sunken p-4 rounded-2xl border border-line">
                         <div className="flex-1">
                           <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">Jogando (jogadores ativos)</p>
@@ -768,7 +776,7 @@ export default function Torneios() {
                   </div>
 
                   <div className="space-y-8">
-                    {/* Fichas necessárias (calculadas no servidor) × fichários alocados */}
+                    {/* Fichas necessárias (calculadas no servidor) × saldo dos fichários do torneio */}
                     <div className="card p-6">
                       <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Settings className="text-emerald-500" size={20} /> Fichas necessárias</h3>
                       <p className="text-xs text-fg-muted mb-5">Ações registradas × modelo de stack de cada ação. Calculado automaticamente.</p>
@@ -782,11 +790,11 @@ export default function Torneios() {
                           <div className="grid grid-cols-3 text-xs uppercase font-bold text-fg-subtle px-1">
                             <div>Ficha</div>
                             <div className="text-center">Necessário</div>
-                            <div className="text-right">Nos fichários</div>
+                            <div className="text-right">Saldo nos fichários</div>
                           </div>
                           {chipsInPlay.rows.map((row) => {
                             const needed = row.quantity;
-                            const available = inCases[row.chip._id] || 0;
+                            const available = binderBalances[row.chip._id] || 0;
                             const isShort = available < needed;
                             return (
                               <div key={row.chip._id} className="space-y-1.5">
@@ -806,12 +814,8 @@ export default function Torneios() {
                           })}
                           <div className="pt-4 border-t border-line-soft space-y-2">
                             <div className="flex justify-between text-xs">
-                              <span className="text-fg-muted">Valor em jogo</span>
+                              <span className="text-fg-muted">Valor nominal de jogo</span>
                               <span className="font-bold">{chipsInPlay.totals.value.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between text-xs">
-                              <span className="text-fg-muted">Valor nos fichários alocados</span>
-                              <span className="font-bold text-emerald-600">{casesValue.toLocaleString()}</span>
                             </div>
                           </div>
                         </div>
@@ -852,44 +856,27 @@ export default function Torneios() {
                       </div>
                     </div>
 
-                    {/* Alocação de fichas (por denominação e quantidade) */}
-                    <div className="card p-6 overflow-visible">
+                    {/* Fichário do torneio: só a escolha do fichário, sem reserva por denominação/quantidade */}
+                    <div className="card overflow-visible">
                       <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-bold flex items-center gap-2"><Package className="text-amber-500" size={20} /> Fichas Alocadas</h3>
+                        <h3 className="text-lg font-bold flex items-center gap-2"><Package className="text-amber-500" size={20} /> Fichário do torneio</h3>
                         {isAdmin && !['finished', 'finalized'].includes(selectedTournament.status) && (
-                          <button onClick={() => setAllocModal({})} className="text-xs font-bold uppercase tracking-wide text-brand-fg hover:text-red-700 flex items-center gap-1"><Plus size={14} /> Alocar</button>
+                          <button onClick={() => setAllocModal({})} className="btn btn-ghost btn-sm"><Plus size={14} /> Vincular</button>
                         )}
                       </div>
                       <div className="space-y-3">
                         {allocations.length === 0 && (
                           <p className="text-sm text-fg-subtle italic">
-                            Nenhuma ficha alocada.{isAdmin ? '' : ' O administrador define as alocações.'}
+                            Nenhum fichário vinculado.{isAdmin ? '' : ' O administrador escolhe o fichário do torneio.'}
                           </p>
                         )}
                         {allocations.map((a) => (
-                          <div key={a._id} className="p-3 bg-sunken dark:bg-sunken rounded-xl border border-line space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-bold text-fg truncate">{a.binder_id?.name}</span>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${a.status === 'active' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10' : 'bg-amber-100 text-amber-600 dark:bg-amber-500/10'}`}>{a.status === 'active' ? 'ativa' : 'planejada'}</span>
-                                {isAdmin && (
-                                  <>
-                                    <button onClick={() => setAllocModal({ editing: a })} title="Editar" className="p-1 text-fg-subtle hover:text-blue-500 rounded-lg"><Edit2 size={14} /></button>
-                                    <button onClick={() => releaseAllocation(a)} title="Liberar" className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg"><X size={16} /></button>
-                                  </>
-                                )}
-                              </div>
+                          <div key={a._id} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-sunken p-3">
+                            <span className="truncate text-sm font-semibold text-fg">{a.binder_id?.name}</span>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <span className={`badge ${a.status === 'active' ? 'badge-ok' : 'badge-warn'}`}>{a.status === 'active' ? 'em uso' : 'planejado'}</span>
+                              {isAdmin && <button onClick={() => releaseAllocation(a)} title="Desvincular fichário" aria-label="Desvincular fichário" className="btn btn-ghost btn-icon"><X size={16} /></button>}
                             </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {a.chips.map((l) => (
-                                <span key={l.chip_id?._id} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-bold ${l.shortfall > 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/10' : 'bg-raised text-fg-muted dark:bg-zinc-800 '}`}
-                                  title={l.shortfall > 0 ? `Faltam ${l.shortfall}: o saldo do fichário é ${l.balance}` : undefined}>
-                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: l.chip_id?.color }}></span>
-                                  {l.chip_id?.value?.toLocaleString()} × {l.quantity.toLocaleString()}
-                                </span>
-                              ))}
-                            </div>
-                            {a.has_shortfall && <p className="text-xs text-red-500 font-bold">Falta de fichas: o saldo físico ficou abaixo do alocado (perda apurada?).</p>}
                           </div>
                         ))}
                       </div>
@@ -939,9 +926,11 @@ export default function Torneios() {
                       </p>
                     ) : (
                       <TournamentClock
+                        key={selectedSessionId || 'torneio'}
                         tournamentId={selectedTournament._id}
+                        sessionId={selectedSessionId || undefined}
                         variant="panel"
-                        canControl={selectedTournament.status !== 'finished' && canOperateFloor}
+                        canControl={selectedTournament.status !== 'finished' && !sessionClosed && canOperateFloor}
                       />
                     )}
                   </div>
@@ -1182,6 +1171,22 @@ export default function Torneios() {
                     onChange={val => setForm({ ...form, stack_model_id: val })}
                   />
                 </div>
+                {isAdmin && !editing && (
+                  <fieldset>
+                    <legend className="block text-sm font-bold mb-1">Fichário(s) do torneio <span className="font-normal text-fg-subtle">(opcional)</span></legend>
+                    {binderList.length === 0 ? <p className="text-xs text-fg-subtle">Nenhum fichário ativo cadastrado.</p> : (
+                      <div className="space-y-1">
+                        {binderList.map((b) => (
+                          <label key={b._id} className="flex cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" checked={createBinders.includes(b._id)} onChange={() => setCreateBinders((cur) => (cur.includes(b._id) ? cur.filter((x) => x !== b._id) : [...cur, b._id]))} />
+                            {b.name}{b.code ? <span className="font-mono text-xs text-fg-muted">{b.code}</span> : null}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <p className="mt-1 text-xs text-fg-subtle">Só escolhe qual fichário será usado. Nenhuma quantidade é reservada e o fichário não fica bloqueado.</p>
+                  </fieldset>
+                )}
                 <button type="submit" className="w-full py-4 bg-brand text-white font-bold rounded-xl hover:bg-brand-hover transition-all">{editing ? 'Salvar alterações' : 'Criar Torneio'}</button>
               </form>
             </motion.div>

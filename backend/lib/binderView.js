@@ -5,7 +5,7 @@ const mv = require('./movements');
 
 /**
  * @param {Array<import('mongoose').Document>} binders  fichários (com `model_id` já populado, se quiserem)
- * @returns plain objects: { ...binder, chips: [{ chip_id: <ficha>, quantity }], allocations: [{ tournament_id, tournament_name, chip_ids }], status }
+ * @returns plain objects: { ...binder, chips: [{ chip_id: <ficha>, quantity }], allocations: [{ tournament_id, tournament_name }], status }
  */
 async function present(binders) {
   if (!binders.length) return [];
@@ -27,7 +27,7 @@ async function present(binders) {
     const open = allocs.filter((a) => String(a.binder_id) === String(b._id));
     o.chips = mine.map((r) => ({ chip_id: chipById.get(String(r.chip_id)) || { _id: r.chip_id }, quantity: r.quantity }))
       .sort((x, y) => (x.chip_id.value ?? 0) - (y.chip_id.value ?? 0));
-    o.allocations = open.map((a) => ({ tournament_id: a.tournament_id, tournament_name: tName.get(String(a.tournament_id)), chip_ids: a.chips.map((c) => c.chip_id) }));
+    o.allocations = open.map((a) => ({ tournament_id: a.tournament_id, tournament_name: tName.get(String(a.tournament_id)) }));
     o.status = b.status === 'maintenance' ? 'maintenance' : open.length ? 'allocated' : 'available';
     return o;
   });

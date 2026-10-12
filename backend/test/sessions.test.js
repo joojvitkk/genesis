@@ -5,7 +5,7 @@ const { connect, clearDb, disconnect, makeUser, makeChip } = require('./helpers'
 
 const request = require('supertest');
 const app = require('../app');
-const { Event, Tournament, TournamentSession, TournamentEntry, Seat } = require('../models');
+const { Event, Tournament, TournamentSession, TournamentEntry, Seat, Elimination } = require('../models');
 
 before(connect);
 after(disconnect);
@@ -339,18 +339,34 @@ test('excluir o torneio leva as sessões junto', async () => {
   assert.equal(await TournamentSession.countDocuments({ tournament_id: t._id }).setOptions({ withDeleted: true }), 4, 'soft-delete: fica no banco');
 });
 
-test('a eliminação que deixa uma só entrada finaliza o torneio e encerra as sessões', async () => {
+test('a eliminação que deixa uma só entrada finaliza o torneio de sessão ÚNICA e encerra a sessão', async () => {
   const admin = await as('admin');
-  const { t, s } = await warmUp(admin);
-  const sid = s['Dia 1A']._id;
-  const e1 = (await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', session_id: sid })).body;
-  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', session_id: sid });
+  const t = (await post(admin, '/api/tournaments', { name: 'Diário', date: '2026-10-01' })).body;
+  const e1 = (await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in' })).body;
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in' });
 
   const res = await post(admin, `/api/tournaments/${t._id}/eliminations`, { entry_id: e1._id });
   assert.equal(res.status, 201, JSON.stringify(res.body));
   assert.equal((await Tournament.findById(t._id)).status, 'finalized');
   const sessions = await TournamentSession.find({ tournament_id: t._id });
   assert.ok(sessions.every((x) => x.status === 'finished'), 'todas encerradas');
+});
+
+test('com várias sessões a eliminação vale dentro da sessão: sobrar 1 no 1A não finaliza o torneio', async () => {
+  const admin = await as('admin');
+  const { t, s } = await warmUp(admin);
+  const sid = s['Dia 1A']._id;
+  const e1 = (await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', session_id: sid })).body;
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', session_id: sid });
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', session_id: s['Dia 1B']._id });
+
+  const res = await post(admin, `/api/tournaments/${t._id}/eliminations`, { entry_id: e1._id });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.notEqual((await Tournament.findById(t._id)).status, 'finalized');
+  assert.equal((await Elimination.findOne({ entry_id: e1._id })).position, 2, 'colocação conta só as entradas da sessão');
+  const players = (id) => get(admin, `/api/tournaments/${t._id}/headcount?session_id=${id}`).then((r) => r.body.active);
+  assert.equal(await players(sid), 1);
+  assert.equal(await players(s['Dia 1B']._id), 1, 'a eliminação no 1A não mexe no 1B');
 });
 
 // ─── financeiro segue no nível do torneio ────────────────────────────────────
@@ -454,7 +470,7 @@ test('§18.8: stack e fichários são do TORNEIO e valem para todas as sessões'
 
   assert.equal(t.stack_model_id, stack._id);
   assert.equal(await TournamentSession.countDocuments({ tournament_id: t._id, stack_model_id: { $exists: true } }), 0, 'a sessão não guarda vínculo próprio');
-  for (const name of ['Dia 1A', 'Dia Final']) {
+  for (const name of ['Dia 1A', 'Dia 1B']) {
     await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', session_id: s[name]._id });
   }
   const r = (await get(admin, `/api/tournaments/${t._id}/chips-in-play`)).body;

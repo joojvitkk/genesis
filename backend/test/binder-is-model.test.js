@@ -16,9 +16,8 @@ const H = async (role = 'admin') => ({ Authorization: `Bearer ${(await makeUser(
 test('cadastrar o fichário com 10 fichas de 100 → saldo 10 e UM lote inicial; consultar de novo não cria movimento', async () => {
   const admin = await H();
   const chip = await makeChip({ value: 100 });
-  const r = await request(app).post('/api/binders').set(admin).send({ name: 'Drogon', code: 'D1', stamp: 'Dragão', composition: [{ chip_id: chip._id, quantity: 10 }] });
+  const r = await request(app).post('/api/binders').set(admin).send({ name: 'Drogon', code: 'D1', composition: [{ chip_id: chip._id, quantity: 10 }] });
   assert.equal(r.status, 201, JSON.stringify(r.body));
-  assert.equal(r.body.stamp, 'Dragão');
   assert.equal(r.body.chips.find((c) => String(c.chip_id._id || c.chip_id) === String(chip._id)).quantity, 10);
 
   const moves = await Movement.find({});
@@ -48,7 +47,7 @@ test('a composição não é editável depois do cadastro; sem modelo de fichár
   const chip = await makeChip({ value: 100 });
   const b = (await request(app).post('/api/binders').set(admin).send({ name: 'Drogon', composition: [{ chip_id: chip._id, quantity: 10 }] })).body;
   assert.equal((await request(app).put(`/api/binders/${b._id}`).set(admin).send({ composition: [{ chip_id: chip._id, quantity: 99 }] })).status, 400);
-  assert.equal((await request(app).put(`/api/binders/${b._id}`).set(admin).send({ stamp: 'Nova' })).status, 200);
+  assert.equal((await request(app).put(`/api/binders/${b._id}`).set(admin).send({ code: 'Nova' })).status, 200);
   assert.equal((await request(app).get('/api/binder-models').set(admin)).status, 404);
   assert.equal((await request(app).post('/api/binder-models').set(admin).send({ name: 'M' })).status, 404);
 });
@@ -72,6 +71,6 @@ test('conciliação por denominação: inicial 10, saída 4, retorno 2 → saldo
   await mv.postBatch([{ type: 'ADJUSTMENT', chip_id: chip._id, quantity: 2, from: { kind: 'external' }, to: { kind: 'binder', id: bid }, reason: 'retorno' }], { user: { name: 'T' } });
   const r = (await request(app).get(`/api/binders/${b._id}/reconciliation`).set(admin)).body;
   const row = r.rows[0];
-  assert.deepEqual([row.opening, row.total_in, row.total_out, row.balance, row.explained, row.free], [10, 2, 4, 8, true, 8]);
+  assert.deepEqual([row.opening, row.total_in, row.total_out, row.balance, row.explained, row.free], [10, 2, 4, 8, true, undefined]);
   assert.equal(r.explained, true);
 });

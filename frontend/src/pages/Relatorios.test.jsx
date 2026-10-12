@@ -19,10 +19,10 @@ import { AlertProvider } from '../contexts/AlertContext';
 
 const report = {
   stats: {
-    totalTournaments: 3, finishedTournaments: 1, totalChipRaces: 2, totalChips: 1500, stockValue: 190000, chipsInBinders: 1200, chipsInPlay: 300, chipsLost: 3,
+    totalTournaments: 3, finishedTournaments: 1, totalChipRaces: 2, totalChips: 1500, stockValue: 190000, chipsInBinders: 1200, chipsAtHall: 300, chipsLost: 3,
     discardedChips: 5, discardedValue: 500, lostChips: 5, lostValue: 900, recoveredChips: 1, recoveredValue: 100, openOccurrences: 3, redOccurrences: 1,
   },
-  charts: { chipDistribution: [{ name: 'Ficha 100', value: 1250, color: '#000', in_binders: 1000, in_play: 250, lost: 3 }, { name: 'Ficha 500', value: 250, color: '#f00', in_binders: 200, in_play: 50, lost: 0 }], byLocation: [], racesByTournament: [] },
+  charts: { chipDistribution: [{ name: 'Ficha 100', value: 1250, color: '#000', in_binders: 1000, at_hall: 250, lost: 3 }, { name: 'Ficha 500', value: 250, color: '#f00', in_binders: 200, at_hall: 50, lost: 0 }], byLocation: [], racesByTournament: [] },
   logs: [], pagination: { total: 0, page: 1, pages: 1 },
 };
 const comparison = [{ _id: 't1', name: 'Warm Up', date: '2026-10-01', total_entries: 10, addons: 0, prize_pool: 900, bounty_pool: 0, rake_collected: 100, winner: 'Ana',
@@ -43,7 +43,7 @@ beforeEach(async () => {
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 
 describe('Relatorios (G10)', () => {
-  it('cards de fichas: total (em fichários + em jogo), valor, descartadas, perdidas, recuperadas e ocorrências', () => {
+  it('cards de fichas: total (em fichários + no Salão), valor, descartadas, perdidas, recuperadas e ocorrências', () => {
     const t = container.textContent;
     expect(t).toContain('1.500');
     expect(t).toContain('1.200 em fichários');
@@ -62,13 +62,13 @@ describe('Relatorios (G10)', () => {
     for (const v of ['51.000', '400', '777', '555']) expect(t).toContain(v); // enviado, descartado, perdido, quebra
   });
 
-  it('CSV de fichas usa a distribuição derivada (em fichários, em jogo, divergência); o CSV de logs segue existindo', async () => {
+  it('CSV de fichas usa a distribuição derivada (em fichários, no Salão, divergência); o CSV de logs segue existindo', async () => {
     await act(async () => { button('CSV fichas').click(); });
     expect(csv.exportToCSV).toHaveBeenCalledTimes(1);
     const [rows, name] = csv.exportToCSV.mock.calls[0];
     expect(rows).toEqual([
-      { ficha: 'Ficha 100', em_ficharios: 1000, em_jogo: 250, em_divergencia: 3, existentes: 1250 },
-      { ficha: 'Ficha 500', em_ficharios: 200, em_jogo: 50, em_divergencia: 0, existentes: 250 },
+      { ficha: 'Ficha 100', em_ficharios: 1000, no_salao: 250, em_divergencia: 3, existentes: 1250 },
+      { ficha: 'Ficha 500', em_ficharios: 200, no_salao: 50, em_divergencia: 0, existentes: 250 },
     ]);
     expect(name).toMatch(/^genesis-fichas-/);
     expect(button('CSV logs')).toBeTruthy();

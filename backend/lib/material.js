@@ -1,5 +1,5 @@
 // Material no torneio (G6): envio e retorno de fichas, conversões (Chip Race / Color Up) e o resumo
-// esperado × em jogo. Tudo vira MOVEMENT (fonte da verdade); a alocação (G5) é o TETO do que pode ser enviado.
+// esperado × em jogo. Tudo vira MOVEMENT (fonte da verdade); o fichário vinculado ao torneio é de onde saem as fichas.
 //
 //  • send     fichário → em jogo, por AÇÃO (buy-in, opcional, reentrada…) calculada pelo stack, ou fichas avulsas.
 //  • return   em jogo → fichário, por denominação (contagem física).
@@ -28,33 +28,29 @@ async function openTournament(id) {
 }
 const assertNotClosed = (t) => { if (CLOSED.includes(t.status)) throw new HttpError(409, 'O torneio está encerrado.'); };
 
-// ─── origem das fichas: as alocações do torneio ──────────────────────────────
+// ─── origem das fichas: os fichários vinculados ao torneio ────────────────────
 /**
- * Escolhe de quais fichários sai cada ficha: só dos ALOCADOS ao torneio, até o que ainda está reservado
- * (alocado − enviado) e existe fisicamente no fichário. `needs`: [{ chip_id, quantity, ...meta }].
+ * Escolhe de quais fichários sai cada ficha: só dos VINCULADOS ao torneio, até o SALDO FÍSICO de cada um (Simulação 2.1
+ * §5: não há reserva por quantidade). `needs`: [{ chip_id, quantity, ...meta }].
  * @returns [{ ...need, quantity, binder_id }]  (uma linha por fichário de origem)
  */
 async function pickSources(tournament, needs, { binder_id } = {}) {
   const filter = { tournament_id: tournament._id, open: true, ...(binder_id ? { binder_id } : {}) };
-  const allocations = await Allocation.find(filter).sort({ createdAt: 1 });
-  if (!allocations.length) {
-    throw new HttpError(409, binder_id ? 'Este fichário não está alocado ao torneio.' : 'O torneio não tem fichas alocadas: aloque um fichário antes de enviar.');
+  const links = await Allocation.find(filter).sort({ createdAt: 1 });
+  if (!links.length) {
+    throw new HttpError(409, binder_id ? 'Este fichário não está vinculado ao torneio.' : 'O torneio não tem fichário: vincule um fichário antes de enviar.');
   }
-  // capacidade = min(reservado, saldo físico) por (fichário, ficha); consumida à medida que as necessidades são atendidas
+  // capacidade = saldo físico por (fichário, ficha); consumida à medida que as necessidades são atendidas
   const capacity = new Map();
-  for (const a of allocations) {
-    const [states, bal] = await Promise.all([mv.allocationStates(a.binder_id), mv.balances({ binder_id: a.binder_id })]);
-    const mine = states.find((x) => String(x.allocation_id) === String(a._id));
-    for (const c of mine?.chips || []) {
-      const phys = bal.find((b) => String(b.chip_id) === String(c.chip_id))?.quantity || 0;
-      capacity.set(`${a.binder_id}:${c.chip_id}`, Math.max(0, Math.min(c.remaining, phys)));
-    }
+  for (const a of links) {
+    const bal = await mv.balances({ binder_id: a.binder_id });
+    for (const b of bal) capacity.set(`${a.binder_id}:${b.chip_id}`, Math.max(0, b.quantity));
   }
 
   const specs = []; const missing = [];
   for (const need of needs) {
     let left = need.quantity;
-    for (const a of allocations) {
+    for (const a of links) {
       if (left <= 0) break;
       const k = `${a.binder_id}:${need.chip_id}`;
       const take = Math.min(left, capacity.get(k) || 0);
@@ -71,8 +67,8 @@ async function pickSources(tournament, needs, { binder_id } = {}) {
     const name = new Map(chips.map((c) => [String(c._id), c.name]));
     const details = missing.map((m) => ({ ...m, chip: name.get(m.chip_id) }));
     throw new HttpError(409,
-      `Fichas insuficientes nos fichários alocados ao torneio: ${details.slice(0, 3).map((d) => `${d.chip} (faltam ${d.missing} de ${d.requested})`).join(', ')}${details.length > 3 ? '…' : ''}. `
-      + 'Aumente a alocação ou o saldo do fichário.', details);
+      `Fichas insuficientes nos fichários do torneio: ${details.slice(0, 3).map((d) => `${d.chip} (faltam ${d.missing} de ${d.requested})`).join(', ')}${details.length > 3 ? '…' : ''}. `
+      + 'Confira o saldo do fichário ou vincule outro.', details);
   }
   return specs;
 }
@@ -151,24 +147,26 @@ async function preview(body = {}) {
 
 /**
  * Registra a conversão: OUT (em jogo → fichário) + IN (fichário → em jogo) num único lote atômico.
- * O que saiu volta para `binder_id` (ou o único fichário alocado); o que entra sai dos fichários alocados.
+ * O que saiu volta para `binder_id` (ou o único fichário vinculado); o que entra sai dos fichários vinculados.
  */
 async function createConversion(tournament, body = {}, user) {
   assertNotClosed(tournament);
   if (!conv.TYPES.includes(body.type)) throw new HttpError(400, `Tipo inválido. Use: ${conv.TYPES.join(', ')}.`);
   let n;
   try { n = conv.normalize(body.outs, body.ins); } catch (e) { throw asHttp(e); }
+  // Chip Race é POR SESSÃO (Simulação 2.1 §9.1): com várias sessões a sessão é obrigatória — nunca se adivinha
+  if (!body.session_id && (await sessionsLib.listSessions(tournament._id)).length > 1) throw new HttpError(400, 'Informe a sessão (session_id): Chip Race / Color Up é calculado por sessão.');
   const session = await sessionsLib.resolveSession(tournament._id, body.session_id, { open: true });
   const chips = await chipsMap([...n.outs, ...n.ins].map((l) => l.chip_id));
   let values;
   try { values = conv.compute(n.outs, n.ins, chips); } catch (e) { throw asHttp(e); }
 
-  // destino do que saiu: fichário informado ou o único alocado ao torneio
-  const allocations = await Allocation.find({ tournament_id: tournament._id, open: true });
+  // destino do que saiu: fichário informado ou o único vinculado ao torneio
+  const links = await Allocation.find({ tournament_id: tournament._id, open: true });
   let dest = body.binder_id;
   if (!dest) {
-    if (allocations.length === 1) dest = allocations[0].binder_id;
-    else throw new HttpError(400, allocations.length ? 'O torneio tem vários fichários alocados: informe o fichário que recebe as fichas retiradas (binder_id).' : 'O torneio não tem fichas alocadas.');
+    if (links.length === 1) dest = links[0].binder_id;
+    else throw new HttpError(400, links.length ? 'O torneio tem vários fichários: informe o fichário que recebe as fichas retiradas (binder_id).' : 'O torneio não tem fichário vinculado.');
   }
   if (!(await Binder.exists({ _id: dest }))) throw new HttpError(404, 'Fichário não encontrado.');
 
@@ -230,12 +228,12 @@ async function discard(tournament, body = {}, user) {
   try { list = conv.normalizeSide(body.chips, 'chips'); } catch (e) { throw asHttp(e); }
   const session = await sessionsLib.resolveSession(tournament._id, body.session_id, { open: true });
 
-  // fichário que recebe: o informado ou o único alocado ao torneio
+  // fichário que recebe: o informado ou o único vinculado ao torneio
   let binderId = body.binder_id;
   if (!binderId) {
-    const allocations = await Allocation.find({ tournament_id: tournament._id, open: true });
-    if (allocations.length === 1) binderId = allocations[0].binder_id;
-    else throw new HttpError(400, allocations.length ? 'O torneio tem vários fichários alocados: informe o fichário que recebe as fichas (binder_id).' : 'Informe o fichário que recebe as fichas (binder_id).');
+    const links = await Allocation.find({ tournament_id: tournament._id, open: true });
+    if (links.length === 1) binderId = links[0].binder_id;
+    else throw new HttpError(400, links.length ? 'O torneio tem vários fichários: informe o fichário que recebe as fichas (binder_id).' : 'Informe o fichário que recebe as fichas (binder_id).');
   }
   if (!mongoose.isValidObjectId(binderId)) throw new HttpError(400, 'Fichário inválido.');
   const binder = await Binder.findById(binderId);
@@ -338,14 +336,25 @@ async function summary(tournamentId, { sessionId } = {}) {
   }
   for (const id of bal.keys()) cell(id);
   const chips = await chipsMap([...by.keys()]);
+  // saldo FÍSICO atual dos fichários vinculados ao torneio, por ficha (o Chip Race mostra de onde sai o que será colocado)
+  const links = await Allocation.find({ tournament_id: tournamentId, open: true }).populate('binder_id', 'name code').lean();
+  const binders = [];
+  const binderTotal = new Map();
+  for (const l of links) {
+    if (!l.binder_id) continue;
+    const held = await mv.balances({ binder_id: l.binder_id._id });
+    const cells = Object.fromEntries(held.filter((b) => b.quantity > 0).map((b) => [String(b.chip_id), b.quantity]));
+    for (const [cid, q] of Object.entries(cells)) binderTotal.set(cid, (binderTotal.get(cid) || 0) + q);
+    binders.push({ binder: { _id: l.binder_id._id, name: l.binder_id.name, code: l.binder_id.code }, balances: cells });
+  }
   const rows = [...by.entries()].map(([id, c]) => {
     const on_table = bal.get(id) || 0; // fisicamente NO SALÃO (enviado − devolvido ± conversões): ainda não é "em jogo"
     // EM JOGO = o que as entradas já entregaram aos jogadores (= Chip Count). DISPONÍVEL no salão = o que foi enviado e ainda não usado.
-    return { chip: chips.get(id) || { _id: id }, ...c, on_table, at_hall: on_table, in_play: c.expected, available: Math.max(0, on_table - c.expected), pending: c.expected - on_table };
+    return { chip: chips.get(id) || { _id: id }, ...c, on_table, at_hall: on_table, in_play: c.expected, binder_balance: binderTotal.get(id) || 0, available: Math.max(0, on_table - c.expected), pending: c.expected - on_table };
   }).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
   const val = (f) => rows.reduce((s, r) => s + r[f] * (r.chip.value || 0), 0);
   return {
-    tournament_id: String(tournamentId), session_id: sessionId || null, rows,
+    tournament_id: String(tournamentId), session_id: sessionId || null, rows, binders,
     stacks: await availableStacks(tournamentId, rows),
     totals: { expected_value: val('expected'), on_table_value: val('on_table'), in_play_value: val('in_play'), available_value: val('available'), pending_value: val('pending') },
     uncovered: inPlay.uncovered,

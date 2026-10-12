@@ -9,6 +9,7 @@ const ConversionRequestSchema = new mongoose.Schema({
   tournament_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament', required: true },
   session_id: { type: mongoose.Schema.Types.ObjectId, ref: 'TournamentSession', default: null },
   type: { type: String, enum: ['CHIP_RACE', 'COLOR_UP'], required: true },
+  chip_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Chip', default: null }, // denominação a retirar de jogo
   tables: { type: Number, required: true, min: 1 },
   note: { type: String },
   status: { type: String, enum: ['requested', 'in_preparation', 'ready', 'completed', 'cancelled'], default: 'requested' },
@@ -21,5 +22,6 @@ const ConversionRequestSchema = new mongoose.Schema({
 
 ConversionRequestSchema.index({ tournament_id: 1, createdAt: -1 });
 ConversionRequestSchema.index({ status: 1 });
+ConversionRequestSchema.index({ session_id: 1, createdAt: -1 });
 
 module.exports = mongoose.model('ConversionRequest', ConversionRequestSchema);
