@@ -184,7 +184,7 @@ function startClockRunner() {
             else if (ev.type === 'ended') io.to(room).emit('tournamentEnded', { tournament_id: String(t._id), session_id: sid });
           }
           if (session && owner.clock_status !== 'running') await sessionsLib.syncTournamentCache(t._id);
-          logActivity('Nível do Torneio Avançou', 'tournament', `${t.name}${session ? ` · ${session.name}` : ''} | nível ${levelNumber(t.blind_structure || [], owner.current_level) ?? '-'} (linha ${owner.current_level + 1})`, { name: 'Relógio' });
+          logActivity('Nível do Torneio Avançou', 'tournament', `${t.name}${session ? ` · ${session.name}` : ''} | nível ${(() => { const n = levelNumber(view.blind_structure || [], owner.current_level); return n === null ? '-' : n + (view.level_offset || 0); })()} (linha ${owner.current_level + 1})`, { name: 'Relógio' });
         }
         io.to(room).emit('tournamentClock', clockPayload(sessionsLib.clockView(t, session), now));
       };

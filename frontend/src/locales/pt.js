@@ -8,6 +8,7 @@ export default {
   'nav.estoque': 'Fichas',
   'nav.livroEstoque': 'Livro-razão',
   'nav.ocorrencias': 'Ocorrências',
+  'nav.fichasKo': 'Fichas KO',
   'nav.ficharios': 'Fichários',
   'nav.chat': 'Chat',
   'nav.stacks': 'Stacks',

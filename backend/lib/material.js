@@ -5,7 +5,7 @@
 //  • return   em jogo → fichário, por denominação (contagem física).
 //  • conversão OUT (em jogo → fichário) + IN (fichário → em jogo) em UM lote; quebra matemática no registro.
 const mongoose = require('mongoose');
-const { Tournament, Conversion, Binder, Chip, Allocation, Movement, StackModel } = require('../models');
+const { Tournament, TournamentSession, Conversion, Binder, Chip, Allocation, Movement, StackModel } = require('../models');
 const calc = require('./stackCalc');
 const mv = require('./movements');
 const conv = require('./conversion');
@@ -340,8 +340,10 @@ async function summary(tournamentId, { sessionId } = {}) {
   const links = await Allocation.find({ tournament_id: tournamentId, open: true }).populate('binder_id', 'name code').lean();
   const binders = [];
   const binderTotal = new Map();
+  const seenBinders = new Set(); // o mesmo fichário vinculado duas vezes não pode duplicar o saldo físico (Simulação 3.0 §3)
   for (const l of links) {
-    if (!l.binder_id) continue;
+    if (!l.binder_id || seenBinders.has(String(l.binder_id._id))) continue;
+    seenBinders.add(String(l.binder_id._id));
     const held = await mv.balances({ binder_id: l.binder_id._id });
     const cells = Object.fromEntries(held.filter((b) => b.quantity > 0).map((b) => [String(b.chip_id), b.quantity]));
     for (const [cid, q] of Object.entries(cells)) binderTotal.set(cid, (binderTotal.get(cid) || 0) + q);
@@ -353,9 +355,12 @@ async function summary(tournamentId, { sessionId } = {}) {
     return { chip: chips.get(id) || { _id: id }, ...c, on_table, at_hall: on_table, in_play: c.expected, binder_balance: binderTotal.get(id) || 0, available: Math.max(0, on_table - c.expected), pending: c.expected - on_table };
   }).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
   const val = (f) => rows.reduce((s, r) => s + r[f] * (r.chip.value || 0), 0);
+  // Dia 2 / Dia Final (Simulação 3.0 §2): só a posição ATUAL das fichas em jogo (herdada, com Chip Race/Color Up/descartes)
+  const phase = sessionId && (await TournamentSession.exists({ _id: sessionId, type: 'FINAL' })) ? 'final' : 'qualifier';
   return {
-    tournament_id: String(tournamentId), session_id: sessionId || null, rows, binders,
-    stacks: await availableStacks(tournamentId, rows),
+    tournament_id: String(tournamentId), session_id: sessionId || null, phase, rows, binders,
+    chip_count: { quantity: rows.reduce((s, r) => s + r.in_play, 0), value: val('in_play') },
+    stacks: phase === 'final' ? [] : await availableStacks(tournamentId, rows),
     totals: { expected_value: val('expected'), on_table_value: val('on_table'), in_play_value: val('in_play'), available_value: val('available'), pending_value: val('pending') },
     uncovered: inPlay.uncovered,
   };

@@ -14,6 +14,7 @@ import TournamentClock from '../components/TournamentClock';
 import SessionBar from '../components/SessionBar';
 import AllocationModal from '../components/AllocationModal';
 import MaterialPanel from '../components/MaterialPanel';
+import PhaseBlindsEditor from '../components/PhaseBlindsEditor';
 import { can } from '../config';
 import { getStoredUser } from '../lib/auth';
 import BlindTemplatesModal from '../components/BlindTemplatesModal';
@@ -45,11 +46,11 @@ export default function Torneios() {
   const [searchParams] = useSearchParams();
   const [tournaments, setTournaments] = useState([]);
   const [allocations, setAllocations] = useState([]);   // fichários VINCULADOS (abertos) a este torneio
-  const [binderBalances, setBinderBalances] = useState({}); // saldo físico por ficha nos fichários vinculados (da sessão selecionada)
   const [allocModal, setAllocModal] = useState(null);     // modal para vincular fichário a um torneio já criado
   const [binderList, setBinderList] = useState([]);       // fichários ativos para escolher na criação do torneio
   const [createBinders, setCreateBinders] = useState([]);  // ids escolhidos na criação (só o fichário; sem quantidades)
   const [stackModels, setStackModels] = useState([]);
+  const [koChips, setKoChips] = useState([]);              // estoque de fichas KO (cadastro físico)
   const [entries, setEntries] = useState([]);
   const [counts, setCounts] = useState(null);             // inscrições × ativos do torneio (servidor)
   const [activeInput, setActiveInput] = useState('');
@@ -92,6 +93,8 @@ export default function Torneios() {
     event_id: '',
     number: '',
     sessions_text: '',
+    is_ko: false,
+    ko_chip_id: '',
     notes: ''
   });
   const [form, setForm] = useState(emptyForm);
@@ -139,16 +142,12 @@ export default function Torneios() {
       sessionRef.current = current?._id || null;
       setSelectedSessionId(sessionRef.current);
 
-      const [entriesData, sessionData, materialData] = await Promise.all([
+      const [entriesData, sessionData] = await Promise.all([
         apiGet(`/tournaments/${id}/entries`, { session_id: current?._id }),
         current ? apiGet(`/tournaments/${id}/sessions/${current._id}/chips-in-play`) : Promise.resolve(null),
-        apiGet(`/tournaments/${id}/material`).catch(() => null),
       ]);
       setEntries(entriesData);
       setSessionInPlay(sessionData);
-      const bal = {};
-      (materialData?.binders || []).forEach((b) => Object.entries(b.balances).forEach(([k, v]) => { bal[k] = (bal[k] || 0) + v; }));
-      setBinderBalances(bal);
       fetchTournamentCounts(id, current?._id);
     } catch (e) {
       if (e.status !== 401) console.error(e);
@@ -200,6 +199,7 @@ export default function Torneios() {
     fetchTournaments();
     fetchStackModels();
     apiGet('/events').then(setEvents).catch(() => {});
+    apiGet('/ko-chips').then(setKoChips).catch(() => {});
     if (isAdmin) apiGet('/binders').then(setBinderList).catch(() => {});
   }, [fetchTournaments, isAdmin]);
 
@@ -277,6 +277,8 @@ export default function Torneios() {
       event_id: t.event_id || '',
       number: '',
       sessions_text: sessions.map((x) => x.name).join(', '),
+      is_ko: !!t.is_ko,
+      ko_chip_id: t.ko_chip_id || '',
       notes: t.notes || '',
     });
     setCopyExtra({ stack_models: stripId(t.stack_models), blind_structure: stripId(t.blind_structure) });
@@ -299,6 +301,8 @@ export default function Torneios() {
       event_id: t.event_id || '',
       number: t.number ?? '',
       sessions_text: '',
+      is_ko: !!t.is_ko,
+      ko_chip_id: t.ko_chip_id || '',
       notes: t.notes || '',
     });
     setEditing(t);
@@ -316,6 +320,7 @@ export default function Torneios() {
         name: rest.name.trim(), date: rest.date, start_time: rest.start_time, timezone: rest.timezone,
         seats_per_table: Number(rest.seats_per_table), stack_model_id: rest.stack_model_id || null,
         event_id: rest.event_id || null, number: rest.number ? Number(rest.number) : null, notes: rest.notes,
+        is_ko: !!rest.is_ko, ko_chip_id: rest.is_ko ? rest.ko_chip_id || null : null,
       });
       if (ok) { showAlert('Torneio atualizado!', 'success'); closeCreateModal(); }
       return;
@@ -325,7 +330,7 @@ export default function Torneios() {
       const { sessions_text, ...rest } = form;
       const names = isAdmin ? sessions_text.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) : [];
       const created = await apiPost('/tournaments', {
-        ...rest, ...copyExtra, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
+        ...rest, ko_chip_id: rest.is_ko ? rest.ko_chip_id : undefined, ...copyExtra, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
         sessions: names.length ? names : undefined,
       });
       if (isAdmin && createBinders.length) await apiPost(`/tournaments/${created._id}/allocations`, { binder_ids: createBinders });
@@ -588,7 +593,9 @@ export default function Torneios() {
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-2 shrink-0">
-                    {canOperateFloor && selectedTournament.status === 'scheduled' && (
+                    {/* "Iniciar" do torneio só existe quando inicia o relógio (uma sessão em aberto). Com várias sessões cada uma
+                        tem o seu relógio e o seu Iniciar — um botão que apenas mudasse o status seria redundante. */}
+                    {canOperateFloor && selectedTournament.status === 'scheduled' && sessions.filter((x) => x.status !== 'finished').length <= 1 && (
                       <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="btn btn-success md:px-5 flex items-center"><Play size={14} /> <span className="hidden sm:inline">Iniciar</span></button>
                     )}
                     {canOperateFloor && selectedTournament.status === 'running' && (
@@ -776,55 +783,13 @@ export default function Torneios() {
                   </div>
 
                   <div className="space-y-8">
-                    {/* Fichas necessárias (calculadas no servidor) × saldo dos fichários do torneio */}
+                    {/* "Fichas necessárias" vive na aba Material (demanda × saldo físico REAL dos fichários) — Simulação 3.0 §6 */}
                     <div className="card p-6">
-                      <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Settings className="text-emerald-500" size={20} /> Fichas necessárias</h3>
-                      <p className="text-xs text-fg-muted mb-5">Ações registradas × modelo de stack de cada ação. Calculado automaticamente.</p>
-
-                      {!chipsInPlay || chipsInPlay.rows.length === 0 ? (
-                        <p className="text-sm text-fg-subtle italic mb-4">
-                          Ainda não há fichas calculadas. Escolha o modelo de stack e registre as entradas na aba Salão.
-                        </p>
-                      ) : (
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-3 text-xs uppercase font-bold text-fg-subtle px-1">
-                            <div>Ficha</div>
-                            <div className="text-center">Necessário</div>
-                            <div className="text-right">Saldo nos fichários</div>
-                          </div>
-                          {chipsInPlay.rows.map((row) => {
-                            const needed = row.quantity;
-                            const available = binderBalances[row.chip._id] || 0;
-                            const isShort = available < needed;
-                            return (
-                              <div key={row.chip._id} className="space-y-1.5">
-                                <div className="grid grid-cols-3 items-center gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: row.chip.color }}></div>
-                                    <span className="text-sm font-bold text-fg">{row.chip.value?.toLocaleString()}</span>
-                                  </div>
-                                  <div className={`text-center text-xs font-bold ${isShort ? 'text-red-500' : 'text-emerald-500'}`}>{needed.toLocaleString()}</div>
-                                  <div className="text-right text-xs font-bold text-fg-muted">{available.toLocaleString()}</div>
-                                </div>
-                                <div className="w-full h-1 bg-raised rounded-full overflow-hidden">
-                                  <div className={`h-full transition-all duration-500 ${isShort ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, (available / (needed || 1)) * 100)}%` }}></div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          <div className="pt-4 border-t border-line-soft space-y-2">
-                            <div className="flex justify-between text-xs">
-                              <span className="text-fg-muted">Valor nominal de jogo</span>
-                              <span className="font-bold">{chipsInPlay.totals.value.toLocaleString()}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {chipsInPlay?.uncovered?.length > 0 && (
-                        <p className="mt-4 text-xs text-amber-600">
-                          Sem fichas definidas para: {chipsInPlay.uncovered.map((u) => `${u.label} (${u.count})`).join(', ')}. Escolha um modelo com essa coluna.
-                        </p>
-                      )}
+                      <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Settings className="text-emerald-500" size={20} /> Stack do torneio</h3>
+                      <p className="text-xs text-fg-muted mb-2">
+                        O cálculo de <b>fichas necessárias</b> (ações × modelo de stack) × saldo físico dos fichários fica na aba <button type="button" onClick={() => setActiveTab('material')} className="font-bold text-brand-fg hover:underline">Material</button>.
+                        Previsão não dá baixa no estoque: só as movimentações registradas alteram os saldos.
+                      </p>
 
                       <div className="mt-6 pt-5 border-t border-line-soft space-y-3">
                         <h4 className="text-xs font-bold uppercase tracking-wide text-fg-subtle">Modelo de stack</h4>
@@ -933,21 +898,25 @@ export default function Torneios() {
                         canControl={selectedTournament.status !== 'finished' && !sessionClosed && canOperateFloor}
                       />
                     )}
+                    {isFinalSession && selectedSession?.blind_structure?.length > 0 && !sessionClosed && canOperateFloor && (
+                      <PhaseBlindsEditor tournamentId={selectedTournament._id} sessionId={selectedSessionId} />
+                    )}
                   </div>
 
                   {/* Visão do Salão View */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="card p-6">
-                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Entradas Totais</p>
-                      <h4 className="text-3xl font-bold text-fg">{entries.length}</h4>
+                    {/* Dia 2 / Dia Final: totais HERDADOS dos classificatórios, só para consulta (Simulação 3.0 §1) */}
+                    <div className="card p-6" data-testid={isFinalSession ? 'inherited-total' : undefined}>
+                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Entradas Totais{isFinalSession ? ' (herdado)' : ''}</p>
+                      <h4 className="text-3xl font-bold text-fg">{isFinalSession ? (selectedSession.players?.inherited?.entries_total ?? 0) : entries.length}</h4>
                     </div>
                     <div className="card p-6">
-                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Buy-ins</p>
-                      <h4 className="text-3xl font-bold text-emerald-500">{entries.filter(e => e.type === 'buy-in').length}</h4>
+                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Buy-ins{isFinalSession ? ' (herdado)' : ''}</p>
+                      <h4 className="text-3xl font-bold text-emerald-500">{isFinalSession ? (selectedSession.players?.inherited?.entries_initial ?? 0) : entries.filter(e => e.type === 'buy-in').length}</h4>
                     </div>
                     <div className="card p-6">
-                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Re-entries</p>
-                      <h4 className="text-3xl font-bold text-blue-500">{entries.filter(e => e.type === 're-entry').length}</h4>
+                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Re-entries{isFinalSession ? ' (herdado)' : ''}</p>
+                      <h4 className="text-3xl font-bold text-blue-500">{isFinalSession ? (selectedSession.players?.inherited?.entries_reentries ?? 0) : entries.filter(e => e.type === 're-entry').length}</h4>
                     </div>
                     <div className="card p-6">
                       <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Fichas em Jogo{sessions.length > 1 ? ' (sessão)' : ''}</p>
@@ -959,6 +928,15 @@ export default function Torneios() {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Entry Registration Form */}
                     <div className="lg:col-span-1 space-y-6">
+                      {isFinalSession ? (
+                        <div className="card p-6" data-testid="final-no-entries">
+                          <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Users className="text-brand-fg" /> Dados herdados</h3>
+                          <p className="text-sm text-fg-muted">
+                            Esta fase começa com os {(selectedSession.players?.starting_players ?? 0).toLocaleString()} classificados e com as fichas em jogo das sessões anteriores
+                            (já com Chip Race, Color Up e descartes). Não há buy-in, reentrada nem novos stacks — os totais acima são só para consulta.
+                          </p>
+                        </div>
+                      ) : (
                       <div className="card p-6">
                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><ArrowUpCircle className="text-emerald-500" /> Registrar Entrada</h3>
                         <div className="space-y-4">
@@ -1008,6 +986,7 @@ export default function Torneios() {
                           </div>
                         </div>
                       </div>
+                      )}
 
                       {/* Chips in Play (Consolidated) */}
                       <div className="card p-6">
@@ -1171,6 +1150,25 @@ export default function Torneios() {
                     onChange={val => setForm({ ...form, stack_model_id: val })}
                   />
                 </div>
+                {/* Torneio KO (Simulação 3.0 §5): só controle FÍSICO das fichas KO — nenhum pagamento ou valor em dinheiro */}
+                <fieldset>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm font-bold">
+                    <input type="checkbox" checked={!!form.is_ko} onChange={(e) => setForm({ ...form, is_ko: e.target.checked, ko_chip_id: e.target.checked ? form.ko_chip_id : '' })} /> É KO?
+                  </label>
+                  {form.is_ko && (
+                    <div className="mt-2">
+                      <label className="label">Ficha KO</label>
+                      <CustomSelect
+                        aria-label="Ficha KO"
+                        placeholder={koChips.length ? 'Selecione a ficha KO' : 'Nenhuma ficha KO cadastrada (aba Fichas KO)'}
+                        options={koChips.map((k) => ({ label: `${k.name} — ${k.stock?.available ?? 0} disponíveis`, value: k._id }))}
+                        value={form.ko_chip_id}
+                        onChange={(val) => setForm({ ...form, ko_chip_id: val })}
+                      />
+                      <p className="field-help">Uma ficha KO física por ação válida (buy-in + reentrada). O envio, o retorno e a conferência ficam na aba Material.</p>
+                    </div>
+                  )}
+                </fieldset>
                 {isAdmin && !editing && (
                   <fieldset>
                     <legend className="block text-sm font-bold mb-1">Fichário(s) do torneio <span className="font-normal text-fg-subtle">(opcional)</span></legend>

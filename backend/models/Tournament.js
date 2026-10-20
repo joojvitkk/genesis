@@ -39,6 +39,10 @@ const TournamentSchema = new mongoose.Schema({
   }],
   current_level: { type: Number, default: 0 },
   notes: { type: String },
+  // Torneio KO (Simulação 3.0 §5): 1 ficha KO física por ação válida (buy-in + reentrada). Só estoque físico — sem pagamentos.
+  is_ko: { type: Boolean, default: false },
+  ko_chip_id: { type: mongoose.Schema.Types.ObjectId, ref: 'KoChip', default: null },
+  ko_closed_at: { type: Date, default: null },
   seats_per_table: { type: Number, default: 9 }, // P4
   blind_version: { type: Number, default: 0 },   // P6 — trava otimista da estrutura de blinds
 

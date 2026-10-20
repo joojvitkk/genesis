@@ -27,6 +27,16 @@ const TournamentSessionSchema = new mongoose.Schema({
   level_started_at: { type: Date, default: null },
   paused_at: { type: Date, default: null },
   clock_adjust_seconds: { type: Number, default: 0 },
+  // Continuidade de níveis (Simulação 3.0 §4): a fase seguinte (Dia Final) continua a numeração do último nível jogável das
+  // classificatórias. `level_offset` = último nível anterior (o primeiro nível da fase é offset + 1); `blind_structure` é a
+  // estrutura PRÓPRIA da fase (1ª linha preenchida com os blinds do último nível anterior, editáveis sem mudar o número).
+  level_offset: { type: Number, default: 0 },
+  blind_structure: [{
+    _id: false,
+    row_type: { type: String, enum: ['level', 'break', 'end_registration', 'end_day'], default: 'level' },
+    small_blind: Number, big_blind: Number, ante: Number, duration: Number, label: String,
+  }],
+  blinds_edited: { type: Boolean, default: false },
   active_offset: { type: Number, default: 0 },   // ajuste do Salão sobre os ativos derivados desta sessão
   // caches (derivados): atualizados por lib/headcount e lib/tournamentChips
   actual_players: { type: Number, default: 0 },

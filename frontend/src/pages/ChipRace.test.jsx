@@ -38,6 +38,14 @@ const setValue = (el, v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.p
 const outInput = (i) => container.querySelectorAll('tbody tr')[i].querySelectorAll('input')[0];
 const inInput = (i) => container.querySelectorAll('tbody tr')[i].querySelectorAll('input')[1];
 
+// seletores "Ficha(s) a retirar" / "Ficha(s) a inserir" (a escolha é do Material; nada vem marcado)
+const pick = async (group, value) => {
+  const btn = [...container.querySelectorAll(`[role="group"][aria-label="${group}"] button`)].find((b) => b.textContent.trim() === value);
+  await act(async () => { btn.click(); });
+};
+const pickOut = (v) => pick('Ficha(s) a retirar', v);
+const pickIn = (v) => pick('Ficha(s) a inserir', v);
+
 async function mount(role = 'material') {
   auth.role = role;
   container = document.createElement('div');
@@ -66,18 +74,34 @@ describe('Chip Race / Color Up', () => {
     expect(container.textContent).toContain('não é perda física');
   });
 
-  it('só habilita Retirado onde há fichas em jogo e Colocado onde há saldo no fichário', async () => {
+  it('só habilita Retirado onde há fichas em jogo e Colocado onde há saldo no fichário — e só nas fichas escolhidas', async () => {
     await mount();
+    // nada vem escolhido automaticamente
+    expect(container.querySelectorAll('[role="group"] button[aria-pressed="true"]')).toHaveLength(0);
+    expect(outInput(0).disabled).toBe(true);
+    await pickOut('100'); await pickIn('500');
     expect(outInput(0).disabled).toBe(false);   // 100 tem 2.000 em jogo
     expect(inInput(0).disabled).toBe(true);     // 100 não tem saldo no fichário
     expect(outInput(1).disabled).toBe(true);    // 500 não tem nada em jogo
     expect(inInput(1).disabled).toBe(false);    // 500 tem 300 no fichário
+    // 500 não tem fichas em jogo: não pode ser escolhida para retirar
+    const retire500 = [...container.querySelectorAll('[role="group"][aria-label="Ficha(s) a retirar"] button')].find((b) => b.textContent.trim() === '500');
+    expect(retire500.disabled).toBe(true);
+  });
+
+  it('desmarcar uma ficha limpa o que foi lançado nela', async () => {
+    await mount();
+    await pickOut('100');
+    await act(async () => { setValue(outInput(0), '40'); });
+    await pickOut('100');
+    expect(outInput(0).value).toBe('');
   });
 
   it('valores e quebra exibidos são os do SERVIDOR (não uma conta local)', async () => {
     // valores propositalmente diferentes da conta real: se a tela calculasse sozinha, não apareceriam
     api.apiPost.mockImplementation(async (path) => (path === '/conversions/preview' ? { value_out: 777, value_in: 888, math_breakage: 111 } : {}));
     await mount();
+    await pickOut('100'); await pickIn('500');
     await act(async () => { setValue(outInput(0), '1030'); });
     await act(async () => { setValue(inInput(1), '207'); });
     await flush(400); // debounce da prévia
@@ -89,6 +113,7 @@ describe('Chip Race / Color Up', () => {
 
   it('sem os dois lados preenchidos não pede prévia nem registra', async () => {
     await mount();
+    await pickOut('100');
     await act(async () => { setValue(outInput(0), '10'); });
     await flush(400);
     expect(api.apiPost).not.toHaveBeenCalled();
@@ -101,6 +126,7 @@ describe('Chip Race / Color Up', () => {
     api.apiPost.mockImplementation(async (path) => (path === '/conversions/preview' ? { value_out: 103000, value_in: 103500, math_breakage: 500 } : {}));
     await mount();
     await act(async () => { button('Color Up').click(); });
+    await pickOut('100'); await pickIn('500');
     await act(async () => { setValue(outInput(0), '1030'); });
     await act(async () => { setValue(inInput(1), '207'); });
     await flush(400);
@@ -140,6 +166,7 @@ describe('Chip Race / Color Up', () => {
       throw Object.assign(new Error('Saldo insuficiente: jogo no torneio "Warm Up" tem 2000'), { status: 409 });
     });
     await mount();
+    await pickOut('100'); await pickIn('500');
     await act(async () => { setValue(outInput(0), '9999'); });
     await act(async () => { setValue(inInput(1), '1'); });
     await flush(400);
@@ -159,6 +186,10 @@ describe('Chip Race / Color Up — por sessão e chamados', () => {
     data['/conversion-requests'] = [call()];
     await mount();
     await act(async () => { button('Registrar a troca deste chamado').click(); });
+    // o chamado pede a ficha 100, mas NADA é marcado sozinho: o Material escolhe
+    expect(container.querySelectorAll('[role="group"] button[aria-pressed="true"]')).toHaveLength(0);
+    expect(container.textContent).toContain('O chamado do Salão cita a ficha 100');
+    await pickOut('100');
     const base = container.querySelector('[data-testid="session-base"]').textContent;
     expect(base).toContain('Dia Único'); expect(base).toContain('40'); expect(base).toContain('2.000 em jogo'); expect(base).toContain('500 por mesa');
     delete data['/conversion-requests'];
@@ -176,6 +207,7 @@ describe('Chip Race / Color Up — por sessão e chamados', () => {
     await act(async () => { button('Confirmar').click(); });
     await flush();
     expect(api.apiPut).toHaveBeenCalledWith('/conversion-requests/r1', { status: 'cancelled' });
+    await pickOut('100'); await pickIn('500');
     await act(async () => { setValue(outInput(0), '10'); });
     await act(async () => { setValue(inInput(1), '1'); });
     await flush(400);

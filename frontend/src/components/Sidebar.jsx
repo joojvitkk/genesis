@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Package, Briefcase, Trophy, Coins,
   MessageSquare, Layers, BarChart, MonitorPlay, ClipboardList,
-  Users, BookOpen, ShieldAlert, CalendarRange, X, LogOut, Sun, Moon, ChevronRight, Menu
+  Users, BookOpen, ShieldAlert, Target, CalendarRange, X, LogOut, Sun, Moon, ChevronRight, Menu
 } from 'lucide-react';
 import { can } from '../config';
 import { useT } from '../lib/i18n.jsx';
@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { to: '/chip-race',    icon: Coins,           key: 'nav.chipRace',     area: 'chip_race' },
   { to: '/estoque',      icon: Package,         key: 'nav.estoque',      area: 'estoque' },
   { to: '/livro-estoque',icon: BookOpen,        key: 'nav.livroEstoque', area: 'estoque' },
+  { to: '/fichas-ko',    icon: Target,          key: 'nav.fichasKo',     area: 'estoque' },
   { to: '/ocorrencias',  icon: ShieldAlert,     key: 'nav.ocorrencias',  area: 'estoque' },
   { to: '/ficharios',    icon: Briefcase,       key: 'nav.ficharios',    area: 'ficharios' },
   { to: '/chat',         icon: MessageSquare,   key: 'nav.chat',         area: 'chat' },

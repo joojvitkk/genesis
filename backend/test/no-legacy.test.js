@@ -22,7 +22,9 @@ const FORBIDDEN = [
   [/legacy_name/, 'nome legado da ficha'],
   // decisões de produto: a ficha só tem VALOR NOMINAL e não existe cadastro de jogadores
   [/monetary_value|monetaryValue|exposed_value|\bexposure\b/, 'valor monetário na ficha / exposição em dinheiro (a ficha só tem valor nominal)'],
-  [/KO_SETTLE|ko_settled|ko_chip_id|kind: 'KO'|kind === 'KO'|CHIP_KINDS|Ficha KO|koBalances|ko-settlements|\/ko\//, 'ficha KO / tipo de ficha (a ficha só tem valor nominal e cor)'],
+  // KO como TIPO de ficha de jogo ou liquidação continua abolido. A ficha KO FÍSICA (estoque próprio, Simulação 3.0 §5:
+  // lib/ko.js, models/KoChip) é permitida: não é denominação de jogo, não entra no Chip Count e não tem dinheiro.
+  [/KO_SETTLE|ko_settled|kind: 'KO'|kind === 'KO'|CHIP_KINDS|koBalances|ko-settlements/, 'ficha KO como tipo de ficha / liquidação (a ficha de jogo só tem valor nominal e cor)'],
   [/\bPlayer\b|player_id|player_name|PlayerSelect|\/players|Jogadores/, 'cadastro de jogadores (a identidade é a entrada, "Entrada #n")'],
 ];
 

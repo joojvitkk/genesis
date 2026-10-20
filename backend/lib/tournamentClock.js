@@ -122,9 +122,9 @@ function autoAdvance(t, now = Date.now()) {
 }
 
 /** Próximo nível de JOGO depois da linha `idx` (pula intervalos e marcadores) — para o telão mostrar "volta no nível 6". */
-function nextPlayLevel(rows, idx) {
+function nextPlayLevel(rows, idx, offset = 0) {
   for (let i = idx + 1; i < rows.length; i += 1) {
-    if (levelNumber(rows, i) !== null) return { level_number: levelNumber(rows, i), small_blind: rows[i].small_blind, big_blind: rows[i].big_blind, ante: rows[i].ante || 0, duration: rows[i].duration };
+    if (levelNumber(rows, i) !== null) return { level_number: levelNumber(rows, i) + offset, small_blind: rows[i].small_blind, big_blind: rows[i].big_blind, ante: rows[i].ante || 0, duration: rows[i].duration };
   }
   return null;
 }
@@ -147,8 +147,8 @@ function clockPayload(t, now = Date.now()) {
     current_level: cur,
     level: rows[cur] || null,
     // nº do nível de JOGO conforme a estrutura (intervalos/marcadores não contam; current_level é só o índice da linha)
-    level_number: levelNumber(rows, cur),
-    next_play_level: nextPlayLevel(rows, cur),
+    level_number: levelNumber(rows, cur) === null ? null : levelNumber(rows, cur) + (t.level_offset || 0),
+    next_play_level: nextPlayLevel(rows, cur, t.level_offset || 0),
     is_break: rows[cur]?.row_type === 'break',
     next_level: rows[cur + 1] || null,
     remaining_ms: remainingMs(t, now),

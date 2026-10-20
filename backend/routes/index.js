@@ -33,6 +33,7 @@ const seating = require('../lib/seating');
 const stackCalc = require('../lib/stackCalc');
 const tournamentChips = require('../lib/tournamentChips');
 const sessionsLib = require('../lib/sessions');
+const koLib = require('../lib/ko');
 const allocationLib = require('../lib/allocation');
 const playersLib = require('../lib/headcount');
 const conversionRequests = require('../lib/conversionRequests');
@@ -48,7 +49,7 @@ const { computeStartsAt } = require('../lib/datetime');
 const { normalizeColor } = require('../models/Chip');
 const {
   User, Chip, ConversionRequest, Tournament, Binder, ActivityLog, StackModel, TournamentEntry, ChatMessage,
-  PayoutTemplate, Elimination, Seat, BlindStructureTemplate, Movement, Event, TournamentSession, Allocation, Conversion, Occurrence,
+  PayoutTemplate, Elimination, Seat, BlindStructureTemplate, Movement, Event, TournamentSession, Allocation, Conversion, Occurrence, KoChip, KoMovement,
 } = require('../models');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
@@ -366,7 +367,7 @@ router.get('/dashboard/stats', verifyToken, async (req, res) => {
       const live = await Tournament.find({ status: { $in: ['running', 'paused'] }, ...(scope ? { _id: { $in: scope } } : {}) }).sort(GRID_ORDER).select('name');
       const rows = [];
       for (const t of live) {
-        const sessions = (await sessionsLib.listSessions(t._id)).filter((x) => x.status !== 'finished' && x.type !== 'FINAL');
+        const sessions = (await sessionsLib.listSessions(t._id)).filter((x) => x.status !== 'finished');
         const per = [];
         for (const sess of sessions) {
           const r = await tournamentChips.chipsInPlay(t._id, { sessionId: sess._id });
@@ -795,7 +796,7 @@ router.get('/balances', verifyToken, requirePageAccess('estoque'), async (req, r
 const TOURNAMENT_FIELDS = [
   'name', 'date', 'start_time', 'timezone', 'status',
   'stack_model_id', 'stack_models', 'blind_structure',
-  'notes', 'seats_per_table', 'event_id', 'number',
+  'notes', 'seats_per_table', 'event_id', 'number', 'is_ko', 'ko_chip_id',
   // financeiro (P2)
   'buy_in', 'rake', 'addon_value', 'addon_chips', 'bounty_value', 'payout_template_id',
 ];
@@ -915,6 +916,7 @@ router.post('/tournaments', verifyToken, requirePageAccess('torneios', 'manage')
     // stack: o valor do stack e as fichas em jogo são DERIVADOS dos modelos (lib/tournamentChips), nunca digitados
     Object.assign(body, await tournamentChips.normalizeStackConfig(body));
     Object.assign(body, await normalizeEventFields(body));
+    Object.assign(body, await koLib.normalizeTournamentKo(body));
     // sessões/fases (Dia 1A, 1B…): só o admin as define na criação; sem isso nasce "Dia Único"
     const wanted = req.body?.sessions;
     if (wanted !== undefined && !Array.isArray(wanted)) throw new HttpError(400, 'sessions deve ser uma lista.');
@@ -981,6 +983,10 @@ router.put('/tournaments/:id', verifyToken, requirePageAccess('mesas', 'operate'
       && !(k === 'date' && String(updates[k]).slice(0, 10) === new Date(oldTournament.date).toISOString().slice(0, 10)));
     if (changing.length && oldTournament.status !== 'scheduled') {
       throw new HttpError(409, 'Só torneios agendados podem ter nome, data, horário, fuso, evento ou número alterados.');
+    }
+    if (updates.is_ko !== undefined || updates.ko_chip_id !== undefined) {
+      if (oldTournament.status !== 'scheduled' && !hasLevel(req.user.role, 'torneios', 'manage')) throw new HttpError(403, 'Só o administrador altera o KO de um torneio em andamento.');
+      Object.assign(updates, await koLib.normalizeTournamentKo({ is_ko: updates.is_ko ?? oldTournament.is_ko, ko_chip_id: updates.ko_chip_id !== undefined ? updates.ko_chip_id : oldTournament.ko_chip_id }));
     }
     const stackChanged = updates.stack_model_id !== undefined || updates.stack_models !== undefined;
     if (stackChanged) Object.assign(updates, await tournamentChips.normalizeStackConfig(updates));
@@ -1146,8 +1152,12 @@ async function runClockAction(req, res, tournamentId, requestedSession) {
     if (!CLOCK_ACTIONS.includes(action)) {
       return res.status(400).json({ error: `Ação inválida. Use uma de: ${CLOCK_ACTIONS.join(', ')}.` });
     }
-    const { t, session } = await clockTarget(tournamentId, requestedSession);
+    let { t, session } = await clockTarget(tournamentId, requestedSession);
     if (session?.status === 'finished') throw new HttpError(409, `A sessão "${session.name}" está encerrada.`);
+    if (session?.type === 'FINAL' && action === 'start' && session.clock_status === 'stopped') {
+      await sessionsLib.prepareFinalLevels(t._id); // níveis da fase seguinte continuam os das classificatórias (Simulação 3.0 §4)
+      session = await TournamentSession.findById(session._id);
+    }
 
     const updates = applyAction(clockView(t, session), action, { seconds });
     if (updates === null) return res.status(400).json({ error: 'Ação inválida.' });
@@ -1179,6 +1189,48 @@ async function runClockAction(req, res, tournamentId, requestedSession) {
 }
 router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'operate'), (req, res) => runClockAction(req, res, req.params.id, req.body?.session_id));
 router.post('/tournaments/:tid/sessions/:sid/clock', verifyToken, requirePageAccess('mesas', 'operate'), (req, res) => runClockAction(req, res, req.params.tid, req.params.sid));
+
+// Blinds da fase seguinte (Dia Final, Simulação 3.0 §4): SB/BB/ante do nível atual são editáveis livremente e NÃO mudam o
+// NÚMERO do nível (a numeração continua a das classificatórias). `append: true` acrescenta um nível ao fim da estrutura da fase.
+router.put('/tournaments/:tid/sessions/:sid/level', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+  try {
+    const session = await TournamentSession.findOne({ _id: req.params.sid, tournament_id: req.params.tid });
+    if (!session) throw new HttpError(404, 'Sessão não encontrada.');
+    if (session.status === 'finished') throw new HttpError(409, `A sessão "${session.name}" está encerrada.`);
+    if (!session.blind_structure?.length) throw new HttpError(409, 'Esta sessão usa a estrutura de blinds do torneio (edite na Logística).');
+    const num = (v, label, min = 0) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < min) throw new HttpError(400, `${label} deve ser um inteiro ≥ ${min}.`);
+      return n;
+    };
+    const rows = session.blind_structure.map((r) => ({ ...(r.toObject ? r.toObject() : r) }));
+    if (req.body?.append) {
+      const last = [...rows].reverse().find((r) => !r.row_type || r.row_type === 'level');
+      rows.push({ row_type: 'level', small_blind: last.small_blind, big_blind: last.big_blind, ante: last.ante || 0, duration: last.duration });
+    } else {
+      const idx = req.body?.index === undefined ? session.current_level || 0 : Number(req.body.index);
+      const row = rows[idx];
+      if (!row || (row.row_type && row.row_type !== 'level')) throw new HttpError(400, 'Esta linha não é um nível de jogo.');
+      if (req.body.small_blind !== undefined) row.small_blind = num(req.body.small_blind, 'Small blind', 1);
+      if (req.body.big_blind !== undefined) row.big_blind = num(req.body.big_blind, 'Big blind', 1);
+      if (req.body.ante !== undefined) row.ante = num(req.body.ante, 'Ante');
+      if (req.body.duration !== undefined) row.duration = num(req.body.duration, 'Duração', 1);
+    }
+    session.blind_structure = rows;
+    session.blinds_edited = true;
+    await session.save();
+    const t = await Tournament.findById(session.tournament_id);
+    emitClock(req, t, session);
+    await logActivity('Blinds da Sessão Editados', 'tournament', `${t.name} · ${session.name} | ${req.body?.append ? 'nível acrescentado' : `nível ${levelNumberOf(session)}: ${rows[session.current_level]?.small_blind}/${rows[session.current_level]?.big_blind} (ante ${rows[session.current_level]?.ante || 0})`}`, req.user);
+    res.json(clockPayload(clockView(t, session)));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+const levelNumberOf = (session) => {
+  const n = require('../lib/tournamentClock').levelNumber(session.blind_structure, session.current_level || 0);
+  return n === null ? '—' : n + (session.level_offset || 0);
+};
 
 // ─── Ativos (quem ainda joga) (BUG-04/05): inscrições e ativos são números diferentes ───────────────────────
 // GET devolve as contagens; PUT é o ÚNICO jeito de o Salão informar os ativos (rastreado: antes → depois + motivo).
@@ -1716,6 +1768,7 @@ router.post('/tournaments/:id/sessions', verifyToken, requirePageAccess('torneio
     if (!t) throw new HttpError(404, 'Torneio não encontrado.');
     if (CLOSED_STATES.includes(t.status)) throw new HttpError(409, 'O torneio está encerrado: não aceita novas sessões.');
     const session = await sessionsLib.createSession(t._id, { ...pick(req.body, ['name', 'notes', 'type']), starts_at: resolveSessionStart(req.body, t) });
+    await sessionsLib.prepareFinalLevels(t._id);
     await logActivity('Sessão Criada', 'tournament', `${t.name} | ${session.name}`, req.user);
     res.status(201).json(session);
   } catch (err) {
@@ -1763,6 +1816,11 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
       session.qualified_count = null; // sessão reaberta: os classificados voltam a ser apurados no próximo encerramento
     }
     await session.save();
+    if (req.body?.status !== undefined) {
+      await sessionsLib.prepareFinalLevels(session.tournament_id);
+      // os classificados mudam o Dia Final: suas fichas em jogo são herdadas das classificatórias encerradas
+      await tournamentChips.refreshTournamentChips(session.tournament_id, req.app.get('io'));
+    }
     if (req.body?.status === 'running') await ensureClockStarted(session.tournament_id, req, session._id);
     else if (session.status === 'finished' || wasFinished) {
       const fresh = await sessionsLib.syncTournamentCache(session.tournament_id);
@@ -1793,6 +1851,7 @@ router.put('/tournaments/:tid/sessions/:sid/qualified', verifyToken, requirePage
     session.qualified_count = to;
     await session.save();
     await playersLib.refreshPlayers(session.tournament_id, req.app.get('io'), session._id);
+    await tournamentChips.refreshTournamentChips(session.tournament_id, req.app.get('io'));
     await logActivity('Classificados Corrigidos', 'tournament', `${session.name} | ${from} → ${to} | motivo: ${reason}`, req.user);
     res.json(session);
   } catch (err) {
@@ -2291,6 +2350,78 @@ router.delete('/settings/severity', verifyToken, adminOnly, async (req, res) => 
     sendError(res, err);
   }
 });
+
+
+// ─── Fichas KO (Simulação 3.0 §5) — estoque físico, sem financeiro ───────────────────────────────────────────
+// Cadastro (cor/tipo, quantidade): admin. Envio, retorno, conferência e fechamento: Material/admin (estoque → operate).
+router.get('/ko-chips', verifyToken, requirePageAccess('estoque'), async (req, res) => {
+  try { res.json(await koLib.listChips()); } catch (err) { sendError(res, err); }
+});
+router.post('/ko-chips', verifyToken, requirePageAccess('estoque'), adminOnly, async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) throw new HttpError(400, 'Informe a cor/tipo da ficha KO.');
+    const quantity = Number(req.body?.quantity ?? 0);
+    if (!Number.isInteger(quantity) || quantity < 0) throw new HttpError(400, 'A quantidade física deve ser um inteiro ≥ 0.');
+    const doc = await new KoChip({ name, color: req.body?.color || undefined, quantity, notes: req.body?.notes }).save();
+    await logActivity('Ficha KO Cadastrada', 'inventory', `${doc.name} | quantidade física ${doc.quantity}`, req.user);
+    res.status(201).json(doc);
+  } catch (err) { sendError(res, err); }
+});
+router.put('/ko-chips/:id', verifyToken, requirePageAccess('estoque'), adminOnly, async (req, res) => {
+  try {
+    const doc = await KoChip.findById(req.params.id);
+    if (!doc) throw new HttpError(404, 'Ficha KO não encontrada.');
+    const before = { name: doc.name, quantity: doc.quantity };
+    if (req.body?.name !== undefined) {
+      doc.name = String(req.body.name).trim();
+      if (!doc.name) throw new HttpError(400, 'Informe a cor/tipo da ficha KO.');
+    }
+    if (req.body?.color !== undefined) doc.color = req.body.color;
+    if (req.body?.notes !== undefined) doc.notes = req.body.notes;
+    if (req.body?.quantity !== undefined) {
+      const q = Number(req.body.quantity);
+      const { out } = await koLib.stockOf(doc);
+      if (!Number.isInteger(q) || q < out) throw new HttpError(400, `A quantidade física deve ser um inteiro ≥ ${out} (fichas hoje fora do estoque).`);
+      doc.quantity = q;
+    }
+    await doc.save();
+    await logActivity('Ficha KO Alterada', 'inventory', `${doc.name} | quantidade ${before.quantity} → ${doc.quantity}`, req.user);
+    res.json(doc);
+  } catch (err) { sendError(res, err); }
+});
+router.delete('/ko-chips/:id', verifyToken, requirePageAccess('estoque'), adminOnly, async (req, res) => {
+  try {
+    const doc = await KoChip.findById(req.params.id);
+    if (!doc) throw new HttpError(404, 'Ficha KO não encontrada.');
+    if (await KoMovement.exists({ ko_chip_id: doc._id }) || await Tournament.exists({ ko_chip_id: doc._id })) throw new HttpError(409, 'Esta ficha KO já foi usada: não pode ser excluída.');
+    await doc.softDelete();
+    await logActivity('Ficha KO Excluída', 'inventory', doc.name, req.user);
+    res.json({ message: 'Ficha KO excluída' });
+  } catch (err) { sendError(res, err); }
+});
+
+const koTournament = async (id) => {
+  const t = await Tournament.findById(id);
+  if (!t) throw new HttpError(404, 'Torneio não encontrado.');
+  return t;
+};
+router.get('/tournaments/:id/ko', verifyToken, async (req, res) => {
+  try { res.json(await koLib.summary(await koTournament(req.params.id))); } catch (err) { sendError(res, err); }
+});
+const koAction = (title, fn) => [verifyToken, requirePageAccess('estoque', 'operate'), async (req, res) => {
+  try {
+    const t = await koTournament(req.params.id);
+    const doc = await fn(t, req.body, req.user);
+    await logActivity(title, 'inventory', `${t.name} | ${doc.quantity ? `${doc.quantity} ficha(s) KO` : `distribuídas ${doc.distributed} × devolvidas ${doc.returned} · pendentes ${doc.pending}`}${doc.note ? ` | ${doc.note}` : ''}`, req.user);
+    req.app.get('io')?.emit('koChanged', { tournament_id: t._id });
+    res.status(201).json(await koLib.summary(await koTournament(req.params.id)));
+  } catch (err) { sendError(res, err); }
+}];
+router.post('/tournaments/:id/ko/send', ...koAction('Envio de Fichas KO', koLib.send));
+router.post('/tournaments/:id/ko/return', ...koAction('Retorno de Fichas KO', koLib.returnChips));
+router.post('/tournaments/:id/ko/conference', ...koAction('Conferência de Fichas KO', koLib.conference));
+router.post('/tournaments/:id/ko/close', ...koAction('Fechamento das Fichas KO', koLib.close));
 
 // ─── Chip Race / Color Up (Conversion) ───────────────────────────────────────
 // { tournament_id, type: 'CHIP_RACE'|'COLOR_UP', outs: [{ chip_id, quantity }], ins: [...], binder_id?, session_id?, note? }

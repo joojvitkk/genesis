@@ -21,4 +21,6 @@ module.exports = {
   BlindStructureTemplate: require('./BlindStructureTemplate'),
   Setting: require('./Setting'),
   Occurrence: require('./Occurrence'),
+  KoChip: require('./KoChip'),
+  KoMovement: require('./KoMovement'),
 };
