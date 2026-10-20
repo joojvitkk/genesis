@@ -8,6 +8,7 @@ const { Tournament, TournamentSession, TournamentEntry } = require('../models');
 const { HttpError } = require('./catalog');
 const { SESSION_TYPES } = require('../models/TournamentSession');
 const { escapeRegex } = require('../utils/sanitize');
+const { levelNumber } = require('./tournamentClock');
 
 // scheduled → running → finished. Reabrir uma sessão encerrada (finished → running) é só do admin.
 const TRANSITIONS = { scheduled: ['running'], running: ['finished'], finished: ['running'] };
@@ -51,13 +52,53 @@ function clockView(tournament, session) {
   return {
     _id: tournament._id, session_id: session._id, session_name: session.name, session_type: session.type,
     name: tournament.name,
-    blind_structure: tournament.blind_structure,
+    // a fase seguinte (Dia Final) tem estrutura própria e continua a numeração dos níveis (Simulação 3.0 §4)
+    blind_structure: session.blind_structure?.length ? session.blind_structure : tournament.blind_structure,
+    level_offset: session.level_offset || 0,
     starting_stack: tournament.starting_stack,
     clock_status: session.clock_status, current_level: session.current_level, level_started_at: session.level_started_at,
     paused_at: session.paused_at, clock_adjust_seconds: session.clock_adjust_seconds,
     actual_players: session.actual_players, entries_initial: session.entries_initial, entries_reentries: session.entries_reentries,
     chips_value_in_play: session.chips_value_in_play,
   };
+}
+
+/** Último nível JOGÁVEL (linha `level`) até a linha `idx`: { index, number } ou null. Intervalos e marcadores não contam. */
+function lastPlayable(rows, idx) {
+  for (let i = Math.min(idx, rows.length - 1); i >= 0; i -= 1) {
+    const n = levelNumber(rows, i);
+    if (n !== null) return { index: i, number: n };
+  }
+  return null;
+}
+
+/**
+ * Prepara os níveis da fase seguinte (Dia Final): começa no último nível jogável das classificatórias + 1 (sem somar níveis
+ * de 1A/1B/1C…), com SB/BB/ante do último nível anterior como ponto de partida. Só enquanto a fase não começou nem foi editada.
+ */
+async function prepareFinalLevels(tournamentId) {
+  const t = await Tournament.findById(tournamentId);
+  if (!t) return;
+  const rows = t.blind_structure || [];
+  const quals = (await listSessions(tournamentId)).filter((s) => s.type === 'QUALIFIER' && s.status === 'finished' && s.level_started_at);
+  let best = null;
+  for (const q of quals) {
+    const lp = lastPlayable(rows, q.current_level || 0);
+    if (lp && (!best || lp.number > best.number)) best = lp;
+  }
+  const finals = (await listSessions(tournamentId)).filter((s) => s.type === 'FINAL' && s.status !== 'finished' && !s.level_started_at && !s.blinds_edited);
+  for (const f of finals) {
+    if (!best) { f.level_offset = 0; f.blind_structure = []; f.current_level = 0; await f.save(); continue; }
+    const last = rows[best.index];
+    const rest = rows.slice(best.index + 1).filter((r) => !['end_day', 'end_registration'].includes(r.row_type));
+    f.level_offset = best.number;
+    f.current_level = 0;
+    f.blind_structure = [
+      { row_type: 'level', small_blind: last.small_blind, big_blind: last.big_blind, ante: last.ante || 0, duration: last.duration },
+      ...rest.map((r) => ({ row_type: r.row_type || 'level', small_blind: r.small_blind, big_blind: r.big_blind, ante: r.ante, duration: r.duration, label: r.label })),
+    ];
+    await f.save();
+  }
 }
 
 /** Grava as atualizações de relógio no dono do estado (sessão ou, sem sessões, o torneio). */
@@ -161,4 +202,4 @@ async function sessionCounters(tournamentId) {
   return out;
 }
 
-module.exports = { isFinal, clockView, saveClock, syncTournamentCache, qualifiedTotal, TRANSITIONS, listSessions, resolveSession, createSession, applyStatus, pendingSessions, finishAll, sessionCounters, assertUniqueName };
+module.exports = { lastPlayable, prepareFinalLevels, isFinal, clockView, saveClock, syncTournamentCache, qualifiedTotal, TRANSITIONS, listSessions, resolveSession, createSession, applyStatus, pendingSessions, finishAll, sessionCounters, assertUniqueName };

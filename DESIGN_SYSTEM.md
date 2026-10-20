@@ -291,6 +291,14 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 
 ---
 
+## 12b. Padrões da Simulação 3.0
+
+- **Seletores de ficha (Chip Race):** grupos `role="group"` de botões-pílula com `aria-pressed` ("Ficha(s) a retirar" / "Ficha(s) a inserir"); nada vem marcado automaticamente.
+- **Fase herdada (Dia 2 / Dia Final):** cards rotulados "(herdado)" e Material só com Chip Count; sem formulários de entrada.
+- **Fichas KO:** página própria (`FichasKO.jsx`) e `KoPanel` — cards de métricas (distribuídas, enviadas, devolvidas, pendentes) em `bg-sunken`; pendência usa `text-warn`. Nunca exibir valores em dinheiro.
+- **Dashboard "Fichas em jogo por torneio":** lista vertical de fichas (uma por linha) dentro de grade responsiva de torneios.
+- **Blinds da fase:** `PhaseBlindsEditor` (`.card`, `.input`, `.btn-primary`) edita SB/BB/ante sem alterar o número do nível.
+
 ## 13. Mapa de arquivos
 
 | Arquivo | Papel |

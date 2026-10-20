@@ -66,10 +66,39 @@ function shape({ tournament, usages, models, chips, counts }) {
   };
 }
 
+/**
+ * Dia Final / Dia 2 (Simulação 3.0 §1): NÃO há stacks novos. As fichas em jogo são HERDADAS das sessões classificatórias
+ * encerradas — já com Chip Race, Color Up e descartes delas — mais o que a própria fase converteu/descartou.
+ */
+async function inheritedChipsInPlay(tournament, sessionId) {
+  const quals = await TournamentSession.find({ tournament_id: tournament._id, type: 'QUALIFIER', status: 'finished' }).select('_id').lean();
+  const parts = [];
+  for (const q of quals) parts.push(await chipsInPlay(tournament._id, { sessionId: q._id }));
+  const merged = new Map();
+  const counts = {};
+  for (const part of parts) {
+    for (const [k, v] of Object.entries(part.counts || {})) counts[k] = (counts[k] || 0) + v;
+    for (const r of part.rows) {
+      const id = idOf(r.chip._id);
+      const cur = merged.get(id) || { chip_id: id, quantity: 0, value: 0, by_action: {}, chip: r.chip };
+      cur.quantity += r.quantity; cur.value += r.value;
+      merged.set(id, cur);
+    }
+  }
+  const rows = [...merged.values()].sort((a, b) => (a.chip.value || 0) - (b.chip.value || 0));
+  const base = { tournament_id: tournament._id, counts, actions: [], rows, totals: { quantity: rows.reduce((s, r) => s + r.quantity, 0), value: rows.reduce((s, r) => s + r.value, 0) }, uncovered: [] };
+  const result = await applyConversions(tournament._id, base, sessionId);
+  return { session_id: sessionId, inherited: true, ...result };
+}
+
 /** Fichas em jogo (teórico) a partir das entradas registradas. */
 async function chipsInPlay(tournamentId, { sessionId } = {}) {
   const tournament = await Tournament.findById(tournamentId).lean();
   if (!tournament) throw new HttpError(404, 'Torneio não encontrado.');
+  if (sessionId) {
+    const own = await TournamentSession.findOne({ _id: sessionId, tournament_id: tournament._id }).select('type').lean();
+    if (own?.type === 'FINAL') return inheritedChipsInPlay(tournament, sessionId);
+  }
   // sem sessionId: o torneio inteiro (soma das sessões); com sessionId: só as ações daquela sessão
   const filter = { tournament_id: tournament._id, ...(sessionId ? { session_id: sessionId } : {}) };
   const entries = await TournamentEntry.find(filter).select('type action stack_model_id').lean();
@@ -187,7 +216,7 @@ async function refreshTournamentChips(tournamentId, io) {
 
   await Tournament.updateOne({ _id: tournamentId }, { $set: { chips_value_in_play: result.totals.value, starting_stack: starting } });
   // cada sessão guarda o SEU valor em jogo (o relógio da sessão mostra o dela, nunca o do torneio inteiro)
-  const sessions = await TournamentSession.find({ tournament_id: tournamentId, type: { $ne: 'FINAL' } }).select('_id').lean();
+  const sessions = await TournamentSession.find({ tournament_id: tournamentId }).select('_id').lean();
   for (const s of sessions) {
     const r = await chipsInPlay(tournamentId, { sessionId: s._id });
     await TournamentSession.updateOne({ _id: s._id }, { $set: { chips_value_in_play: r.totals.value } });

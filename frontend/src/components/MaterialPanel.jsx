@@ -5,6 +5,7 @@ import { apiGet, apiPost } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
 import CustomSelect from './CustomSelect';
 import DiscardModal from './DiscardModal';
+import KoPanel from './KoPanel';
 import { socket } from '../lib/socket';
 
 const fmt = (n) => (n ?? 0).toLocaleString(locale());
@@ -118,10 +119,46 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
   const numCls = 'w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-brand ';
   const actionOptions = stackActions.map((a) => ({ value: a.key, label: a.label }));
   const t = summary?.totals;
+  // Dia 2 / Dia Final (Simulação 3.0 §2): só a posição ATUAL das fichas em jogo — não é uma nova distribuição inicial
+  const isFinalPhase = summary?.phase === 'final';
+  const needRows = (summary?.rows || []).filter((r) => r.in_play > 0 || r.pending > 0);
 
   return (
     <div className="space-y-8 p-4 md:p-8">
+      {isFinalPhase && (
+        <section className="card p-6" data-testid="final-material">
+          <h3 className="mb-1 text-lg font-bold">Fichas em jogo · Chip Count consolidado</h3>
+          <p className="mb-4 text-xs text-fg-muted">
+            Posição atual herdada das sessões anteriores, já com Chip Race, Color Up e descartes. Esta fase não recebe nova distribuição inicial.
+          </p>
+          {summary.rows.filter((r) => r.in_play > 0).length === 0 ? <p className="py-6 text-center text-sm italic text-fg-subtle">Nenhuma ficha em jogo herdada. Encerre as sessões classificatórias.</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[360px] text-sm">
+                <thead><tr className="text-xs uppercase tracking-wide text-fg-subtle">
+                  <th className="py-2 pr-3 text-left font-bold">Ficha</th><th className="px-2 py-2 text-right font-bold">Quantidade em jogo</th><th className="px-2 py-2 text-right font-bold">Valor nominal</th>
+                </tr></thead>
+                <tbody className="divide-y divide-line-soft">
+                  {summary.rows.filter((r) => r.in_play > 0).map((r) => (
+                    <tr key={r.chip._id}>
+                      <td className="py-2 pr-3 font-bold text-fg"><span className="mr-2 inline-block h-3 w-3 rounded-full border border-line align-middle" style={{ backgroundColor: r.chip.color }} />{fmt(r.chip.value)}</td>
+                      <td className="px-2 py-2 text-right font-bold tabular-nums text-fg">{fmt(r.in_play)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-fg-muted">{fmt(r.in_play * (r.chip.value || 0))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr className="border-t-2 border-line text-xs font-bold">
+                  <td className="py-2 pr-3 uppercase tracking-wide text-fg-subtle">Chip Count</td>
+                  <td className="px-2 py-2 text-right tabular-nums" data-testid="final-chip-count-qty">{fmt(summary.chip_count?.quantity)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums" data-testid="final-chip-count">{fmt(summary.chip_count?.value)}</td>
+                </tr></tfoot>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* esperado × em jogo */}
+      {!isFinalPhase && (
       <section className="card p-6">
         <h3 className="mb-1 text-lg font-bold">Material: enviado × em jogo</h3>
         <p className="mb-4 text-xs text-fg-muted">
@@ -170,14 +207,50 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
         )}
         {summary?.uncovered?.length > 0 && <p className="mt-3 text-xs text-amber-600">Sem fichas definidas para: {summary.uncovered.map((u) => u.label || u.action).join(', ')}. Escolha um modelo de stack com essa coluna.</p>}
       </section>
+      )}
 
-      {allocations.length === 0 && (
+      {/* Fichas necessárias × saldo físico REAL dos fichários (Simulação 3.0 §6): previsão, nunca baixa de estoque */}
+      {!isFinalPhase && (
+        <section className="card p-6" data-testid="needed-chips">
+          <h3 className="mb-1 text-lg font-bold">Fichas necessárias</h3>
+          <p className="mb-4 text-xs text-fg-muted">
+            Demanda prevista (ações registradas × modelo de stack) comparada ao saldo físico REAL dos fichários vinculados. É só uma previsão: não dá baixa no estoque — apenas os envios e retornos registrados movimentam as fichas.
+          </p>
+          {needRows.length === 0 ? <p className="py-4 text-center text-sm italic text-fg-subtle">Ainda não há fichas calculadas. Escolha o modelo de stack e registre as entradas na aba Salão.</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead><tr className="text-xs uppercase tracking-wide text-fg-subtle">
+                  {['Ficha', 'Previsto em jogo', 'Já no Salão', 'A enviar', 'Saldo físico dos fichários', 'Situação'].map((h, i) => <th key={h} className={`py-2 font-bold ${i === 0 ? 'pr-3 text-left' : 'px-2 text-right'}`}>{h}</th>)}
+                </tr></thead>
+                <tbody className="divide-y divide-line-soft">
+                  {needRows.map((r) => {
+                    const toSend = Math.max(0, r.pending);
+                    const short = toSend - r.binder_balance;
+                    return (
+                      <tr key={r.chip._id}>
+                        <td className="py-2 pr-3 font-bold text-fg"><span className="mr-2 inline-block h-3 w-3 rounded-full border border-line align-middle" style={{ backgroundColor: r.chip.color }} />{fmt(r.chip.value)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-fg-muted">{fmt(r.in_play)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-fg-muted">{fmt(r.on_table)}</td>
+                        <td className="px-2 py-2 text-right font-bold tabular-nums text-fg">{fmt(toSend)}</td>
+                        <td className="px-2 py-2 text-right font-bold tabular-nums text-fg">{fmt(r.binder_balance)}</td>
+                        <td className="px-2 py-2 text-right"><span className={`badge ${short > 0 ? 'badge-danger' : 'badge-ok'}`}>{short > 0 ? `faltam ${fmt(short)}` : 'saldo cobre'}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {allocations.length === 0 && !isFinalPhase && (
         <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
           <AlertCircle className="mt-0.5 shrink-0" size={18} /> O torneio não tem fichas alocadas. Só é possível enviar fichas dos fichários alocados (aba Logística → Fichas Alocadas).
         </div>
       )}
 
-      {canOperate && !closed && (
+      {canOperate && !closed && !isFinalPhase && (
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><Send size={18} className="text-emerald-500" /> Enviar fichas ao torneio</h3>
           <p className="mb-4 text-xs text-fg-muted">{sessions.length > 1 ? 'Vai para a sessão selecionada. ' : ''}Por ação: informe só a quantidade; as fichas por denominação são calculadas pelo modelo de stack.</p>
@@ -223,6 +296,8 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
           <button onClick={sendNow} disabled={busy || allocations.length === 0} className="btn btn-success mt-4 disabled:opacity-40">{busy ? 'Enviando…' : 'Enviar'}</button>
         </section>
       )}
+
+      {tournament.is_ko && <KoPanel tournamentId={tid} canOperate={canOperate} refreshKey={refreshKey} />}
 
       {canOperate && (
         <section className="card p-6">

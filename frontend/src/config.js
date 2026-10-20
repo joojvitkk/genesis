@@ -30,6 +30,7 @@ export const ROUTE_AREA = {
   '/chip-race': 'chip_race',
   '/estoque': 'estoque',
   '/livro-estoque': 'estoque',
+  '/fichas-ko': 'estoque',
   '/ocorrencias': 'estoque',
   '/ficharios': 'ficharios',
   '/chat': 'chat',

@@ -104,7 +104,7 @@ export default function Dashboard() {
         <h2 className="text-lg font-bold text-fg">Fichas em jogo por torneio</h2>
         <p className="mb-4 mt-1 text-xs text-fg-muted">Somente o que as entradas já entregaram aos jogadores (Chip Count). Fichas enviadas ao Salão e ainda não usadas não entram aqui.</p>
         {inPlay.rows.length === 0 ? <p className="py-4 text-sm italic text-fg-subtle">Nenhum torneio em andamento.</p> : (
-          <ul className="space-y-4">
+          <ul className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
             {inPlay.rows.map((r) => (
               <li key={r.tournament._id}>
                 <div className="flex items-baseline justify-between gap-2">
@@ -114,10 +114,11 @@ export default function Dashboard() {
                 {(r.sessions?.length > 1 ? r.sessions : [{ session: null, chips: r.chips, quantity: r.quantity }]).map((s) => (
                   <div key={s.session?._id || 'all'} className="mt-1">
                     {s.session && <p className="text-xs font-semibold text-fg-muted">{s.session.name} · {n(s.quantity)} fichas</p>}
-                    <div className="flex flex-wrap gap-2 text-xs">
+                    <div data-testid="chips-vertical" className="mt-1 flex max-w-xs flex-col gap-1 text-xs">
                       {s.chips.map((c) => (
-                        <span key={c.chip._id} className="inline-flex items-center gap-1 rounded-lg bg-sunken px-2 py-1 font-bold text-fg">
-                          <span className="h-2 w-2 rounded-full border border-line" style={{ backgroundColor: c.chip.color }} /> {n(c.chip.value)} × {n(c.quantity)}
+                        <span key={c.chip._id} className="flex items-center justify-between gap-3 rounded-lg bg-sunken px-3 py-1.5 font-bold text-fg">
+                          <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full border border-line" style={{ backgroundColor: c.chip.color }} /> {n(c.chip.value)}</span>
+                          <span className="tabular-nums text-fg-muted">× {n(c.quantity)}</span>
                         </span>
                       ))}
                     </div>

@@ -20,7 +20,15 @@ async function countsFor(tournamentId, session) {
     const starting = await sessionsLib.qualifiedTotal(tournamentId);
     const eliminated = await Elimination.countDocuments({ ...scope, position: { $gt: 1 } });
     const derived = Math.max(0, starting - eliminated);
-    return { session_id: String(session._id), session_type: 'FINAL', entries_initial: 0, entries_reentries: 0, entries_total: 0, addons: 0, starting_players: starting, eliminated, derived, offset, active: Math.max(0, derived + offset) };
+    // Histórico HERDADO (Simulação 3.0 §1): somatório válido dos classificatórios, só para consulta — a fase não lança entradas.
+    const quals = await TournamentSession.find({ tournament_id: tournamentId, type: 'QUALIFIER', status: 'finished' }).select('_id').lean();
+    const hist = await Promise.all(quals.map((q) => countsFor(tournamentId, { _id: q._id, type: 'QUALIFIER', active_offset: 0 })));
+    const inherited = { entries_initial: hist.reduce((a, c) => a + c.entries_initial, 0), entries_reentries: hist.reduce((a, c) => a + c.entries_reentries, 0) };
+    inherited.entries_total = inherited.entries_initial + inherited.entries_reentries;
+    return {
+      session_id: String(session._id), session_type: 'FINAL', entries_initial: 0, entries_reentries: 0, entries_total: 0, addons: 0,
+      inherited, starting_players: starting, eliminated, derived, offset, active: Math.max(0, derived + offset),
+    };
   }
   const [initial, reentries, addons, eliminated] = await Promise.all([
     TournamentEntry.countDocuments({ ...scope, type: 'buy-in' }),
@@ -65,7 +73,9 @@ async function refreshPlayers(tournamentId, io, sessionId = null) {
   const sessions = await sessionsLib.listSessions(tournamentId);
   for (const s of sessions) {
     const c = await countsFor(tournamentId, s);
-    await TournamentSession.updateOne({ _id: s._id }, { $set: { actual_players: c.active, entries_initial: c.entries_initial, entries_reentries: c.entries_reentries } });
+    // Dia Final: o cache de entradas guarda o histórico herdado dos classificatórios (só leitura no relógio e nos cards)
+    const shown = c.inherited || c;
+    await TournamentSession.updateOne({ _id: s._id }, { $set: { actual_players: c.active, entries_initial: shown.entries_initial, entries_reentries: shown.entries_reentries } });
   }
   const total = await playerCounts(tournamentId);
   await Tournament.updateOne({ _id: tournamentId }, { $set: { actual_players: total.active, entries_initial: total.entries_initial, entries_reentries: total.entries_reentries } });

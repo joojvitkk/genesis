@@ -25,6 +25,7 @@ import Auditoria from './pages/Auditoria';
 import Usuarios from './pages/Usuarios';
 import Ocorrencias from './pages/Ocorrencias';
 import LivroEstoque from './pages/LivroEstoque';
+import FichasKO from './pages/FichasKO';
 import Telao from './pages/Telao';
 import ChangePassword from './pages/ChangePassword';
 import Conta from './pages/Conta';
@@ -206,6 +207,7 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
                 '/chat': <Chat />,
                 '/estoque': <Estoque />,
                 '/livro-estoque': <LivroEstoque />,
+                '/fichas-ko': <FichasKO />,
                 '/ocorrencias': <Ocorrencias />,
                 '/ficharios': <Ficharios />,
                 '/modelos-stack': <ModelosStack />,

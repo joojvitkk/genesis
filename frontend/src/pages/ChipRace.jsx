@@ -40,7 +40,9 @@ export default function ChipRace() {
   const [preview, setPreview] = useState(null);     // { value_out, value_in, math_breakage } — vem do servidor
   const [previewError, setPreviewError] = useState(null);
   const [linked, setLinked] = useState(null);     // chamado do Salão que esta conversão vai atender
-  const [chipId, setChipId] = useState('');        // denominação a retirar de jogo
+  const [retSel, setRetSel] = useState([]);        // "Ficha(s) a retirar": escolha do Material (nunca automática)
+  const [insSel, setInsSel] = useState([]);        // "Ficha(s) a inserir": escolha do Material
+  const [requestedChipId, setRequestedChipId] = useState(''); // ficha pedida pelo Salão no chamado: só uma sugestão
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -94,7 +96,12 @@ export default function ChipRace() {
     return sum;
   }, [binders, chosen]);
   const session = sessions.find((x) => x._id === sessionId);
-  const selectedChip = chips.find((c) => c._id === chipId);
+  const retChips = chips.filter((c) => retSel.includes(c._id));
+  const requestedChip = chips.find((c) => c._id === requestedChipId);
+  const toggle = (setSel, setMap, id) => {
+    setSel((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+    setMap((m) => { if (!(id in m)) return m; const { [id]: _drop, ...rest } = m; return rest; }); // desmarcar limpa o lançamento da ficha
+  };
 
   const lines = (map) => Object.entries(map).filter(([, v]) => Number(v) > 0).map(([chip_id, v]) => ({ chip_id, quantity: Number(v) }));
 
@@ -110,7 +117,7 @@ export default function ChipRace() {
     return () => clearTimeout(timer);
   }, [outs, ins]);
 
-  const reset = () => { setOuts({}); setIns({}); setNote(''); setPreview(null); setLinked(null); setChipId(''); };
+  const reset = () => { setOuts({}); setIns({}); setNote(''); setPreview(null); setLinked(null); setRetSel([]); setInsSel([]); setRequestedChipId(''); };
 
   // um chamado que deixou de estar em aberto (cancelado/concluído) nunca pode continuar selecionado
   const syncLinked = useCallback((rows) => {
@@ -118,7 +125,8 @@ export default function ChipRace() {
   }, []);
   const onLink = (r) => {
     setLinked(r);
-    if (r) { setType(r.type); setChipId(r.chip_id?._id || r.chip_id || ''); const sid = r.session_id?._id || r.session_id; if (sid) setSessionId(sid); }
+    // o chamado só SUGERE a ficha: quem decide o que sai e o que entra é o Material (ex.: conversão por fichas de 5.000)
+    if (r) { setType(r.type); setRequestedChipId(r.chip_id?._id || r.chip_id || ''); const sid = r.session_id?._id || r.session_id; if (sid) setSessionId(sid); }
   };
 
   const submit = async () => {
@@ -176,7 +184,7 @@ export default function ChipRace() {
             {sessions.length > 0 && (
               <div>
                 <label className="label">Sessão</label>
-                <CustomSelect options={sessions.map((x) => ({ value: x._id, label: x.name }))} value={sessionId} onChange={(v) => { setSessionId(v); setOuts({}); setIns({}); setPreview(null); setLinked(null); }} placeholder="Sessão…" />
+                <CustomSelect options={sessions.map((x) => ({ value: x._id, label: x.name }))} value={sessionId} onChange={(v) => { setSessionId(v); setOuts({}); setIns({}); setRetSel([]); setInsSel([]); setPreview(null); setLinked(null); }} placeholder="Sessão…" />
               </div>
             )}
             {binders.length > 1 && (
@@ -217,13 +225,39 @@ export default function ChipRace() {
                 <div className="rounded-xl bg-sunken p-3"><p className="text-xs font-semibold uppercase text-fg-subtle">Jogando (ativos)</p><p className="font-semibold tabular-nums text-fg">{fmt(session.players?.active)}</p></div>
                 <div className="rounded-xl bg-sunken p-3"><p className="text-xs font-semibold uppercase text-fg-subtle">Mesas abertas</p><p className="font-semibold tabular-nums text-fg">{linked ? fmt(linked.tables) : '—'}</p></div>
                 <div className="rounded-xl bg-sunken p-3">
-                  <p className="text-xs font-semibold uppercase text-fg-subtle">Ficha a retirar{selectedChip ? ` (${fmt(selectedChip.value)})` : ''}</p>
-                  <p className="font-semibold tabular-nums text-fg">{selectedChip ? `${fmt(inPlayBy[chipId] || 0)} em jogo${linked ? ` · ~${fmt(Math.ceil((inPlayBy[chipId] || 0) / linked.tables))} por mesa` : ''}` : '—'}</p>
+                  <p className="text-xs font-semibold uppercase text-fg-subtle">Ficha(s) a retirar{retChips.length ? ` (${retChips.map((c) => fmt(c.value)).join(', ')})` : ''}</p>
+                  <p className="font-semibold tabular-nums text-fg">{retChips.length ? retChips.map((c) => `${fmt(inPlayBy[c._id] || 0)} em jogo${linked ? ` · ~${fmt(Math.ceil((inPlayBy[c._id] || 0) / linked.tables))} por mesa` : ''}`).join(' · ') : '—'}</p>
                 </div>
               </div>
             )}
 
-            <p className="mb-3 text-xs text-fg-muted">A mesma denominação pode estar em Retirado e em Colocado (ex.: retirar 500 e devolver parte aos jogadores). O valor é calculado sobre tudo que foi lançado; no fichário só movimenta a diferença líquida.</p>
+            {/* Seletores controlados pelo Material: nenhuma ficha é escolhida automaticamente */}
+            <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2" data-testid="chip-selectors">
+              {[
+                ['Ficha(s) a retirar', retSel, setRetSel, setOuts, (c) => (inPlayBy[c._id] || 0) > 0 || (onHallBy[c._id] || 0) > 0, 'red'],
+                ['Ficha(s) a inserir', insSel, setInsSel, setIns, (c) => (binderBal[c._id] || 0) > 0 || retSel.includes(c._id), 'emerald'],
+              ].map(([label, sel, setSel, setMap, enabled]) => (
+                <div key={label} role="group" aria-label={label}>
+                  <p className="label">{label}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {chips.map((c) => {
+                      const on = sel.includes(c._id);
+                      return (
+                        <button key={c._id} type="button" aria-pressed={on} disabled={!canOperate || (!on && !enabled(c))} onClick={() => toggle(setSel, setMap, c._id)}
+                          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all disabled:opacity-40 ${on ? 'border-brand bg-brand-soft text-brand-fg' : 'border-line text-fg-muted hover:border-brand'}`}>
+                          <span className="h-3 w-3 rounded-full border border-line" style={{ backgroundColor: c.color }} /> {fmt(c.value)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {requestedChip && !retSel.includes(requestedChip._id) && (
+                <p className="text-xs text-fg-muted md:col-span-2">O chamado do Salão cita a ficha {fmt(requestedChip.value)}. Confirme acima quais fichas saem e quais entram — a escolha é do Material.</p>
+              )}
+            </div>
+
+            <p className="mb-3 text-xs text-fg-muted">Escolha acima quais fichas saem e quais entram; a mesma denominação pode estar nos dois lados (ex.: retirar 500 e devolver parte aos jogadores). O valor é calculado sobre tudo que foi lançado; no fichário só movimenta a diferença líquida. O saldo do fichário só muda pelo que for registrado: a devolução física não é presumida.</p>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
@@ -241,7 +275,7 @@ export default function ChipRace() {
                     const res = binderBal[c._id] || 0;
                     const o = Number(outs[c._id]) || 0; const n = Number(ins[c._id]) || 0;
                     return (
-                      <tr key={c._id} className={c._id === chipId ? 'bg-sunken' : ''}>
+                      <tr key={c._id} className={retSel.includes(c._id) || insSel.includes(c._id) ? 'bg-sunken' : ''}>
                         <td className="py-2 pr-3">
                           <span className="inline-flex items-center gap-2 font-bold text-fg">
                             <span className="h-3 w-3 rounded-full border border-line" style={{ backgroundColor: c.color }} /> {fmt(c.value)}
@@ -249,11 +283,14 @@ export default function ChipRace() {
                         </td>
                         <td className="px-2 py-2 text-right font-bold tabular-nums text-fg-muted">{fmt(inPlayBy[c._id] || 0)}</td>
                         <td className="px-2 py-2 text-center">
-                          <input type="number" min="0" step="1" placeholder="0" disabled={!canOperate || playing <= 0} value={outs[c._id] ?? ''} onChange={(e) => setOuts((s) => ({ ...s, [c._id]: e.target.value }))} className={`${numCls} ${o > playing ? 'border-red-400' : ''}`} />
+                          <input type="number" min="0" step="1" placeholder="0" aria-label={`Retirado ${fmt(c.value)}`} disabled={!canOperate || playing <= 0 || !retSel.includes(c._id)} value={outs[c._id] ?? ''} onChange={(e) => setOuts((s) => ({ ...s, [c._id]: e.target.value }))} className={`${numCls} ${o > playing ? 'border-red-400' : ''}`} />
                         </td>
-                        <td className="px-2 py-2 text-right font-bold tabular-nums text-fg-muted">{fmt(res)}</td>
+                        <td className="px-2 py-2 text-right font-bold tabular-nums text-fg-muted">
+                          {fmt(res)}
+                          {(o > 0 || n > 0) && <span className="block text-xs font-normal text-fg-subtle" title="Saldo do fichário depois desta troca (só o que for registrado)">→ {fmt(res + o - n)}</span>}
+                        </td>
                         <td className="px-2 py-2 text-center">
-                          <input type="number" min="0" step="1" placeholder="0" disabled={!canOperate || (res + o) <= 0} value={ins[c._id] ?? ''} onChange={(e) => setIns((s) => ({ ...s, [c._id]: e.target.value }))} className={`${numCls} ${n > res + o ? 'border-red-400' : ''}`} />
+                          <input type="number" min="0" step="1" placeholder="0" aria-label={`Colocado ${fmt(c.value)}`} disabled={!canOperate || (res + o) <= 0 || !insSel.includes(c._id)} value={ins[c._id] ?? ''} onChange={(e) => setIns((s) => ({ ...s, [c._id]: e.target.value }))} className={`${numCls} ${n > res + o ? 'border-red-400' : ''}`} />
                         </td>
                       </tr>
                     );
