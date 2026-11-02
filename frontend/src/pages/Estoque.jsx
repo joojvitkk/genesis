@@ -6,6 +6,7 @@ import { apiGet, apiPost, apiPut } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 import { can } from '../config';
 import ColorPicker from '../components/ColorPicker';
+import { scrimMotion, modalMotion } from '../lib/motion';
 
 const EMPTY_CHIP_FORM = { value: '', color: '#ff0000' };
 
@@ -171,19 +172,14 @@ export default function Estoque() {
       <AnimatePresence>
         {isChipModalOpen && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            {...scrimMotion}
             onClick={() => setIsChipModalOpen(false)}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--overlay)]"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop"
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', bounce: 0.3, duration: 0.4 }}
+              {...modalMotion}
               onClick={(e) => e.stopPropagation()}
-              className="card w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto"
+              className="card material-sheet w-full max-w-lg max-h-[92vh] overflow-y-auto"
             >
               <div className="p-6 border-b border-line-soft flex justify-between items-center bg-sunken">
                 <h2 className="text-xl font-bold text-fg">{editingChip ? 'Editar Ficha' : 'Nova Ficha'}</h2>

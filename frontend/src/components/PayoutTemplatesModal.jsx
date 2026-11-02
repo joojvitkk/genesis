@@ -4,6 +4,7 @@ import { X, Plus, Trash2, Save } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { modalMotion, scrimMotion } from '../lib/motion';
 
 const emptyBracket = () => ({ min_players: 2, max_players: null, payouts: [{ place: 1, pct: 100 }] });
 
@@ -55,10 +56,10 @@ export default function PayoutTemplatesModal({ open, onClose, onChanged }) {
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-[var(--overlay)]" />
+        <motion.div {...scrimMotion} onClick={onClose} className="absolute inset-0 modal-backdrop" />
         <motion.div
-          initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-          className="card relative flex max-h-[85vh] w-full max-w-2xl flex-col shadow-2xl overflow-hidden"
+          {...modalMotion}
+          className="card material-sheet relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden"
         >
           <div className="flex items-center justify-between border-b border-line-soft p-6">
             <h2 className="text-xl font-bold text-fg">Templates de premiação</h2>

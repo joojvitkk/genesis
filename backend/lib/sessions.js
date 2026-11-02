@@ -89,14 +89,19 @@ async function prepareFinalLevels(tournamentId) {
   const finals = (await listSessions(tournamentId)).filter((s) => s.type === 'FINAL' && s.status !== 'finished' && !s.level_started_at && !s.blinds_edited);
   for (const f of finals) {
     if (!best) { f.level_offset = 0; f.blind_structure = []; f.current_level = 0; await f.save(); continue; }
-    const last = rows[best.index];
-    const rest = rows.slice(best.index + 1).filter((r) => !['end_day', 'end_registration'].includes(r.row_type));
+    const map = (r) => ({ row_type: r.row_type || 'level', small_blind: r.small_blind, big_blind: r.big_blind, ante: r.ante || 0, duration: r.duration, label: r.label });
+    // A fase começa DIRETO no nível seguinte (ex.: 17) com os valores configurados para ele na estrutura do torneio (Tracking Sheet).
+    const after = rows.slice(best.index + 1).filter((r) => !['end_day', 'end_registration'].includes(r.row_type));
+    const firstLevel = after.findIndex((r) => !r.row_type || r.row_type === 'level');
     f.level_offset = best.number;
     f.current_level = 0;
-    f.blind_structure = [
-      { row_type: 'level', small_blind: last.small_blind, big_blind: last.big_blind, ante: last.ante || 0, duration: last.duration },
-      ...rest.map((r) => ({ row_type: r.row_type || 'level', small_blind: r.small_blind, big_blind: r.big_blind, ante: r.ante, duration: r.duration, label: r.label })),
-    ];
+    if (firstLevel >= 0) {
+      f.blind_structure = after.slice(firstLevel).map(map);
+    } else {
+      // a estrutura não define o nível seguinte: parte do último nível jogado (editável), como antes
+      const last = rows[best.index];
+      f.blind_structure = [map({ ...last, row_type: 'level', label: undefined })];
+    }
     await f.save();
   }
 }

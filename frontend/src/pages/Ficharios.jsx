@@ -6,6 +6,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 import { can } from '../config';
 import CustomSelect from '../components/CustomSelect';
+import { modalMotion, scrimMotion } from '../lib/motion';
 
 export default function Ficharios() {
   const { showAlert, showConfirm, showPrompt } = useAlert();
@@ -295,10 +296,10 @@ export default function Ficharios() {
       <AnimatePresence>
         {createOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCreateOpen(false)} className="absolute inset-0 bg-[var(--overlay)]" />
+            <motion.div {...scrimMotion} onClick={() => setCreateOpen(false)} className="absolute inset-0 modal-backdrop" />
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="card relative w-full max-h-[92vh] overflow-y-auto max-w-lg shadow-2xl"
+              {...modalMotion}
+              className="card material-sheet relative w-full max-h-[92vh] overflow-y-auto max-w-lg"
             >
               <div className="flex items-center justify-between border-b border-line-soft p-6">
                 <h2 className="flex items-center gap-2 text-xl font-bold text-fg"><Briefcase size={20} className="text-brand-fg" /> Novo fichário</h2>
@@ -334,10 +335,10 @@ export default function Ficharios() {
       <AnimatePresence>
         {countCase && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCountCase(null)} className="absolute inset-0 bg-[var(--overlay)]" />
+            <motion.div {...scrimMotion} onClick={() => setCountCase(null)} className="absolute inset-0 modal-backdrop" />
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="card relative w-full max-h-[92vh] overflow-y-auto max-w-md shadow-2xl"
+              {...modalMotion}
+              className="card material-sheet relative w-full max-h-[92vh] overflow-y-auto max-w-md"
             >
               <div className="flex items-center justify-between border-b border-line-soft p-6">
                 <h2 className="flex items-center gap-2 text-xl font-bold text-fg">
@@ -391,10 +392,10 @@ export default function Ficharios() {
       <AnimatePresence>
         {assembleCase && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setAssembleCase(null)} className="absolute inset-0 bg-[var(--overlay)]" />
+            <motion.div {...scrimMotion} onClick={() => setAssembleCase(null)} className="absolute inset-0 modal-backdrop" />
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="card relative w-full max-h-[92vh] overflow-y-auto max-w-lg shadow-2xl"
+              {...modalMotion}
+              className="card material-sheet relative w-full max-h-[92vh] overflow-y-auto max-w-lg"
             >
               <div className="flex items-center justify-between border-b border-line-soft p-6">
                 <h2 className="flex items-center gap-2 text-xl font-bold text-fg">
@@ -442,8 +443,8 @@ export default function Ficharios() {
       <AnimatePresence>
         {editCase && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Editar fichário">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditCase(null)} className="absolute inset-0 bg-[var(--overlay)]" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="card relative w-full max-w-md shadow-2xl">
+            <motion.div {...scrimMotion} onClick={() => setEditCase(null)} className="absolute inset-0 modal-backdrop" />
+            <motion.div {...modalMotion} className="card material-sheet relative w-full max-w-md">
               <div className="flex items-center justify-between border-b border-line-soft pb-4">
                 <h2 className="flex items-center gap-2 text-xl font-bold text-fg"><Pencil size={20} className="text-brand-fg" /> Editar fichário</h2>
                 <button type="button" onClick={() => setEditCase(null)} aria-label="Fechar" className="text-fg-subtle hover:text-fg"><X /></button>

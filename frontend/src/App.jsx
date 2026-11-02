@@ -16,6 +16,7 @@ import Estoque from './pages/Estoque';
 import Ficharios from './pages/Ficharios';
 import Torneios from './pages/Torneios';
 import Eventos from './pages/Eventos';
+import TrackingSheet from './pages/TrackingSheet';
 import ChipRace from './pages/ChipRace';
 import Chat from './pages/Chat';
 import ModelosStack from './pages/ModelosStack';
@@ -27,6 +28,7 @@ import Ocorrencias from './pages/Ocorrencias';
 import LivroEstoque from './pages/LivroEstoque';
 import FichasKO from './pages/FichasKO';
 import Telao from './pages/Telao';
+import Landing from './pages/Landing';
 import ChangePassword from './pages/ChangePassword';
 import Conta from './pages/Conta';
 import { flushOfflineQueue } from './lib/offlineQueue';
@@ -61,7 +63,14 @@ function App() {
     try { localStorage.setItem('genesis_theme', theme); } catch { /* ignore */ }
   }, [theme]);
 
-  const toggleTheme = () => setTheme(t => (t === 'dark' ? 'light' : 'dark'));
+  // a mudança é aplicada de forma síncrona dentro da View Transition: a onda parte do botão clicado (lib/themeTransition.js)
+  const toggleTheme = (e) => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    animateThemeChange(e?.currentTarget ?? null, () => {
+      document.documentElement.classList.toggle('dark', next === 'dark');
+      flushSync(() => setTheme(next));
+    });
+  };
 
   const handleLogout = useCallback(() => {
     clearSession();
@@ -141,8 +150,17 @@ function App() {
     setAuth({ token: auth.token, user });
   };
 
+  // Sem sessão: a página pública /site é a principal; /login e qualquer outro endereço pedem o acesso (e voltam ao endereço pedido depois).
   if (!auth) {
-    return <Login onLogin={handleLogin} theme={theme} onToggleTheme={toggleTheme} />;
+    return (
+      <Router>
+        <Routes>
+          <Route path="/" element={<Navigate to="/site" replace />} />
+          <Route path="/site" element={<Landing theme={theme} onToggleTheme={toggleTheme} />} />
+          <Route path="*" element={<Login onLogin={handleLogin} theme={theme} onToggleTheme={toggleTheme} />} />
+        </Routes>
+      </Router>
+    );
   }
 
   if (auth.user.must_change_password) {
@@ -156,6 +174,8 @@ function App() {
       <Routes>
         {/* Tela de projeção — sem sidebar/chrome, ainda exige sessão */}
         <Route path="/torneios/:id/telao" element={<Telao />} />
+        {/* A página pública continua acessível logado, com o atalho para o painel */}
+        <Route path="/site" element={<Landing theme={theme} onToggleTheme={toggleTheme} ctaTo={homeRoute(role)} ctaLabel="Abrir o painel" />} />
         <Route path="*" element={<Shell role={role} auth={auth} theme={theme} toggleTheme={toggleTheme}
           sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} handleLogout={handleLogout}
           onPasswordChanged={handlePasswordChanged} onAvatarChanged={handleAvatarChanged} />} />
@@ -176,10 +196,10 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
 
   return (
       <div className="min-h-screen flex bg-canvas text-fg">
-        <header className="md:hidden fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-line bg-surface px-3"
+        <header className="material md:hidden fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b px-3"
                 style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
           <button onClick={() => setSidebarOpen(true)} className="btn btn-ghost btn-icon" aria-label="Abrir menu"><Menu size={22} /></button>
-          <span className="inline-flex items-center gap-2 text-base font-bold tracking-[0.18em]"><span className="inline-block h-3 w-3 rounded-sm bg-brand" aria-hidden="true" />GENESIS</span>
+          <Logo height={26} className="text-fg" />
           <button onClick={toggleTheme} className="btn btn-ghost btn-icon" aria-label="Alternar tema">{theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}</button>
         </header>
 
@@ -193,9 +213,9 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
           onToggleTheme={toggleTheme}
         />
 
-        <div className="flex-1 flex flex-col md:ml-60 min-h-screen overflow-x-hidden">
+        <div className="flex-1 flex flex-col md:ml-[16.5rem] min-h-screen overflow-x-hidden">
           <main className="flex-1 p-4 md:p-6 overflow-y-auto pt-[calc(3.5rem+1rem)] md:pt-6
-                           pb-[calc(60px+env(safe-area-inset-bottom,0px)+1rem)] md:pb-6">
+                           pb-[calc(84px+env(safe-area-inset-bottom,0px)+1rem)] md:pb-6">
             <Routes>
               <Route path="/" element={<Navigate to={homeRoute(role)} replace />} />
               <Route path="/conta" element={<Conta user={auth.user} onPasswordChanged={onPasswordChanged} onAvatarChanged={onAvatarChanged} />} />
@@ -203,6 +223,7 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
                 '/salao': <Salao />,
                 '/eventos': <Eventos />,
                 '/torneios': <Torneios />,
+                '/tracking-sheet': <TrackingSheet />,
                 '/chip-race': <ChipRace />,
                 '/chat': <Chat />,
                 '/estoque': <Estoque />,
@@ -232,6 +253,9 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
 
 import { AlertProvider } from './contexts/AlertContext';
 import { useT } from './lib/i18n.jsx';
+import { flushSync } from 'react-dom';
+import { animateThemeChange } from './lib/themeTransition';
+import Logo from './components/brand/Logo';
 
 export default function AppWrapper() {
   const { lang } = useT();

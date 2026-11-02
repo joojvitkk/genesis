@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useDashboard } from '../lib/useDashboard';
 import RunningClocks from '../components/RunningClocks';
 import { AlertStrip, OccurrencePanel, RequestsPanel } from '../components/DashboardPanels';
+import { riseMotion } from '../lib/motion';
 
 const n = (v) => (v ?? 0).toLocaleString(locale());
 
@@ -40,7 +41,7 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+      <motion.div {...riseMotion}>
         <h1 className="page-title">Dashboard Overview</h1>
         <p className="page-sub">O que está acontecendo agora nos torneios e no Material.</p>
       </motion.div>
