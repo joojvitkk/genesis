@@ -62,7 +62,14 @@ function App() {
     try { localStorage.setItem('genesis_theme', theme); } catch { /* ignore */ }
   }, [theme]);
 
-  const toggleTheme = () => setTheme(t => (t === 'dark' ? 'light' : 'dark'));
+  // a mudança é aplicada de forma síncrona dentro da View Transition: a onda parte do botão clicado (lib/themeTransition.js)
+  const toggleTheme = (e) => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    animateThemeChange(e?.currentTarget ?? null, () => {
+      document.documentElement.classList.toggle('dark', next === 'dark');
+      flushSync(() => setTheme(next));
+    });
+  };
 
   const handleLogout = useCallback(() => {
     clearSession();
@@ -234,6 +241,8 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
 
 import { AlertProvider } from './contexts/AlertContext';
 import { useT } from './lib/i18n.jsx';
+import { flushSync } from 'react-dom';
+import { animateThemeChange } from './lib/themeTransition';
 
 export default function AppWrapper() {
   const { lang } = useT();

@@ -107,6 +107,7 @@ Contrastes verificados: todo par texto/fundo acima ≥ **4,5 : 1** (WCAG AA). Ao
 - **Fallbacks de acessibilidade (já em `index.css`):** `prefers-reduced-transparency: reduce` e `prefers-contrast: more` trocam todo material por `surface` sólido (contraste: borda `fg-subtle`); navegadores sem `backdrop-filter` também caem para sólido.
 - **Movimento (`lib/motion.js`):** por **molas**, não por duração fixa — `SPRING` (mover, bounce 0, 0,4 s), `SPRING_SNAP` (menus/toast, 0,3 s), `SPRING_SHEET` (gaveta, bounce 0,2 — só porque o gesto tem momento). Modais usam `modalMotion` (escala + opacidade + desfoque "materializam"), fundo `scrimMotion`, blocos de página `riseMotion`. **Saída** mais rápida (160 ms) e pela **mesma trajetória** da entrada (`EXIT`, curva espelhada). Só `opacity`/`transform` (+ desfoque de material). Nada trava a entrada do usuário durante uma transição. Sem animação decorativa contínua; `animate-pulse` só em indicador "ao vivo"/carregando.
 - **Gestos:** o drawer mobile acompanha o dedo **1:1** (`drag="x"`, sem resistência até a borda), resiste com *rubber band* no lado oposto e fecha pela **projeção de momento** (`v·0,499 px`, do código da Apple), não pela posição em que soltou. Links dentro de área arrastável levam `draggable={false}`.
+- **Troca de tema em onda (`lib/themeTransition.js`):** ao clicar no botão de tema, o tema novo se propaga em **círculo a partir do centro do botão** até cobrir a tela (View Transitions API + máscara radial com borda suave de 140 px, 850 ms, `--theme-r` animado). Funciona nos dois sentidos e em qualquer botão de tema (sidebar, drawer, barra superior mobile, login). Durante a onda as transições CSS ficam desligadas (`html.theme-wave`) para o quadro novo nascer já no tema final. Sem suporte ou com `prefers-reduced-motion`, a troca é instantânea. Todo botão de tema deve chamar `toggleTheme(e)` passando o evento.
 - **Movimento reduzido:** `MotionConfig reducedMotion="user"` + `@media (prefers-reduced-motion)` removem deslocamento/escala/mola e mantêm só mudanças de opacidade e cor (feedback que ajuda a entender).
 - **Rolagem:** barras finas e neutras definidas globalmente em `index.css` (não estilizar por componente). `.scroll-x` esconde a barra só em carrosséis horizontais.
 - **Foco:** anel de 2 px `brand-fg` com offset de 2 px (global, `:focus-visible`). **Nunca remover.**
@@ -332,6 +333,7 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 | Arquivo | Papel |
 |---|---|
 | `frontend/src/index.css` | Tokens, tema, base e **todas as classes de componente** |
+| `frontend/src/lib/themeTransition.js` | Onda de troca de tema (View Transitions) |
 | `frontend/src/lib/motion.js` | Molas, saída espelhada, `modalMotion`/`scrimMotion`/`riseMotion` |
 | `frontend/src/components/Sidebar.jsx` | Navegação em grupos (desktop, drawer, barra inferior), marca |
 | `frontend/src/pages/TrackingSheet.jsx` · `components/BlindRowsTable.jsx` · `lib/blinds.js` | Estruturas de blinds (Tracking Sheet), tabela compartilhada com a Logística e helpers puros |

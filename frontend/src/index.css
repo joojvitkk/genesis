@@ -299,6 +299,17 @@
   --shadow-2xl: var(--shadow-overlay);
 }
 
+/* Onda de troca de tema (lib/themeTransition.js): o quadro NOVO aparece por uma máscara radial que cresce a partir do botão. */
+@property --theme-r { syntax: '<length>'; inherits: true; initial-value: 0px; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-old(root) { z-index: 1; }
+::view-transition-new(root) {
+  z-index: 2;
+  -webkit-mask-image: radial-gradient(circle at var(--tx, 50%) var(--ty, 50%), #000 calc(var(--theme-r) - 140px), transparent var(--theme-r));
+          mask-image: radial-gradient(circle at var(--tx, 50%) var(--ty, 50%), #000 calc(var(--theme-r) - 140px), transparent var(--theme-r));
+}
+html.theme-wave, html.theme-wave *, html.theme-wave *::before, html.theme-wave *::after { transition: none !important; }
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
