@@ -11,3 +11,8 @@ backups
 *.log
 .vite
 .temp
+
+# ferramentas/artefatos locais (não versionar)
+.claude/
+graphify-out/
+*.tsbuildinfo

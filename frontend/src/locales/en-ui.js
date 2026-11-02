@@ -700,7 +700,6 @@ export default {
   "Nenhum": "None",
   "Nenhum alerta.": "No alerts.",
   "Nenhum chamado em aberto.": "No open requests.",
-  "Nenhum evento cadastrado.": "No events registered.",
   "Nenhum fichário cadastrado no sistema.": "No binders registered in the system.",
   "Nenhum fichário com fichas.": "No binders with chips.",
   "Nenhum fichário livre: todos estão alocados a torneios.": "No free binders: all are allocated to tournaments.",

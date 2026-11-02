@@ -111,7 +111,7 @@ cd frontend && npm run lint && npm test && npm run build
 | `npm run migrate:status` | Lista o estado das migrações. |
 | `./scripts/backup.sh [dir]` | `mongodump` comprimido + retenção de 14 dias. Ideal em cron. |
 | `./scripts/restore.sh arquivo.archive.gz` | Restaura um backup (`--drop`, pede confirmação). |
-| `node scripts/audit-legacy-chips.js [--uri …] [--json f] [--strict]` | Auditoria **somente-leitura** do estoque legado (fichas duplicadas, dupla contabilização, reservas órfãs). Ver `ROADMAP_NUCLEO_FICHAS.md` (G0). |
+| `node scripts/audit-legacy-chips.js [--uri …] [--json f] [--strict]` | Auditoria **somente-leitura** do estoque legado (fichas duplicadas, dupla contabilização, reservas órfãs). |
 
 ---
 
@@ -583,7 +583,7 @@ automaticamente e mostra um aviso — basta logar de novo.
 
 ## ✅ Fase P3 — Livro-razão de inventário — concluída
 
-> ⚠️ **Removido no G11** (`ROADMAP_NUCLEO_FICHAS.md`): o estoque físico é o `Movement` (por fichário, imutável, com estorno).
+> ⚠️ **Removido no G11**: o estoque físico é o `Movement` (por fichário, imutável, com estorno).
 > O `InventoryLedger` v1, os caches de quantidade da ficha e do fichário e a rota `/cases` saíram do sistema; os dados antigos
 > ficam nas coleções `archive_*` (migração `20261001000000-legacy-cleanup`). O texto abaixo é só o histórico da fase.
 
