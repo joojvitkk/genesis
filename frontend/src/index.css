@@ -382,6 +382,20 @@ html.theme-wave, html.theme-wave *, html.theme-wave *::before, html.theme-wave *
   .tabular-nums { font-variant-numeric: tabular-nums; }
   ::selection { background: var(--brand); color: #fff; }
 
+  /* Preenchimento automático do navegador (e-mail/senha salvos) não pinta o campo: mantém o fundo e a cor do tema.
+     O truque do box-shadow inset cobre o fundo forçado pelo Chrome/Safari; o transition longo impede o flash de cor. */
+  input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus, input:-webkit-autofill:active,
+  textarea:-webkit-autofill, select:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--autofill-bg, var(--surface)) inset !important;
+    box-shadow: 0 0 0 1000px var(--autofill-bg, var(--surface)) inset !important;
+    -webkit-text-fill-color: var(--fg) !important;
+    caret-color: var(--fg);
+    transition: background-color 600000s 0s, color 600000s 0s;
+  }
+  input:autofill { background-color: var(--autofill-bg, var(--surface)) !important; color: var(--fg) !important; }
+  .input:-webkit-autofill { --autofill-bg: var(--sunken); }
+  .input:autofill { --autofill-bg: var(--sunken); }
+
   /* Tipografia com tracking por tamanho (Apple Design §15): títulos grandes apertam, texto pequeno afrouxa levemente. */
   h1 { letter-spacing: -0.015em; line-height: 1.12; }
   h2 { letter-spacing: -0.012em; line-height: 1.2; }

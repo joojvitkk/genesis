@@ -49,6 +49,11 @@ describe('acessibilidade e movimento no CSS', () => {
     expect(css).toMatch(/@media \(prefers-contrast: more\)/);
     expect(css).toMatch(/@supports not \(\(backdrop-filter/);
   });
+  it('preenchimento automático do navegador não pinta os campos (nos dois temas)', () => {
+    expect(css).toMatch(/input:-webkit-autofill[\s\S]*box-shadow: 0 0 0 1000px var\(--autofill-bg, var\(--surface\)\) inset/);
+    expect(css).toMatch(/-webkit-text-fill-color: var\(--fg\)/);
+    expect(css).toMatch(/\.input:-webkit-autofill \{ --autofill-bg: var\(--sunken\)/);
+  });
   it('feedback no pressionar em botões e itens de navegação', () => {
     expect(css).toMatch(/\.btn:active:not\(:disabled\)\s*\{\s*transform: scale\(0\.97\)/);
     expect(css).toMatch(/\.nav-item:active/);
