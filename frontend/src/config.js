@@ -27,6 +27,7 @@ export const ROUTE_AREA = {
   '/salao': 'mesas',
   '/eventos': 'torneios',
   '/torneios': 'torneios',
+  '/tracking-sheet': 'torneios', // Tracking Sheet: consulta (view) para todos; edição só com torneios.manage (admin)
   '/chip-race': 'chip_race',
   '/estoque': 'estoque',
   '/livro-estoque': 'estoque',

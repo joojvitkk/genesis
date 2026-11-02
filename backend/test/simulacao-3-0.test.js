@@ -111,8 +111,8 @@ test('Nível: o Dia Final continua do último nível jogável + 1; SB/BB/ante ed
 
   const c = await clockOf(admin, t, F);
   assert.equal(c.level_number, 9, 'último Level 8 → próximo 9 (sem somar 1A + 1B)');
-  assert.equal(c.level.small_blind, 800, 'blinds iniciais = os do último nível anterior');
-  assert.equal(c.level.big_blind, 1600);
+  assert.equal(c.level.small_blind, 100, 'blinds iniciais = os configurados para o Nível 9 na estrutura (não os do 8)');
+  assert.equal(c.level.big_blind, 200);
 
   const ed = await put(admin, `/api/tournaments/${t._id}/sessions/${F._id}/level`, { small_blind: 1000, big_blind: 2000, ante: 2000 });
   assert.equal(ed.status, 200, JSON.stringify(ed.body));

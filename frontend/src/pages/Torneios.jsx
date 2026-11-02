@@ -4,7 +4,7 @@ import {
   Trophy, Plus, Clock,
   ChevronRight, Trash2,
   Play, Pause, CheckCircle2, Users, Copy,
-  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, History, Package, Coffee, Pencil } from 'lucide-react';
+  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, History, Package, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
@@ -18,6 +18,8 @@ import PhaseBlindsEditor from '../components/PhaseBlindsEditor';
 import { can } from '../config';
 import { getStoredUser } from '../lib/auth';
 import BlindTemplatesModal from '../components/BlindTemplatesModal';
+import BlindRowsTable from '../components/BlindRowsTable';
+import { nextLevelRow, cloneRows } from '../lib/blinds';
 import { enqueue } from '../lib/offlineQueue';
 import { tournamentWhen } from '../lib/format';
 
@@ -74,6 +76,8 @@ export default function Torneios() {
   const [copyExtra, setCopyExtra] = useState({});             // blinds/stack copiados (não aparecem no formulário)
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'logistica');
   const [blindTplOpen, setBlindTplOpen] = useState(false);
+  const [blindTemplates, setBlindTemplates] = useState([]);   // Tracking Sheet: estruturas cadastradas (copiadas por valor ao escolher)
+  const [tplPick, setTplPick] = useState('');
 
   useEffect(() => {
     const tournamentId = searchParams.get('id');
@@ -201,6 +205,7 @@ export default function Torneios() {
     apiGet('/events').then(setEvents).catch(() => {});
     apiGet('/ko-chips').then(setKoChips).catch(() => {});
     if (isAdmin) apiGet('/binders').then(setBinderList).catch(() => {});
+    apiGet('/blind-templates').then(setBlindTemplates).catch(() => {});
   }, [fetchTournaments, isAdmin]);
 
   // Timer para persistência com debounce (edição de blinds / composição de stack)
@@ -230,6 +235,9 @@ export default function Torneios() {
     }, 600);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTournament?.blind_version]);
+
+  // A lista local já contém toda edição pendente: cancelar o debounce evita que um save antigo sobrescreva um nível recém-adicionado.
+  const cancelPendingSave = () => { if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; } };
 
   // O stack NÃO é escolhido por entrada: vem da AÇÃO (buy_in, optional_buy_in, re_entry, add_on…) e do
   // modelo mapeado no torneio. `quantity` > 1 registra várias ações de uma vez. Não há cadastro de jogadores:
@@ -309,7 +317,7 @@ export default function Torneios() {
     setIsCreateModalOpen(true);
   };
 
-  const closeCreateModal = () => { setCreateBinders([]); setIsCreateModalOpen(false); setDuplicateOf(null); setEditing(null); setCopyExtra({}); };
+  const closeCreateModal = () => { setCreateBinders([]); setIsCreateModalOpen(false); setDuplicateOf(null); setEditing(null); setCopyExtra({}); setTplPick(''); };
 
   const handleCreateTournament = async (e) => {
     e.preventDefault();
@@ -321,6 +329,7 @@ export default function Torneios() {
         seats_per_table: Number(rest.seats_per_table), stack_model_id: rest.stack_model_id || null,
         event_id: rest.event_id || null, number: rest.number ? Number(rest.number) : null, notes: rest.notes,
         is_ko: !!rest.is_ko, ko_chip_id: rest.is_ko ? rest.ko_chip_id || null : null,
+        ...(copyExtra.blind_structure ? { blind_structure: copyExtra.blind_structure } : {}),
       });
       if (ok) { showAlert('Torneio atualizado!', 'success'); closeCreateModal(); }
       return;
@@ -382,25 +391,19 @@ export default function Torneios() {
   const removeBlindLevel = (index) => {
     if (!selectedTournament) return;
     const newBlinds = selectedTournament.blind_structure.filter((_, i) => i !== index);
+    cancelPendingSave();
     handleUpdateTournament(selectedTournament._id, { blind_structure: newBlinds });
   };
 
   const addBlindLevel = () => {
     const current = selectedTournament.blind_structure || [];
-    const levels = current.filter(r => !r.row_type || r.row_type === 'level');
-    const lastLevel = levels.length > 0 ? levels[levels.length - 1] : { small_blind: 50, big_blind: 100, ante: 0, duration: 20 };
-    const nextLevel = {
-      row_type: 'level',
-      level: levels.length + 1,
-      small_blind: lastLevel.small_blind * 2,
-      big_blind: lastLevel.big_blind * 2,
-      ante: lastLevel.ante * 2,
-      duration: lastLevel.duration
-    };
-    handleUpdateTournament(selectedTournament._id, { blind_structure: [...current, nextLevel] });
+    cancelPendingSave();
+    // nova linha = último nível + 1 com os valores do último nível (editáveis) — lib/blinds.js
+    handleUpdateTournament(selectedTournament._id, { blind_structure: [...current, nextLevelRow(current)] });
   };
 
   const addBreakRow = (durationMins) => {
+    cancelPendingSave();
     const current = selectedTournament.blind_structure || [];
     handleUpdateTournament(selectedTournament._id, {
       blind_structure: [...current, { row_type: 'break', duration: durationMins, label: `Break ${durationMins} min` }]
@@ -410,6 +413,7 @@ export default function Torneios() {
   const addSpecialRow = (row_type) => {
     const current = selectedTournament.blind_structure || [];
     const labels = { end_registration: 'Fim do Registro', end_day: 'Fim do Dia Classificatório' };
+    cancelPendingSave();
     handleUpdateTournament(selectedTournament._id, {
       blind_structure: [...current, { row_type, label: labels[row_type] }]
     });
@@ -713,72 +717,7 @@ export default function Torneios() {
                         </button>
                       </div>
 
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                          <thead>
-                            <tr className="text-fg-subtle font-bold border-b border-line-soft">
-                              <th className="py-3 pr-4">Nível</th>
-                              <th className="py-3 px-2">SB</th>
-                              <th className="py-3 px-2">BB</th>
-                              <th className="py-3 px-2">Ante</th>
-                              <th className="py-3 px-2">Min</th>
-                              <th className="py-3 pl-4 text-right">Ação</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(selectedTournament.blind_structure || []).map((lvl, idx) => {
-                              const isBreak = lvl.row_type === 'break';
-                              const isSpecial = lvl.row_type === 'end_registration' || lvl.row_type === 'end_day';
-                              if (isSpecial) return (
-                                <tr key={idx} className="border-b border-line-soft group">
-                                  <td colSpan={5} className="py-2 pr-4">
-                                    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${
-                                      lvl.row_type === 'end_registration' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                                    }`}>
-                                      <span className="dot" aria-hidden="true" /> {lvl.label}
-                                    </span>
-                                  </td>
-                                  <td className="py-2 pl-4 text-right">
-                                    <button onClick={() => removeBlindLevel(idx)} className="p-2 text-fg-subtle hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
-                                  </td>
-                                </tr>
-                              );
-                              if (isBreak) return (
-                                <tr key={idx} className="border-b border-line-soft group bg-amber-50/30 dark:bg-amber-500/5">
-                                  <td className="py-2 pr-4">
-                                    <span className="badge badge-warn"><Coffee size={14} aria-hidden="true" /> Intervalo</span>
-                                  </td>
-                                  <td colSpan={3} className="py-2 px-2 text-fg-subtle text-xs">—</td>
-                                  <td className="py-2 px-2">
-                                    <select
-                                      value={lvl.duration}
-                                      onChange={(e) => handleUpdateBlind(idx, 'duration', e.target.value)}
-                                      className="bg-transparent text-amber-600 dark:text-amber-400 font-bold text-xs outline-none cursor-pointer"
-                                    >
-                                      {[10, 15, 20, 30, 45, 60, 90].map(d => <option key={d} value={d}>{d} min</option>)}
-                                    </select>
-                                  </td>
-                                  <td className="py-2 pl-4 text-right">
-                                    <button onClick={() => removeBlindLevel(idx)} className="p-2 text-fg-subtle hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button>
-                                  </td>
-                                </tr>
-                              );
-                              // Normal level row
-                              const levelNum = (selectedTournament.blind_structure || []).slice(0, idx + 1).filter(r => !r.row_type || r.row_type === 'level').length;
-                              return (
-                                <tr key={idx} className="border-b border-line-soft hover:bg-sunken/50 dark:hover:bg-zinc-800/30 transition-colors group">
-                                  <td className="py-2 pr-4 font-bold text-fg-subtle">{levelNum}</td>
-                                  <td className="py-2 px-2"><input type="number" value={lvl.small_blind} onChange={(e) => handleUpdateBlind(idx, 'small_blind', e.target.value)} className="w-20 bg-transparent font-bold focus:text-genesis-red outline-none" /></td>
-                                  <td className="py-2 px-2"><input type="number" value={lvl.big_blind} onChange={(e) => handleUpdateBlind(idx, 'big_blind', e.target.value)} className="w-20 bg-transparent font-bold focus:text-genesis-red outline-none" /></td>
-                                  <td className="py-2 px-2 text-fg-muted"><input type="number" value={lvl.ante} onChange={(e) => handleUpdateBlind(idx, 'ante', e.target.value)} className="w-16 bg-transparent focus:text-genesis-red outline-none" /></td>
-                                  <td className="py-2 px-2 text-fg-muted"><input type="number" value={lvl.duration} onChange={(e) => handleUpdateBlind(idx, 'duration', e.target.value)} className="w-12 bg-transparent focus:text-genesis-red outline-none" /></td>
-                                  <td className="py-2 pl-4 text-right"><button onClick={() => removeBlindLevel(idx)} className="p-2 text-fg-subtle hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16} /></button></td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                      <BlindRowsTable rows={selectedTournament.blind_structure || []} onCell={handleUpdateBlind} onRemove={removeBlindLevel} readOnly={!canManage} />
                     </div>
                   </div>
 
@@ -1169,6 +1108,20 @@ export default function Torneios() {
                     </div>
                   )}
                 </fieldset>
+                {isAdmin && blindTemplates.length > 0 && (
+                  <div>
+                    <label htmlFor="tpl-pick" className="label">Estrutura de blinds (Tracking Sheet)</label>
+                    <select id="tpl-pick" value={tplPick} className="input" onChange={(e) => {
+                      const tpl = blindTemplates.find((x) => x._id === e.target.value);
+                      setTplPick(e.target.value);
+                      setCopyExtra((cur) => { const { blind_structure: _drop, ...rest } = cur; return tpl ? { ...rest, blind_structure: cloneRows(tpl.rows) } : rest; });
+                    }}>
+                      <option value="">{editing ? 'Manter a estrutura atual' : 'Nenhuma (definir depois na Logística)'}</option>
+                      {blindTemplates.map((x) => <option key={x._id} value={x._id}>{x.name}</option>)}
+                    </select>
+                    <p className="mt-1 text-xs text-fg-subtle">A estrutura é <b>copiada</b> para o torneio: editar aqui não altera o cadastro nem outros torneios.</p>
+                  </div>
+                )}
                 {isAdmin && !editing && (
                   <fieldset>
                     <legend className="block text-sm font-bold mb-1">Fichário(s) do torneio <span className="font-normal text-fg-subtle">(opcional)</span></legend>

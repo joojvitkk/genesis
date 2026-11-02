@@ -173,7 +173,12 @@ Seção "Torneios ativos": um cartão por **sessão** rodando/pausada (nome do t
 ### 3.9 Navegação
 - **Desktop:** sidebar fixa de 240 px (`w-60`), `bg-surface`, borda à direita. Item `.nav-item`; ativo `.nav-item-active` (fundo `brand-soft`, texto `brand-fg`, barra de 3 px à esquerda).
 - **Mobile:** barra superior de 56 px (menu · marca · tema), **barra inferior de 5 itens no máximo** (60 px + safe-area) e drawer para o restante.
-- Ordem do menu (por perfil via `config.js › PERMISSIONS`): Dashboard, Salão, Eventos, Torneios, Chip Race, Fichas, Livro-razão, Ocorrências, Fichários, Chat, Stacks, Relatórios, Auditoria, Usuários.
+- **Menu em 4 grupos** (mesma ordem para todos os perfis; só entram os itens autorizados por `config.js › PERMISSIONS` e **grupo vazio não aparece**):
+  1. *Visão geral e planejamento* — Dashboard, Eventos, Torneios, Tracking Sheet.
+  2. *Operação* — Salão, Chip Race / Color Up, Ocorrências, Chat.
+  3. *Estoque e configurações* — Fichas, Fichas KO, Fichários, Stacks.
+  4. *Gestão e controle* — Relatórios, Livro Razão, Auditoria, Usuários.
+- **Título de grupo:** `text-xs font-semibold uppercase tracking-wide text-fg-subtle` (12 px, sem cor de marca) e divisória `border-line-soft` entre grupos (`NavGroup` em `Sidebar.jsx`). Rotas não mudam; os grupos só reorganizam a lista.
 
 ---
 
@@ -297,6 +302,8 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 - **Fase herdada (Dia 2 / Dia Final):** cards rotulados "(herdado)" e Material só com Chip Count; sem formulários de entrada.
 - **Fichas KO:** página própria (`FichasKO.jsx`) e `KoPanel` — cards de métricas (distribuídas, enviadas, devolvidas, pendentes) em `bg-sunken`; pendência usa `text-warn`. Nunca exibir valores em dinheiro.
 - **Dashboard "Fichas em jogo por torneio":** lista vertical de fichas (uma por linha) dentro de grade responsiva de torneios.
+- **Tracking Sheet** (`pages/TrackingSheet.jsx`): lista de estruturas (`.card` clicável) + editor (`.card`, `.input`, `.btn`) sobre `BlindRowsTable` (tabela compartilhada com a Logística). Break/Dinner Break usam `.badge-warn` e **não** contam como nível; marcadores usam `.badge-info`. Admin edita; Material e Salão veem em modo somente leitura (sem inputs nem botões de escrita). Valores sempre manuais, sem fórmulas. Ao escolher a estrutura no torneio ela é copiada por valor.
+- **Adicionar Nível:** novo nível = último + 1 com SB/BB/ante/duração do último nível (editáveis); nunca dobra nem volta ao Nível 1 (`lib/blinds.js › nextLevelRow`).
 - **Blinds da fase:** `PhaseBlindsEditor` (`.card`, `.input`, `.btn-primary`) edita SB/BB/ante sem alterar o número do nível.
 
 ## 13. Mapa de arquivos
@@ -304,7 +311,8 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 | Arquivo | Papel |
 |---|---|
 | `frontend/src/index.css` | Tokens, tema, base e **todas as classes de componente** |
-| `frontend/src/components/Sidebar.jsx` | Navegação (desktop, drawer, barra inferior), marca |
+| `frontend/src/components/Sidebar.jsx` | Navegação em grupos (desktop, drawer, barra inferior), marca |
+| `frontend/src/pages/TrackingSheet.jsx` · `components/BlindRowsTable.jsx` · `lib/blinds.js` | Estruturas de blinds (Tracking Sheet), tabela compartilhada com a Logística e helpers puros |
 | `frontend/src/App.jsx` | Shell (header mobile, `main`, rotas) |
 | `frontend/src/pages/Login.jsx` | Entrada (usa `.card`, `.input`, `.btn-primary`) |
 | `frontend/src/components/TournamentClock.jsx` · `pages/Telao.jsx` | Relógio e projeção |

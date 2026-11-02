@@ -16,6 +16,7 @@ import Estoque from './pages/Estoque';
 import Ficharios from './pages/Ficharios';
 import Torneios from './pages/Torneios';
 import Eventos from './pages/Eventos';
+import TrackingSheet from './pages/TrackingSheet';
 import ChipRace from './pages/ChipRace';
 import Chat from './pages/Chat';
 import ModelosStack from './pages/ModelosStack';
@@ -203,6 +204,7 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
                 '/salao': <Salao />,
                 '/eventos': <Eventos />,
                 '/torneios': <Torneios />,
+                '/tracking-sheet': <TrackingSheet />,
                 '/chip-race': <ChipRace />,
                 '/chat': <Chat />,
                 '/estoque': <Estoque />,
