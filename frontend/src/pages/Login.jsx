@@ -1,68 +1,96 @@
 import { useState } from 'react';
-import { LogIn, Eye, EyeOff, Sun, Moon } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { Eye, EyeOff, ArrowRight, AlertCircle, ChevronDown } from 'lucide-react';
 import { apiPost } from '../lib/api';
-import { riseMotion } from '../lib/motion';
+import { SPRING_SNAP } from '../lib/motion';
+import SiteHeader from '../components/brand/SiteHeader';
 
+/**
+ * Entrar. Padrão Apple ID: uma coluna centrada, título grande, os dois campos agrupados num só bloco (rótulo à esquerda, valor à direita)
+ * e uma única ação. Erro chacoalha o bloco (mola) e aparece em texto; o resto é ajuda sob demanda.
+ */
 export default function Login({ onLogin, theme, onToggleTheme }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
   const [error, setError] = useState('');
+  const [fails, setFails] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       const data = await apiPost('/login', { email: email.trim(), password });
       onLogin(data.token, data.user);
     } catch (err) {
       setError(err.message || 'Erro no login');
+      setFails((n) => n + 1);
     } finally {
       setLoading(false);
     }
   };
 
+  const onKey = (e) => setCapsLock(!!e.getModifierState?.('CapsLock'));
+  const row = 'flex items-center gap-3 px-4';
+  const lab = 'w-16 shrink-0 text-sm font-semibold text-fg-subtle';
+  const field = 'h-14 min-w-0 flex-1 bg-transparent text-base text-fg outline-none placeholder:text-fg-subtle';
+
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-canvas p-4">
-      <button onClick={onToggleTheme} aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} className="btn btn-secondary btn-icon absolute right-4 top-4">
-        {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-      </button>
+    <div className="flex min-h-screen flex-col bg-canvas text-fg">
+      <SiteHeader theme={theme} onToggleTheme={onToggleTheme}
+        action={<Link to="/site" className="btn btn-ghost btn-sm">Conhecer o Genesis</Link>} />
 
-      <motion.main {...riseMotion} className="card material-sheet w-full max-w-sm p-8">
-        <div className="mb-8">
-          <span className="inline-flex items-center gap-2 text-2xl font-bold tracking-[0.18em] text-fg">
-            <span className="inline-block h-4 w-4 rounded-sm bg-brand" aria-hidden="true" />
-            GENESIS
-          </span>
-          <p className="mt-1 text-sm text-fg-muted">Logística de fichas e operação de torneios</p>
-        </div>
+      <main className="mx-auto flex w-full max-w-[26rem] flex-1 flex-col justify-center px-5 pb-24 pt-10">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0, transition: SPRING_SNAP }}>
+          <h1 className="display !text-[clamp(2rem,5vw,2.75rem)]">Entrar no Genesis</h1>
+          <p className="lede mt-3">Use o e-mail e a senha da sua equipe.</p>
 
-        {error && <div role="alert" className="mb-5 rounded-lg border border-danger bg-danger-soft px-3 py-2 text-sm font-medium text-danger">{error}</div>}
+          <form onSubmit={handleSubmit} className="mt-8">
+            {/* os dois campos num bloco só; o chacoalho a cada erro chama a atenção sem texto extra */}
+            <motion.div key={fails} animate={fails ? { x: [0, -10, 9, -6, 4, 0] } : {}} transition={{ duration: 0.4 }}
+              className={`overflow-hidden rounded-2xl bg-surface ring-1 transition-shadow focus-within:ring-2 focus-within:ring-brand-fg ${error ? 'ring-danger' : 'ring-line'}`}>
+              <div className={row}>
+                <label htmlFor="login-email" className={lab}>E-mail</label>
+                <input id="login-email" type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)}
+                  className={field} placeholder="voce@equipe.com" required aria-invalid={!!error} />
+              </div>
+              <div className={`${row} border-t border-line-soft`}>
+                <label htmlFor="login-password" className={lab}>Senha</label>
+                <input id="login-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password}
+                  onChange={(e) => setPassword(e.target.value)} onKeyUp={onKey} onKeyDown={onKey}
+                  className={`${field} ${error ? 'input-error' : ''}`} placeholder="Obrigatória" required aria-invalid={!!error} aria-describedby={capsLock ? 'caps-hint' : undefined} />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'} aria-pressed={showPassword}
+                  className="btn btn-ghost btn-icon -mr-2 shrink-0">
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </motion.div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="login-email" className="label">E-mail de acesso</label>
-            <input id="login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className="input" placeholder="exemplo@admin.com" required />
-          </div>
-          <div>
-            <label htmlFor="login-password" className="label">Senha</label>
-            <div className="relative">
-              <input id="login-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="input pr-11" placeholder="••••••••" required />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-fg-subtle hover:text-fg">
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </div>
-          <button type="submit" disabled={loading} className="btn btn-primary btn-lg w-full">
-            {loading ? 'Autenticando…' : <><LogIn size={16} /> Entrar</>}
-          </button>
-        </form>
-      </motion.main>
+            {capsLock && <p id="caps-hint" className="mt-3 text-sm font-medium text-warn">Caps Lock está ativado.</p>}
+            {error && (
+              <p role="alert" className="mt-3 flex items-start gap-2 text-sm font-medium text-danger">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> <span>{error}</span>
+              </p>
+            )}
+
+            <button type="submit" disabled={loading} className="btn btn-primary btn-lg mt-6 w-full">
+              {loading ? 'Entrando…' : <>Entrar <ArrowRight size={18} aria-hidden="true" /></>}
+            </button>
+          </form>
+
+          <details className="group mt-8 border-t border-line-soft pt-5">
+            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-fg-muted hover:text-fg">
+              Primeiro acesso ou senha perdida?
+              <ChevronDown size={16} className="transition-transform duration-200 group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <p className="mt-3 text-sm text-fg-muted">Peça ao administrador. Você recebe uma senha provisória e cria a sua em seguida.</p>
+          </details>
+        </motion.div>
+      </main>
     </div>
   );
 }

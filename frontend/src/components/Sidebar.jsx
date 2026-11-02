@@ -9,6 +9,7 @@ import { can } from '../config';
 import { useT } from '../lib/i18n.jsx';
 import Avatar from './Avatar';
 import { SPRING_SHEET, EXIT, scrimMotion } from '../lib/motion';
+import Logo from './brand/Logo';
 
 // Apple Design §6: para onde o gesto está INDO (projeção de momento), não onde soltou. d=0.998 → v·0.499 px.
 const projectX = (v) => (v / 1000) * 0.998 / (1 - 0.998);
@@ -50,17 +51,11 @@ export function visibleGroups(role) {
 // Items that show in the bottom tab bar (most used, max 5)
 const BOTTOM_PRIORITY = ['/salao', '/torneios', '/chip-race', '/chat', '/estoque'];
 
-/** Marca: wordmark em Fira Sans bold com o quadrado vermelho (único uso decorativo da cor da marca). */
+/** Marca oficial (conceito 02 · G modular): símbolo + wordmark. */
 function Brand({ size = 'md' }) {
-  return (
-    <span className={`inline-flex items-center gap-2 font-bold tracking-[0.18em] text-fg ${size === 'lg' ? 'text-xl' : 'text-base'}`}>
-      <span className="inline-block h-3 w-3 rounded-sm bg-brand" aria-hidden="true" />
-      GENESIS
-    </span>
-  );
+  return <Logo height={size === 'lg' ? 34 : 28} className="text-fg" />;
 }
 
-/** Grupo do menu: título discreto (12 px, sem cor de marca) + itens; divisória entre grupos. */
 function NavGroup({ title, children }) {
   return (
     <div role="group" aria-label={title} className="border-t border-line-soft py-2 first:border-t-0 first:pt-0">

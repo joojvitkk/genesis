@@ -24,7 +24,7 @@ Implementação: `frontend/src/index.css` (tokens + classes de componente) e `fr
 | **Dois temas de primeira classe** | Claro e escuro com os mesmos tokens. O **Telão** (projeção) é sempre escuro. |
 | **Honestidade de dados** | Rótulo = significado. "Enviado", "No Salão" e "Em jogo" são coisas diferentes (ver §10) e nunca se reaproveitam. |
 
-Marca: wordmark `GENESIS` em Inter bold, espaçamento de letras `0.18em`, precedido de um **quadrado vermelho de 12 px** (`bg-brand rounded-sm`). É o único elemento decorativo do sistema.
+**Marca (conceito 02 · G modular, de "GENESIS — Identidade visual.html"):** quadrado vermelho `#d10a0a` (cantos 6/32) com o **G** em contraste (anel + barra), seguido do wordmark `GENESIS` em Fira Sans Bold, tracking `0,18 em`. Componente `components/brand/Logo.jsx` (`horizontal`, `symbol`, `wordmark`; wordmark em contornos, herda `currentColor`). Área de respeito X = ¼ da altura do símbolo; mínimo: símbolo 16 px, horizontal 124 px. Sem gradiente, sombra, distorção nem mudança de tracking; no fundo escuro o vermelho em texto usa `brand-fg` (`#ff7878`). Ativos em `frontend/public/`: `favicon.svg/.ico`, `favicon-{16,32,48}.png`, `apple-touch-icon.png` (180), `pwa-192x192.png`, `pwa-512x512.png`, `pwa-maskable-512x512.png`, `masked-icon.svg`, `og-image.png` e `brand/*.svg` (horizontal claro/escuro, mono preta/branca/vermelha, wordmark, símbolo, ícones de app). Manifesto PWA: `theme_color #d10a0a`, `background_color #0b0d10`.
 
 ---
 
@@ -32,16 +32,16 @@ Marca: wordmark `GENESIS` em Inter bold, espaçamento de letras `0.18em`, preced
 
 Definidos como variáveis CSS semânticas (`:root` = claro, `.dark` = escuro) e expostos ao Tailwind via `@theme inline`. **Use sempre o nome semântico**; nunca hex solto, `gray-*`/`zinc-*` crus, nem `dark:` para cor de superfície/texto/borda (o token já troca de tema).
 
-### 2.1 Superfícies e bordas (estilo iOS: fundo agrupado + cartões brancos / preto verdadeiro + cartões elevados)
+### 2.1 Superfícies e bordas (paleta da identidade oficial, com a forma Apple: cartões grandes sem borda no claro, campos preenchidos)
 
 | Token (Tailwind) | Claro | Escuro | Uso |
 |---|---|---|---|
-| `canvas` | `#f2f2f7` | `#000000` | Fundo da página (agrupado no claro; preto OLED no escuro) |
-| `surface` | `#ffffff` | `#1c1c1e` | Cartões, painéis, modais |
-| `sunken` | `#f2f2f7` | `#2c2c2e` | **Campos preenchidos**, botão secundário, áreas internas |
-| `raised` | `#e5e5ea` | `#3a3a3c` | Hover/pressionado de item neutro |
-| `line` | `#d9d9de` | `#3a3a3c` | Borda quando necessária (tabela, divisória forte) |
-| `line-soft` | `#ececf0` | `#2c2c2e` | Divisória interna |
+| `canvas` | `#f5f6f8` | `#0b0d10` | Fundo da página (identidade oficial; escuro = TV + operação) |
+| `surface` | `#ffffff` | `#12151a` | Cartões, painéis, modais |
+| `sunken` | `#eef1f5` | `#191e25` | **Campos preenchidos**, botão secundário, áreas internas (surface-2 da identidade) |
+| `raised` | `#e3e7ed` | `#232932` | Hover/pressionado de item neutro |
+| `line` | `#d8dde5` | `#2a3039` | Borda quando necessária (tabela, divisória forte) |
+| `line-soft` | `#e7ebf0` | `#1e232a` | Divisória interna |
 
 **Cartões não têm borda no claro** (sombra suave `--shadow-card`); no escuro a elevação vem da cor da superfície + hairline `line-soft`. Campos são **preenchidos** (`sunken`, sem borda) e ganham anel de foco ao ativar.
 
@@ -49,9 +49,9 @@ Definidos como variáveis CSS semânticas (`:root` = claro, `.dark` = escuro) e 
 
 | Token | Claro | Escuro | Uso |
 |---|---|---|---|
-| `fg` | `#1c1c1e` | `#f5f5f7` | Texto principal, números |
-| `fg-muted` | `#4a4a4f` | `#bcbcc2` | Texto secundário, descrições |
-| `fg-subtle` | `#636366` | `#a6a6ab` | Rótulos, ajuda, metadados (**mínimo permitido**; ≥ 4,5 : 1 também sobre `sunken`) |
+| `fg` | `#0f172a` | `#f1f5f9` | Texto principal, números |
+| `fg-muted` | `#475569` | `#a6b0bf` | Texto secundário, descrições |
+| `fg-subtle` | `#5b6779` | `#8c98ab` | Rótulos, ajuda, metadados (**mínimo permitido**; ≥ 4,5 : 1 também sobre `sunken` e `raised`) |
 
 `text-gray-400/500/600/900` do Tailwind estão remapeados para `fg-subtle/fg-muted/fg`, mas **código novo usa os tokens `fg-*`**.
 
@@ -81,8 +81,8 @@ Contrastes verificados: todo par texto/fundo acima ≥ **4,5 : 1** (WCAG AA). Ao
 
 ### 2.4 Tipografia
 
-- **Inter** (400/500/600/700) — interface (família próxima da SF Pro). **Fira Code** (400–700) — dígitos do relógio, códigos, identificadores (`font-mono`).
-- **Tracking e leading por tamanho** (nunca um valor só): títulos grandes apertam (`h1`/`text-3xl` −0,022 a −0,025 em; `text-2xl` −0,02 em; `.stat-value` −0,03 em) com entrelinha 1,1–1,2; corpo 14 px fica em 0 e 1,5; rótulos em caixa alta abrem (+0,04 a +0,06 em). Entrelinha cai quando o corpo cresce. Interface em **Inter** (substitui a Fira Sans, no espírito de "fonte do sistema" do skill); **Fira Code** só nos dígitos do relógio e códigos.
+- **Fira Sans** (400/500/600/700) — interface (fonte da identidade oficial). **Fira Code** (400–700) — dígitos do relógio, códigos, identificadores (`font-mono`).
+- **Tracking e leading por tamanho** (nunca um valor só): títulos grandes apertam (`h1`/`text-3xl` −0,022 a −0,025 em; `text-2xl` −0,02 em; `.stat-value` −0,03 em) com entrelinha 1,1–1,2; corpo 14 px fica em 0 e 1,5; rótulos em caixa alta abrem (+0,04 a +0,06 em). Entrelinha cai quando o corpo cresce. Interface em **Fira Sans** (identidade oficial); **Fira Code** só nos dígitos do relógio e códigos.
 - Tamanho-base do app: **14 px / 1,5**. Nenhum texto abaixo de **12 px** (`text-xs`). `text-[10px]`, `text-[9px]` etc. estão proibidos.
 - Pesos: 400 corpo · 500 itens de navegação/ênfase leve · **600 rótulos, botões, títulos de cartão** · 700 títulos de página e números de destaque. **`font-black`/`font-extrabold` não existem** no sistema.
 
@@ -328,11 +328,31 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 - **Adicionar Nível:** novo nível = último + 1 com SB/BB/ante/duração do último nível (editáveis); nunca dobra nem volta ao Nível 1 (`lib/blinds.js › nextLevelRow`).
 - **Blinds da fase:** `PhaseBlindsEditor` (`.card`, `.input`, `.btn-primary`) edita SB/BB/ante sem alterar o número do nível.
 
+---
+
+## 12c. Páginas públicas — `/site` e `/login` (Apple Design, sem cara de template)
+
+**Acesso:** quem não está logado cai em `/site` (a página principal); `/login` e qualquer outro endereço pedem o acesso. Logado, `/site` continua acessível com o atalho "Abrir o painel".
+
+**Padrão único das duas páginas** (`components/brand/SiteHeader.jsx` + classes de `index.css`): cabeçalho `.material` de 56 px com a marca à esquerda e poucas ações à direita; escala tipográfica fixa — `.display` (40–80 px, −0,02 em), `.headline` (30–48 px), `.subhead`, `.lede` (17–21 px, `fg-muted`), `.eyebrow` (13 px, `fg-subtle`); seções com 96–144 px de respiro; um só botão primário por tela; movimento por mola (`SPRING_SNAP`), entrada uma vez, `scale` do Telão ao rolar.
+
+**Como evitar a cara de IA/template (regras):**
+- **Nada de grade de cartões com ícone em quadradinho** (3×2, 3×3). Quem explica é a **interface real do produto** (Telão, Tracking Sheet, Chip Race, Livro Razão) reproduzida em HTML, com dados verossímeis e rótulo "Exemplo ilustrativo".
+- **A dor vem como história concreta**, não como lista de adjetivos: "a mesma noite, com e sem sistema" em cinco horários, lado a lado. Sem estatística inventada, sem depoimento falso, sem "revolucione/poderoso/seamless".
+- **Sem** gradiente decorativo, orbes, texto em gradiente, emoji, seção final em cartão centralizado nem tudo centralizado: blocos alinhados à esquerda, títulos que dizem algo específico do produto.
+- **Cor da marca só como sinal** (botão primário, item ativo, destaque do nível 17); o resto é neutro.
+- Conteúdo que depende do produto vem do produto: o menu de cada perfil na seção Perfis usa `NAV_GROUPS` + `PERMISSIONS` (mesma fonte do aplicativo).
+
+**Login (padrão Apple ID):** uma coluna centrada (`max-w-[26rem]`), título grande, **os dois campos num único bloco** (rótulo à esquerda, valor à direita, divisória hairline, anel de foco no bloco), uma ação (`Entrar`, pílula), erro em texto com `role="alert"` e **chacoalho em mola** do bloco, aviso de Caps Lock, mostrar/ocultar senha (`aria-pressed`), ajuda de primeiro acesso sob demanda (`<details>`), foco automático no e-mail.
+
+---
+
 ## 13. Mapa de arquivos
 
 | Arquivo | Papel |
 |---|---|
 | `frontend/src/index.css` | Tokens, tema, base e **todas as classes de componente** |
+| `frontend/src/pages/Landing.jsx` · `pages/Login.jsx` · `components/brand/{Logo,SiteHeader}.jsx` | Páginas públicas (/site, /login) e marca (G modular) |
 | `frontend/src/lib/themeTransition.js` | Onda de troca de tema (View Transitions) |
 | `frontend/src/lib/motion.js` | Molas, saída espelhada, `modalMotion`/`scrimMotion`/`riseMotion` |
 | `frontend/src/components/Sidebar.jsx` | Navegação em grupos (desktop, drawer, barra inferior), marca |

@@ -9,7 +9,7 @@ export default defineConfig({
     react({ jsxImportSource: '/src/lib/i18n-runtime' }),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'masked-icon.svg'],
+      includeAssets: ['favicon.svg', 'favicon.ico', 'favicon-16x16.png', 'favicon-32x32.png', 'apple-touch-icon.png', 'masked-icon.svg', 'og-image.png', 'brand/*.svg'],
       workbox: {
         navigateFallbackDenylist: [/^\/api/, /^\/socket\.io/],
         runtimeCaching: [
@@ -27,24 +27,20 @@ export default defineConfig({
         ],
       },
       manifest: {
-        name: 'GENESIS - Gestão de Torneios',
+        id: '/',
+        name: 'GENESIS — Operação de torneios',
         short_name: 'GENESIS',
-        description: 'Sistema de Gestão de Torneios e Inventário',
-        theme_color: '#E21D1D',
-        background_color: '#0A0A0A',
+        description: 'Relógio de blinds, fichas, fichários, Chip Race e equipe do salão em um só lugar.',
+        lang: 'pt-BR',
+        theme_color: '#d10a0a',
+        background_color: '#0b0d10',
         display: 'standalone',
+        start_url: '/',
         icons: [
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }
         ]
       }
     })

@@ -3,6 +3,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { Maximize2, ArrowLeft } from 'lucide-react';
 import TournamentClock from '../components/TournamentClock';
 import { apiGet } from '../lib/api';
+import Logo from '../components/brand/Logo';
 
 /**
  * Tela de projeção — para abrir na TV do salão. Sem sidebar, fundo escuro.
@@ -48,7 +49,7 @@ export default function Telao() {
         >
           <ArrowLeft size={14} /> Painel
         </Link>
-        <span className="inline-flex items-center gap-2 text-lg font-bold tracking-[0.18em] text-fg">GENESIS</span>
+        <Logo height={32} className="text-fg" />
         <button
           type="button"
           onClick={goFullscreen}
