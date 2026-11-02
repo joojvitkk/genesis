@@ -8,6 +8,10 @@ import {
 import { can } from '../config';
 import { useT } from '../lib/i18n.jsx';
 import Avatar from './Avatar';
+import { SPRING_SHEET, EXIT, scrimMotion } from '../lib/motion';
+
+// Apple Design §6: para onde o gesto está INDO (projeção de momento), não onde soltou. d=0.998 → v·0.499 px.
+const projectX = (v) => (v / 1000) * 0.998 / (1 - 0.998);
 
 // `area` refere-se à matriz de permissões em config.js (PERMISSIONS). Grupos por finalidade operacional; grupo sem item autorizado não aparece.
 export const NAV_GROUPS = [
@@ -19,7 +23,7 @@ export const NAV_GROUPS = [
   ] },
   { key: 'nav.group.operation', items: [
     { to: '/salao',         icon: MonitorPlay,     key: 'nav.salao',       area: 'mesas' },
-    { to: '/chip-race',     icon: Coins,           key: 'nav.chipRace',    area: 'chip_race' },
+    { to: '/chip-race',     icon: Coins,           key: 'nav.chipRace',    short: 'nav.chipRaceShort', area: 'chip_race' },
     { to: '/ocorrencias',   icon: ShieldAlert,     key: 'nav.ocorrencias', area: 'estoque' },
     { to: '/chat',          icon: MessageSquare,   key: 'nav.chat',        area: 'chat' },
   ] },
@@ -60,7 +64,7 @@ function Brand({ size = 'md' }) {
 function NavGroup({ title, children }) {
   return (
     <div role="group" aria-label={title} className="border-t border-line-soft py-2 first:border-t-0 first:pt-0">
-      <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide text-fg-subtle">{title}</p>
+      <p className="nav-group-title pt-1">{title}</p>
       <div className="space-y-0.5">{children}</div>
     </div>
   );
@@ -91,7 +95,7 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme
   return (
     <>
       {/* ─── Desktop ─────────────────────────────────────────── */}
-      <aside className="hidden md:flex fixed left-0 top-0 z-40 h-full w-60 flex-col border-r border-line bg-surface">
+      <aside className="material material-float hidden md:flex fixed left-3 top-3 bottom-3 z-40 w-60 flex-col overflow-hidden rounded-3xl border">
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-line-soft px-4">
           <Brand />
           <button onClick={onToggleTheme} aria-label={themeLabel} title={themeLabel} className="btn btn-ghost btn-icon">
@@ -126,15 +130,17 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme
       <AnimatePresence>
         {isOpen && (
           <>
-            <motion.div key="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}
-              className="md:hidden fixed inset-0 z-40 bg-[var(--overlay)]" onClick={onClose} />
-            <motion.div key="drawer" initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ duration: 0.22, ease: 'easeOut' }}
-              className="md:hidden fixed left-0 top-0 z-50 flex h-full w-72 flex-col border-r border-line bg-surface shadow-2xl" role="dialog" aria-modal="true" aria-label="Menu">
+            <motion.div key="backdrop" {...scrimMotion} className="md:hidden fixed inset-0 z-40 modal-backdrop" onClick={onClose} />
+            {/* gaveta: segue o dedo 1:1, resiste nas bordas (rubber band) e fecha pela projeção de momento; sai pelo mesmo lado por onde entrou */}
+            <motion.div key="drawer" initial={{ x: '-100%' }} animate={{ x: 0, transition: SPRING_SHEET }} exit={{ x: '-100%', transition: EXIT }}
+              drag="x" dragDirectionLock dragConstraints={{ left: -288, right: 0 }} dragElastic={{ left: 0, right: 0.08 }}
+              onDragEnd={(_, info) => { if (info.offset.x + projectX(info.velocity.x) < -120) onClose(); }}
+              className="material-sheet md:hidden fixed left-0 top-0 z-50 flex h-full w-72 flex-col rounded-r-2xl border-l-0" role="dialog" aria-modal="true" aria-label="Menu">
               <div className="flex h-14 shrink-0 items-center justify-between border-b border-line-soft px-4">
                 <Brand />
                 <button onClick={onClose} aria-label="Fechar menu" className="btn btn-ghost btn-icon"><X size={20} /></button>
               </div>
-              <NavLink to="/conta" onClick={onClose} aria-label="Minha conta" className="block shrink-0 border-b border-line-soft px-4 py-3 hover:bg-sunken"><UserBadge user={user} /></NavLink>
+              <NavLink to="/conta" onClick={onClose} draggable={false} aria-label="Minha conta" className="block shrink-0 border-b border-line-soft px-4 py-3 hover:bg-sunken"><UserBadge user={user} /></NavLink>
               <nav aria-label="Principal" className="flex-1 overflow-y-auto px-2 py-2">
                 {groups.map((g) => (
                   <NavGroup key={g.key} title={t(g.key)}>
@@ -142,7 +148,7 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme
                       const Icon = item.icon;
                       const isActive = location.pathname === item.to;
                       return (
-                        <NavLink key={item.to} to={item.to} onClick={onClose} className={`nav-item min-h-11 ${isActive ? 'nav-item-active' : ''}`}>
+                        <NavLink key={item.to} to={item.to} onClick={onClose} draggable={false} className={`nav-item min-h-11 ${isActive ? 'nav-item-active' : ''}`}>
                           <Icon size={18} className="shrink-0" aria-hidden="true" />
                           <span className="flex-1">{t(item.key)}</span>
                           {isActive && <ChevronRight size={14} aria-hidden="true" />}
@@ -162,20 +168,20 @@ export default function Sidebar({ isOpen, onOpen, onClose, onLogout, user, theme
       </AnimatePresence>
 
       {/* ─── Barra inferior mobile (máx. 5 itens, alvo ≥ 44px) ──── */}
-      <nav aria-label="Atalhos" className="md:hidden fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-line bg-surface"
-           style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)', height: 'calc(60px + env(safe-area-inset-bottom, 0px))' }}>
+      <nav aria-label="Atalhos" className="material material-float md:hidden fixed inset-x-3 z-40 flex items-stretch overflow-hidden rounded-3xl border"
+           style={{ bottom: 'calc(10px + env(safe-area-inset-bottom, 0px))', height: '64px' }}>
         {bottomItems.map(item => {
           const Icon = item.icon;
           const isActive = location.pathname === item.to;
           return (
             <NavLink key={item.to} to={item.to} aria-current={isActive ? 'page' : undefined}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium ${isActive ? 'text-brand-fg' : 'text-fg-subtle'}`}>
+              className={`press flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium ${isActive ? 'text-brand-fg' : 'text-fg-subtle'}`}>
               <Icon size={20} aria-hidden="true" />
-              <span>{item.label}</span>
+              <span>{item.short ? t(item.short) : item.label}</span>
             </NavLink>
           );
         })}
-        <button onClick={onOpen} className="flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium text-fg-subtle">
+        <button onClick={onOpen} className="press flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium text-fg-subtle">
           <Menu size={20} aria-hidden="true" />
           <span>Menu</span>
         </button>

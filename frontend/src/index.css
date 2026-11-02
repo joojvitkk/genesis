@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
 /*
  * GENESIS — design tokens (ver DESIGN_SYSTEM.md na raiz do projeto).
@@ -8,15 +8,15 @@
  * Regra: componente novo usa SÓ token semântico; nunca hex solto nem cinza "cru" de Tailwind.
  */
 :root {
-  --canvas: #f5f6f8;        /* fundo da página */
+  --canvas: #f2f2f7;        /* fundo agrupado (estilo iOS) */
   --surface: #ffffff;       /* cartões, painéis, modais */
-  --sunken: #f0f2f5;        /* campos, linhas de tabela alternadas, áreas rebaixadas */
-  --raised: #e6e9ee;        /* hover de item neutro, chip */
-  --line: #d8dde5;          /* borda padrão */
-  --line-soft: #e7ebf0;     /* divisória interna */
-  --fg: #0f172a;            /* texto principal  (17,7:1 sobre surface) */
-  --fg-muted: #475569;      /* texto secundário (7,6:1) */
-  --fg-subtle: #5b6779;     /* rótulos/ajuda    (5,6:1) */
+  --sunken: #f2f2f7;        /* campos preenchidos, áreas internas */
+  --raised: #e5e5ea;        /* hover/pressionado de item neutro */
+  --line: #d9d9de;          /* borda quando necessária */
+  --line-soft: #ececf0;     /* divisória interna */
+  --fg: #1c1c1e;            /* texto principal */
+  --fg-muted: #4a4a4f;      /* texto secundário */
+  --fg-subtle: #636366;     /* rótulos/ajuda (5,9:1 sobre surface) */
   --brand: #d10a0a;         /* preenchimento da marca (texto branco: 5,6:1) */
   --brand-hover: #a80707;
   --brand-fg: #b00808;      /* marca como TEXTO/ícone sobre surface (6,9:1) */
@@ -27,19 +27,29 @@
   --info: #1d4ed8;   --info-soft: #e8efff;
   --scroll-thumb: #c3cad5;
   --scroll-thumb-hover: #8a95a6;
-  --overlay: rgba(15, 23, 42, 0.55);
-  --shadow-overlay: 0 16px 48px rgba(15, 23, 42, 0.18);
+  --on-danger: #ffffff;
+  --on-info: #ffffff;
+  --overlay: rgba(15, 23, 42, 0.42);
+  /* Materiais translúcidos (Apple Design §12): estrutura (sidebar/barras) e camadas flutuantes. Opacidade alta preserva o contraste AA do texto. */
+  --material: rgba(255, 255, 255, 0.72);
+  --material-thick: rgba(255, 255, 255, 0.9);
+  --material-edge: rgba(255, 255, 255, 0.7);
+  --material-line: rgba(15, 23, 42, 0.08);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 12px rgba(0, 0, 0, 0.05);
+  --shadow-overlay: 0 2px 4px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(0, 0, 0, 0.16), 0 40px 80px rgba(0, 0, 0, 0.12);
+  --ease-out: cubic-bezier(0.22, 0.8, 0.2, 1);   /* saída suave */
+  --ease-in: cubic-bezier(0.8, 0.22, 1, 0.2);    /* espelho do ease-out (caminho de volta) */
 }
 .dark {
-  --canvas: #0b0d10;
-  --surface: #12151a;
-  --sunken: #181c22;
-  --raised: #20252d;
-  --line: #2a3039;
-  --line-soft: #1e232a;
-  --fg: #f1f5f9;
-  --fg-muted: #a8b3c4;      /* 8,6:1 sobre surface */
-  --fg-subtle: #8c98ab;     /* 5,9:1 */
+  --canvas: #000000;        /* preto verdadeiro (OLED) */
+  --surface: #1c1c1e;       /* cartões elevados */
+  --sunken: #2c2c2e;
+  --raised: #3a3a3c;
+  --line: #3a3a3c;
+  --line-soft: #2c2c2e;
+  --fg: #f5f5f7;
+  --fg-muted: #bcbcc2;
+  --fg-subtle: #a6a6ab;
   --brand: #d10a0a;
   --brand-hover: #e51a1a;
   --brand-fg: #ff7878;      /* 6,8:1 */
@@ -50,8 +60,15 @@
   --info: #8fb0ff;  --info-soft: #121c33;
   --scroll-thumb: #333b47;
   --scroll-thumb-hover: #566174;
-  --overlay: rgba(0, 0, 0, 0.7);
-  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --on-danger: #2b0b08;
+  --on-info: #0b1633;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --material: rgba(28, 28, 30, 0.72);
+  --material-thick: rgba(28, 28, 30, 0.9);
+  --material-edge: rgba(255, 255, 255, 0.07);
+  --material-line: rgba(255, 255, 255, 0.08);
+  --shadow-card: none;
+  --shadow-overlay: 0 2px 4px rgba(0, 0, 0, 0.5), 0 16px 40px rgba(0, 0, 0, 0.6), 0 40px 80px rgba(0, 0, 0, 0.5);
 }
 
 @theme inline {
@@ -72,6 +89,8 @@
   --color-warn: var(--warn);     --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger); --color-danger-soft: var(--danger-soft);
   --color-info: var(--info);     --color-info-soft: var(--info-soft);
+  --color-on-danger: var(--on-danger); --color-on-info: var(--on-info); --color-on-ok: var(--on-ok); --color-on-warn: var(--on-warn);
+  --color-material: var(--material);
   /* legado: nomes antigos apontam para a marca nova (migrar para brand-*) */
   --color-genesis-red: var(--brand);
   --color-genesis-dark: var(--canvas);
@@ -81,19 +100,197 @@
   --color-gray-600: var(--fg-muted);
   --color-gray-900: var(--fg);
   --color-zinc-950: #0b0d10;
+  /* paleta Tailwind legada remapeada para os tokens semânticos: a cor segue o tema e nunca foge do contraste AA */
+  --color-red-50: var(--danger-soft);
+  --color-red-100: var(--danger-soft);
+  --color-red-200: color-mix(in srgb, var(--danger) 35%, var(--surface));
+  --color-red-300: color-mix(in srgb, var(--danger) 35%, var(--surface));
+  --color-red-400: var(--danger);
+  --color-red-500: var(--danger);
+  --color-red-600: var(--danger);
+  --color-red-700: var(--danger);
+  --color-red-800: var(--danger);
+  --color-red-900: var(--danger);
+  --color-red-950: var(--danger);
+  --color-rose-50: var(--danger-soft);
+  --color-rose-100: var(--danger-soft);
+  --color-rose-200: color-mix(in srgb, var(--danger) 35%, var(--surface));
+  --color-rose-300: color-mix(in srgb, var(--danger) 35%, var(--surface));
+  --color-rose-400: var(--danger);
+  --color-rose-500: var(--danger);
+  --color-rose-600: var(--danger);
+  --color-rose-700: var(--danger);
+  --color-rose-800: var(--danger);
+  --color-rose-900: var(--danger);
+  --color-rose-950: var(--danger);
+  --color-emerald-50: var(--ok-soft);
+  --color-emerald-100: var(--ok-soft);
+  --color-emerald-200: color-mix(in srgb, var(--ok) 35%, var(--surface));
+  --color-emerald-300: color-mix(in srgb, var(--ok) 35%, var(--surface));
+  --color-emerald-400: var(--ok);
+  --color-emerald-500: var(--ok);
+  --color-emerald-600: var(--ok);
+  --color-emerald-700: var(--ok);
+  --color-emerald-800: var(--ok);
+  --color-emerald-900: var(--ok);
+  --color-emerald-950: var(--ok);
+  --color-green-50: var(--ok-soft);
+  --color-green-100: var(--ok-soft);
+  --color-green-200: color-mix(in srgb, var(--ok) 35%, var(--surface));
+  --color-green-300: color-mix(in srgb, var(--ok) 35%, var(--surface));
+  --color-green-400: var(--ok);
+  --color-green-500: var(--ok);
+  --color-green-600: var(--ok);
+  --color-green-700: var(--ok);
+  --color-green-800: var(--ok);
+  --color-green-900: var(--ok);
+  --color-green-950: var(--ok);
+  --color-teal-50: var(--ok-soft);
+  --color-teal-100: var(--ok-soft);
+  --color-teal-200: color-mix(in srgb, var(--ok) 35%, var(--surface));
+  --color-teal-300: color-mix(in srgb, var(--ok) 35%, var(--surface));
+  --color-teal-400: var(--ok);
+  --color-teal-500: var(--ok);
+  --color-teal-600: var(--ok);
+  --color-teal-700: var(--ok);
+  --color-teal-800: var(--ok);
+  --color-teal-900: var(--ok);
+  --color-teal-950: var(--ok);
+  --color-amber-50: var(--warn-soft);
+  --color-amber-100: var(--warn-soft);
+  --color-amber-200: color-mix(in srgb, var(--warn) 35%, var(--surface));
+  --color-amber-300: color-mix(in srgb, var(--warn) 35%, var(--surface));
+  --color-amber-400: var(--warn);
+  --color-amber-500: var(--warn);
+  --color-amber-600: var(--warn);
+  --color-amber-700: var(--warn);
+  --color-amber-800: var(--warn);
+  --color-amber-900: var(--warn);
+  --color-amber-950: var(--warn);
+  --color-yellow-50: var(--warn-soft);
+  --color-yellow-100: var(--warn-soft);
+  --color-yellow-200: color-mix(in srgb, var(--warn) 35%, var(--surface));
+  --color-yellow-300: color-mix(in srgb, var(--warn) 35%, var(--surface));
+  --color-yellow-400: var(--warn);
+  --color-yellow-500: var(--warn);
+  --color-yellow-600: var(--warn);
+  --color-yellow-700: var(--warn);
+  --color-yellow-800: var(--warn);
+  --color-yellow-900: var(--warn);
+  --color-yellow-950: var(--warn);
+  --color-orange-50: var(--warn-soft);
+  --color-orange-100: var(--warn-soft);
+  --color-orange-200: color-mix(in srgb, var(--warn) 35%, var(--surface));
+  --color-orange-300: color-mix(in srgb, var(--warn) 35%, var(--surface));
+  --color-orange-400: var(--warn);
+  --color-orange-500: var(--warn);
+  --color-orange-600: var(--warn);
+  --color-orange-700: var(--warn);
+  --color-orange-800: var(--warn);
+  --color-orange-900: var(--warn);
+  --color-orange-950: var(--warn);
+  --color-blue-50: var(--info-soft);
+  --color-blue-100: var(--info-soft);
+  --color-blue-200: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-blue-300: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-blue-400: var(--info);
+  --color-blue-500: var(--info);
+  --color-blue-600: var(--info);
+  --color-blue-700: var(--info);
+  --color-blue-800: var(--info);
+  --color-blue-900: var(--info);
+  --color-blue-950: var(--info);
+  --color-sky-50: var(--info-soft);
+  --color-sky-100: var(--info-soft);
+  --color-sky-200: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-sky-300: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-sky-400: var(--info);
+  --color-sky-500: var(--info);
+  --color-sky-600: var(--info);
+  --color-sky-700: var(--info);
+  --color-sky-800: var(--info);
+  --color-sky-900: var(--info);
+  --color-sky-950: var(--info);
+  --color-indigo-50: var(--info-soft);
+  --color-indigo-100: var(--info-soft);
+  --color-indigo-200: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-indigo-300: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-indigo-400: var(--info);
+  --color-indigo-500: var(--info);
+  --color-indigo-600: var(--info);
+  --color-indigo-700: var(--info);
+  --color-indigo-800: var(--info);
+  --color-indigo-900: var(--info);
+  --color-indigo-950: var(--info);
+  --color-cyan-50: var(--info-soft);
+  --color-cyan-100: var(--info-soft);
+  --color-cyan-200: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-cyan-300: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-cyan-400: var(--info);
+  --color-cyan-500: var(--info);
+  --color-cyan-600: var(--info);
+  --color-cyan-700: var(--info);
+  --color-cyan-800: var(--info);
+  --color-cyan-900: var(--info);
+  --color-cyan-950: var(--info);
+  --color-purple-50: var(--info-soft);
+  --color-purple-100: var(--info-soft);
+  --color-purple-200: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-purple-300: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-purple-400: var(--info);
+  --color-purple-500: var(--info);
+  --color-purple-600: var(--info);
+  --color-purple-700: var(--info);
+  --color-purple-800: var(--info);
+  --color-purple-900: var(--info);
+  --color-purple-950: var(--info);
+  --color-violet-50: var(--info-soft);
+  --color-violet-100: var(--info-soft);
+  --color-violet-200: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-violet-300: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-violet-400: var(--info);
+  --color-violet-500: var(--info);
+  --color-violet-600: var(--info);
+  --color-violet-700: var(--info);
+  --color-violet-800: var(--info);
+  --color-violet-900: var(--info);
+  --color-violet-950: var(--info);
+  --color-fuchsia-50: var(--info-soft);
+  --color-fuchsia-100: var(--info-soft);
+  --color-fuchsia-200: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-fuchsia-300: color-mix(in srgb, var(--info) 35%, var(--surface));
+  --color-fuchsia-400: var(--info);
+  --color-fuchsia-500: var(--info);
+  --color-fuchsia-600: var(--info);
+  --color-fuchsia-700: var(--info);
+  --color-fuchsia-800: var(--info);
+  --color-fuchsia-900: var(--info);
+  --color-fuchsia-950: var(--info);
+  --color-gray-50: var(--sunken);
+  --color-gray-100: var(--sunken);
+  --color-gray-200: var(--raised);
+  --color-gray-300: var(--fg-subtle);
+  --color-gray-700: var(--fg-muted);
+  --color-gray-800: var(--fg);
+  --color-gray-950: var(--fg);
+  --color-zinc-50: var(--sunken);
+  --color-zinc-100: var(--sunken);
+  --color-zinc-200: var(--raised);
+  --color-zinc-300: var(--fg-subtle);
+
   --color-zinc-900: #181c22;
   --color-zinc-800: #232932;
   --color-zinc-700: #323945;
 }
 @theme {
-  --font-sans: 'Fira Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, 'SF Pro Text', 'Segoe UI', sans-serif;
   --font-mono: 'Fira Code', ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  /* raios: 8 controles · 12 cartões/modais (a escala antiga 2xl/3xl/[32px]/[40px] colapsa aqui) */
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.5rem;
-  --radius-2xl: 0.75rem;
-  --radius-3xl: 0.75rem;
+  /* raios: 12 campos · cápsula nos botões · 20 cartões · 24 modais (a escala antiga 2xl/3xl/[32px]/[40px] colapsa aqui) */
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.5rem;
   /* sombra só para camadas flutuantes; superfícies são planas (borda fina) */
   --shadow-sm: none;
   --shadow-md: none;
@@ -122,20 +319,21 @@
   /* Impressão / "Salvar como PDF": só o conteúdo, sem navegação */
   @media print {
     aside, header.md\:hidden, nav.md\:hidden, .no-print { display: none !important; }
-    .md\:ml-60 { margin-left: 0 !important; }
+    .md\:ml-\[16\.5rem\] { margin-left: 0 !important; }
     body { background: #fff !important; color: #000 !important; }
     * { box-shadow: none !important; }
     main { padding: 0 !important; }
   }
 
-  /* Respeita "reduzir movimento" do sistema */
+  /* Reduzir movimento: sem deslocamento/escala/mola; mantém só mudanças de opacidade e cor (feedback que ajuda a entender). */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+    .btn:active, .nav-item:active, .press:active { transform: none !important; }
+    .modal-panel, .material-sheet { transform: none !important; }
   }
 
   html {
@@ -149,7 +347,7 @@
     line-height: 1.5;
     background-color: var(--canvas);
     color: var(--fg);
-    transition: background-color 0.2s, color 0.2s;
+    transition: background-color 0.3s var(--ease-out), color 0.3s var(--ease-out); /* troca de tema suave, sem salto de brilho */
     -webkit-font-smoothing: antialiased;
     overscroll-behavior: none;
     padding-bottom: env(safe-area-inset-bottom, 0);
@@ -165,44 +363,63 @@
   html { scrollbar-gutter: stable; }
 
   button, [role="button"], select, summary, label[for] { cursor: pointer; }
+  /* resposta imediata ao toque em qualquer botão (Apple Design §1): escala no pointer-down, sem esperar o soltar */
+  button { transition: transform .1s var(--ease-out); touch-action: manipulation; }
+  button:not(:disabled):not(.no-press):active { transform: scale(0.975); }
   button:disabled { cursor: not-allowed; }
   input[type="number"] { font-variant-numeric: tabular-nums; }
   .tabular-nums { font-variant-numeric: tabular-nums; }
   ::selection { background: var(--brand); color: #fff; }
+
+  /* Tipografia com tracking por tamanho (Apple Design §15): títulos grandes apertam, texto pequeno afrouxa levemente. */
+  h1 { letter-spacing: -0.022em; line-height: 1.15; }
+  h2 { letter-spacing: -0.016em; line-height: 1.2; }
+  h3 { letter-spacing: -0.01em; line-height: 1.3; }
+  .text-3xl, .text-4xl { letter-spacing: -0.025em; line-height: 1.1; }
+  .text-2xl { letter-spacing: -0.02em; line-height: 1.2; }
+  .text-xl { letter-spacing: -0.012em; }
 }
 
 @layer components {
   /* ── Superfícies ─────────────────────────────────────────────── */
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 0.75rem; padding: 1.25rem; }
+  .card { background: var(--surface); border: 1px solid transparent; border-radius: 1.25rem; padding: 1.25rem; box-shadow: var(--shadow-card); }
+  .dark .card { border-color: var(--line-soft); }
+  .press { transition: transform .1s var(--ease-out), background-color .15s var(--ease-out); }
+  .press:active { transform: scale(0.985); }
   .card-flush { padding: 0; overflow: hidden; }
   .card-title { font-size: 1rem; font-weight: 600; color: var(--fg); letter-spacing: -0.005em; }
   .card-hint { font-size: 0.75rem; color: var(--fg-subtle); margin-top: 0.125rem; }
-  .panel-sunken { background: var(--sunken); border: 1px solid var(--line-soft); border-radius: 0.5rem; }
+  .panel-sunken { background: var(--sunken); border: 0; border-radius: 0.875rem; }
 
   /* ── Tipografia ──────────────────────────────────────────────── */
-  .page-title { font-size: 1.5rem; line-height: 2rem; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }
-  .page-sub { font-size: 0.875rem; color: var(--fg-muted); margin-top: 0.125rem; }
+  .page-title { font-size: 2rem; line-height: 2.25rem; font-weight: 700; letter-spacing: -0.03em; color: var(--fg); }
+  .page-sub { font-size: 0.9375rem; color: var(--fg-muted); margin-top: 0.25rem; }
   .section-title { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-subtle); }
   .label { display: block; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-subtle); margin-bottom: 0.375rem; }
   .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
-  .stat-value { font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .stat-value { font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; letter-spacing: -0.03em; color: var(--fg); font-variant-numeric: tabular-nums; }
 
   /* ── Botões (altura mínima 40px; .btn-lg = 44px para toque) ──── */
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.5rem; padding: 0 1rem;
-         border-radius: 0.5rem; border: 1px solid transparent; font-size: 0.875rem; font-weight: 600; line-height: 1;
-         transition: background-color .15s, border-color .15s, color .15s, opacity .15s; white-space: nowrap; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.5rem; padding: 0 1.125rem;
+         border-radius: 9999px; border: 1px solid transparent; font-size: 0.875rem; font-weight: 600; line-height: 1;
+         transition: background-color .15s var(--ease-out), border-color .15s var(--ease-out), color .15s var(--ease-out), opacity .15s, transform .1s var(--ease-out);
+         white-space: nowrap; user-select: none; touch-action: manipulation; }
+  /* feedback no PRESS (pointer-down), instantâneo — não espera o soltar */
+  .btn:active:not(:disabled) { transform: scale(0.97); transition-duration: .06s; }
   .btn:disabled { opacity: 0.45; }
   .btn-primary { background: var(--brand); color: #fff; }
   .btn-primary:hover:not(:disabled) { background: var(--brand-hover); }
-  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--line); }
-  .btn-secondary:hover:not(:disabled) { background: var(--sunken); }
+  .btn-secondary { background: var(--sunken); color: var(--fg); }
+  .btn-secondary:hover:not(:disabled) { background: var(--raised); }
   .btn-ghost { background: transparent; color: var(--fg-muted); }
   .btn-ghost:hover:not(:disabled) { background: var(--sunken); color: var(--fg); }
-  .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
-  .btn-danger:hover:not(:disabled) { background: var(--danger-soft); }
+  .btn-danger { background: var(--danger-soft); color: var(--danger); }
+  .btn-danger:hover:not(:disabled) { filter: brightness(0.96); }
+  .btn-danger-solid { background: var(--danger); color: var(--on-danger); }
+  .btn-danger-solid:hover:not(:disabled) { filter: brightness(1.08); }
   .btn-success { background: var(--ok); color: var(--on-ok); }
   .btn-warn { background: var(--warn); color: var(--on-warn); }
-  .btn-info { background: var(--info); color: #fff; }
+  .btn-info { background: var(--info); color: var(--on-info); }
   .btn-success:hover:not(:disabled), .btn-warn:hover:not(:disabled), .btn-info:hover:not(:disabled) { filter: brightness(1.1); }
   .btn-neutral { background: var(--fg); color: var(--canvas); }
   .btn-neutral:hover:not(:disabled) { filter: brightness(1.15); }
@@ -211,12 +428,12 @@
   .btn-icon { min-height: 2.25rem; min-width: 2.25rem; padding: 0; }
 
   /* ── Campos ──────────────────────────────────────────────────── */
-  .input { width: 100%; min-height: 2.5rem; background: var(--surface); color: var(--fg); border: 1px solid var(--line);
-           border-radius: 0.5rem; padding: 0 0.75rem; font-size: 0.875rem; transition: border-color .15s, box-shadow .15s; }
+  .input { width: 100%; min-height: 2.75rem; background: var(--sunken); color: var(--fg); border: 1px solid transparent;
+           border-radius: 0.875rem; padding: 0 0.875rem; font-size: 0.9375rem; transition: border-color .15s var(--ease-out), box-shadow .15s var(--ease-out), background-color .15s; }
   .input::placeholder { color: var(--fg-subtle); }
-  .input:hover { border-color: var(--fg-subtle); }
-  .input:focus { outline: none; border-color: var(--brand-fg); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent); }
-  .input:disabled { background: var(--sunken); color: var(--fg-subtle); }
+  .input:hover { background: var(--raised); }
+  .input:focus { outline: none; background: var(--surface); border-color: var(--brand-fg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 20%, transparent); }
+  .input:disabled { background: var(--sunken); color: var(--fg-subtle); opacity: .7; }
   .input-error { border-color: var(--danger); }
   .field-help { font-size: 0.75rem; color: var(--fg-subtle); margin-top: 0.25rem; }
   .field-error { font-size: 0.75rem; color: var(--danger); margin-top: 0.25rem; font-weight: 500; }
@@ -232,12 +449,36 @@
   .badge-brand { background: var(--brand-soft); color: var(--brand-fg); }
   .dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: currentColor; display: inline-block; }
 
-  /* ── Camadas flutuantes ──────────────────────────────────────── */
-  .modal-backdrop { position: absolute; inset: 0; background: var(--overlay); }
-  .modal-panel { position: relative; width: 100%; max-height: 92vh; overflow-y: auto; background: var(--surface); color: var(--fg);
-                 border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: var(--shadow-overlay); }
+  /* ── Materiais e camadas flutuantes (Apple Design §12) ───────────
+     .material = estrutura (sidebar, barras) · .material-sheet = camada flutuante (modal, drawer, menu): mais espessa, blur e sombra maiores.
+     Texto nunca sobre translúcido fraco: opacidade alta + cor em camada sólida. */
+  .material { background: var(--material); border-color: var(--material-line);
+              -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); }
+  .material-sheet { background: var(--material-thick); border: 1px solid var(--material-line); box-shadow: var(--shadow-overlay), inset 0 1px 0 var(--material-edge);
+                    -webkit-backdrop-filter: blur(32px) saturate(180%); backdrop-filter: blur(32px) saturate(180%); }
+  .material-float { box-shadow: var(--shadow-overlay); }
+  .modal-backdrop { position: absolute; inset: 0; background: var(--overlay); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+  .modal-panel { position: relative; width: 100%; max-height: 92vh; overflow-y: auto; color: var(--fg); border-radius: 1.5rem;
+                 background: var(--material-thick); border: 1px solid var(--material-line); box-shadow: var(--shadow-overlay), inset 0 1px 0 var(--material-edge);
+                 -webkit-backdrop-filter: blur(32px) saturate(180%); backdrop-filter: blur(32px) saturate(180%); }
   .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--line-soft); }
   .modal-foot { display: flex; gap: 0.75rem; justify-content: flex-end; padding: 0.875rem 1.25rem; border-top: 1px solid var(--line-soft); }
+  /* borda de rolagem: em vez de divisória dura sob a barra fixa, um degradê de fusão onde o conteúdo encontra o chrome */
+  .scroll-edge-top { position: relative; }
+  .scroll-edge-top::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1.25rem; height: 1.25rem; pointer-events: none;
+                            background: linear-gradient(to bottom, var(--material), transparent); }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .material, .material-sheet, .modal-panel { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .modal-backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+  @media (prefers-contrast: more) {
+    .material, .material-sheet, .modal-panel { background: var(--surface); border-color: var(--fg-subtle); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .card, .input, .btn-secondary { border-color: var(--fg-subtle); }
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .material, .material-sheet, .modal-panel { background: var(--surface); }
+  }
 
   /* ── Tabelas densas ──────────────────────────────────────────── */
   .table-dense { width: 100%; font-size: 0.875rem; border-collapse: collapse; }
@@ -248,11 +489,16 @@
   .table-dense .num-col { text-align: right; }
 
   /* ── Navegação ───────────────────────────────────────────────── */
-  .nav-item { display: flex; align-items: center; gap: 0.75rem; min-height: 2.5rem; padding: 0 0.75rem; border-radius: 0.5rem;
-              font-size: 0.875rem; font-weight: 500; color: var(--fg-muted); transition: background-color .15s, color .15s; }
+  .nav-item { display: flex; align-items: center; gap: 0.75rem; min-height: 2.75rem; padding: 0 0.875rem; border-radius: 0.875rem;
+              font-size: 0.875rem; font-weight: 500; color: var(--fg-muted);
+              transition: background-color .15s var(--ease-out), color .15s var(--ease-out), transform .1s var(--ease-out); touch-action: manipulation; }
   .nav-item:hover { background: var(--sunken); color: var(--fg); }
-  .nav-item-active { background: var(--brand-soft); color: var(--brand-fg); font-weight: 600; box-shadow: inset 3px 0 0 var(--brand); }
+  .nav-item:active { transform: scale(0.98); background: var(--raised); }
+  /* ativo: pílula suave (sem barra lateral dura) — cor de marca só em texto/ícone e fundo suave */
+  .nav-item-active { background: var(--brand-soft); color: var(--brand-fg); font-weight: 600; }
   .nav-item-active:hover { background: var(--brand-soft); color: var(--brand-fg); }
+  @media (pointer: fine) { .nav-item { min-height: 2.375rem; } }   /* ponteiro preciso: 36 px; toque mantém 40–44 */
+  .nav-group-title { padding: 0 0.875rem 0.25rem; font-size: 0.75rem; font-weight: 600; letter-spacing: 0; color: var(--fg-subtle); }
 
   /* ── Utilitários ─────────────────────────────────────────────── */
   .scroll-x { overflow-x: auto; scrollbar-width: none; }

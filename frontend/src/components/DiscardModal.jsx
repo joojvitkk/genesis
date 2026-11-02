@@ -85,7 +85,7 @@ export default function DiscardModal({ tournamentId, sessionId, rows, allocation
         {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-bold text-red-600 dark:bg-red-500/10">{error}</p>}
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="rounded-xl px-4 py-2.5 text-xs font-bold text-fg-muted hover:bg-sunken">Cancelar</button>
-          <button onClick={submit} disabled={busy || !chips.length} className="rounded-xl bg-red-500 px-6 py-2.5 text-xs font-bold text-white hover:bg-red-600 disabled:opacity-40">{busy ? 'Registrando…' : 'Registrar descarte'}</button>
+          <button onClick={submit} disabled={busy || !chips.length} className="btn btn-danger-solid">{busy ? 'Registrando…' : 'Registrar descarte'}</button>
         </div>
       </div>
     </div>

@@ -324,7 +324,7 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><PackageMinus size={18} className="text-red-500" /> Descarte de stack</h3>
           <p className="mb-4 text-xs text-fg-muted">O stack foi abandonado: as fichas saem do jogo e voltam ao fichário na hora. Reduz o esperado em jogo.</p>
-          <button onClick={() => setDiscarding(true)} disabled={allocations.length === 0} className="rounded-xl bg-red-500 px-6 py-3 text-xs font-bold text-white hover:bg-red-600 disabled:opacity-40">Descartar stack</button>
+          <button onClick={() => setDiscarding(true)} disabled={allocations.length === 0} className="btn btn-danger-solid">Descartar stack</button>
         </section>
       )}
 

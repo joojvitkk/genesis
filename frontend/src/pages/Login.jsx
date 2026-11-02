@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { LogIn, Eye, EyeOff, Sun, Moon } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { apiPost } from '../lib/api';
+import { riseMotion } from '../lib/motion';
 
 export default function Login({ onLogin, theme, onToggleTheme }) {
   const [email, setEmail] = useState('');
@@ -30,7 +32,7 @@ export default function Login({ onLogin, theme, onToggleTheme }) {
         {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
       </button>
 
-      <main className="card w-full max-w-sm p-8">
+      <motion.main {...riseMotion} className="card material-sheet w-full max-w-sm p-8">
         <div className="mb-8">
           <span className="inline-flex items-center gap-2 text-2xl font-bold tracking-[0.18em] text-fg">
             <span className="inline-block h-4 w-4 rounded-sm bg-brand" aria-hidden="true" />
@@ -60,7 +62,7 @@ export default function Login({ onLogin, theme, onToggleTheme }) {
             {loading ? 'Autenticando…' : <><LogIn size={16} /> Entrar</>}
           </button>
         </form>
-      </main>
+      </motion.main>
     </div>
   );
 }

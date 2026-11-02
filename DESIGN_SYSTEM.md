@@ -1,7 +1,9 @@
 # GENESIS — Design System
 
 Fonte única de verdade da identidade visual, de UX e de idioma do Genesis. **Toda alteração de interface deve seguir este documento.**
-Implementação: `frontend/src/index.css` (tokens + classes de componente). Stack: React 19 · Tailwind CSS v4 · lucide-react · framer-motion.
+Implementação: `frontend/src/index.css` (tokens + classes de componente) e `frontend/src/lib/motion.js` (movimento). Stack: React 19 · Tailwind CSS v4 · lucide-react · framer-motion.
+
+> **Base de design (v3 — Apple Design):** a interface segue os princípios do skill `apple-design` (WWDC *Designing Fluid Interfaces*, *Details of UI Typography*, *Principles of Great Design*), traduzidos para a web: **resposta imediata ao toque, movimento por molas interrompíveis, materiais translúcidos só na estrutura e em camadas flutuantes, tracking por tamanho, e três modos de acessibilidade (movimento, transparência, contraste)**. As regras de projeto continuam valendo: tokens semânticos, texto ≥ 12 px, contraste AA, sem dinheiro, sem emoji.
 
 > Regra do projeto (CLAUDE.md): **nada de dinheiro na interface** — sem R$, buy-in monetário, premiação ou rake. Fichas têm só **valor nominal**.
 
@@ -13,14 +15,16 @@ Implementação: `frontend/src/index.css` (tokens + classes de componente). Stac
 
 | Princípio | O que significa na prática |
 |---|---|
-| **Estilo** | Minimalismo / Swiss: grade, hierarquia tipográfica clara, superfícies planas com borda fina, muito contraste, quase nenhuma sombra. |
+| **Estilo** | Minimalismo / Swiss com polimento Apple: grade, hierarquia tipográfica clara, superfícies de conteúdo planas com borda fina, **materiais translúcidos apenas em sidebar, barras e camadas flutuantes**, muito contraste. |
+| **Resposta** | O feedback acontece no **pressionar** (pointer-down), não ao soltar: botões e itens de menu encolhem a 97 % na hora (`.btn:active`, `.nav-item:active`, `button:active`). Nada na entrada do usuário espera animação terminar. |
+| **Movimento físico** | Molas criticamente amortecidas (sem quique) por padrão; quique só quando o gesto tinha momento. Tudo é interrompível; saída pelo mesmo caminho da entrada. |
 | **Números são o produto** | Quantidades de fichas, jogadores e saldos usam algarismos tabulares (`.num`, `tabular-nums`) e ficam alinhados à direita nas tabelas. |
 | **Cor é sinal, não enfeite** | Vermelho da marca só em ação primária, item ativo da navegação e foco. Status usa tokens semânticos (ok/warn/danger/info) **sempre acompanhados de texto**. |
 | **Densidade operacional** | Tabelas e cartões compactos (texto 14 px). Alvos de toque ≥ 40 px (44 px no mobile). |
 | **Dois temas de primeira classe** | Claro e escuro com os mesmos tokens. O **Telão** (projeção) é sempre escuro. |
 | **Honestidade de dados** | Rótulo = significado. "Enviado", "No Salão" e "Em jogo" são coisas diferentes (ver §10) e nunca se reaproveitam. |
 
-Marca: wordmark `GENESIS` em Fira Sans bold, espaçamento de letras `0.18em`, precedido de um **quadrado vermelho de 12 px** (`bg-brand rounded-sm`). É o único elemento decorativo do sistema.
+Marca: wordmark `GENESIS` em Inter bold, espaçamento de letras `0.18em`, precedido de um **quadrado vermelho de 12 px** (`bg-brand rounded-sm`). É o único elemento decorativo do sistema.
 
 ---
 
@@ -28,24 +32,26 @@ Marca: wordmark `GENESIS` em Fira Sans bold, espaçamento de letras `0.18em`, pr
 
 Definidos como variáveis CSS semânticas (`:root` = claro, `.dark` = escuro) e expostos ao Tailwind via `@theme inline`. **Use sempre o nome semântico**; nunca hex solto, `gray-*`/`zinc-*` crus, nem `dark:` para cor de superfície/texto/borda (o token já troca de tema).
 
-### 2.1 Superfícies e bordas
+### 2.1 Superfícies e bordas (estilo iOS: fundo agrupado + cartões brancos / preto verdadeiro + cartões elevados)
 
 | Token (Tailwind) | Claro | Escuro | Uso |
 |---|---|---|---|
-| `canvas` | `#f5f6f8` | `#0b0d10` | Fundo da página |
-| `surface` | `#ffffff` | `#12151a` | Cartões, painéis, modais, sidebar |
-| `sunken` | `#f0f2f5` | `#181c22` | Campos, estatísticas internas, área rebaixada, hover de linha |
-| `raised` | `#e6e9ee` | `#20252d` | Chip neutro, hover de item neutro |
-| `line` | `#d8dde5` | `#2a3039` | Borda padrão (cartão, campo, divisória forte) |
-| `line-soft` | `#e7ebf0` | `#1e232a` | Divisória interna (linhas de tabela/lista) |
+| `canvas` | `#f2f2f7` | `#000000` | Fundo da página (agrupado no claro; preto OLED no escuro) |
+| `surface` | `#ffffff` | `#1c1c1e` | Cartões, painéis, modais |
+| `sunken` | `#f2f2f7` | `#2c2c2e` | **Campos preenchidos**, botão secundário, áreas internas |
+| `raised` | `#e5e5ea` | `#3a3a3c` | Hover/pressionado de item neutro |
+| `line` | `#d9d9de` | `#3a3a3c` | Borda quando necessária (tabela, divisória forte) |
+| `line-soft` | `#ececf0` | `#2c2c2e` | Divisória interna |
+
+**Cartões não têm borda no claro** (sombra suave `--shadow-card`); no escuro a elevação vem da cor da superfície + hairline `line-soft`. Campos são **preenchidos** (`sunken`, sem borda) e ganham anel de foco ao ativar.
 
 ### 2.2 Texto
 
-| Token | Claro | Escuro | Contraste sobre `surface` | Uso |
-|---|---|---|---|---|
-| `fg` | `#0f172a` | `#f1f5f9` | 17,9 : 1 / 16,7 : 1 | Texto principal, números |
-| `fg-muted` | `#475569` | `#a8b3c4` | 7,6 : 1 / 8,6 : 1 | Texto secundário, descrições |
-| `fg-subtle` | `#5b6779` | `#8c98ab` | 5,7 : 1 / 6,3 : 1 | Rótulos, ajuda, metadados (**mínimo permitido** para texto) |
+| Token | Claro | Escuro | Uso |
+|---|---|---|---|
+| `fg` | `#1c1c1e` | `#f5f5f7` | Texto principal, números |
+| `fg-muted` | `#4a4a4f` | `#bcbcc2` | Texto secundário, descrições |
+| `fg-subtle` | `#636366` | `#a6a6ab` | Rótulos, ajuda, metadados (**mínimo permitido**; ≥ 4,5 : 1 também sobre `sunken`) |
 
 `text-gray-400/500/600/900` do Tailwind estão remapeados para `fg-subtle/fg-muted/fg`, mas **código novo usa os tokens `fg-*`**.
 
@@ -62,20 +68,27 @@ Definidos como variáveis CSS semânticas (`:root` = claro, `.dark` = escuro) e 
 | `danger` / `danger-soft` | `#b42318` / `#fdeceb` | `#ff8a80` / `#2b1413` | Erro, destrutivo, divergência |
 | `info` / `info-soft` | `#1d4ed8` / `#e8efff` | `#8fb0ff` / `#121c33` | Agendado, informativo |
 | `on-ok`, `on-warn` | `#fff` | `#04210f`, `#1f1403` | Texto sobre botão preenchido `ok`/`warn` (garante AA nos dois temas) |
+| `on-danger`, `on-info` | `#fff` | `#2b0b08`, `#0b1633` | Texto sobre preenchimento `danger`/`info` (`.btn-danger-solid`, `.btn-info`, avatar de perfil, mensagem urgente) |
+| `material` / `material-thick` | `rgba(255,255,255,.78/.9)` | `rgba(18,21,26,.78/.9)` | Fundo translúcido de estrutura (sidebar, barras) e de camada flutuante (modal, drawer, toast). Opacidade alta preserva o contraste do texto |
+| `material-edge` / `material-line` | `rgba(255,255,255,.7)` / `rgba(15,23,42,.08)` | `rgba(255,255,255,.07)` / `rgba(255,255,255,.08)` | Brilho de topo (luz na borda) e hairline do material |
+| `ease-out` / `ease-in` | `cubic-bezier(.22,.8,.2,1)` / espelho | idem | Curvas espelhadas: a volta usa a inversa da ida |
 | `scroll-thumb` / `scroll-thumb-hover` | `#c3cad5` / `#8a95a6` | `#333b47` / `#566174` | Barra de rolagem (fina, 10 px, trilho transparente, cantos arredondados) |
 | `overlay` | `rgba(15,23,42,.55)` | `rgba(0,0,0,.7)` | Fundo de modal/drawer (`bg-[var(--overlay)]`) |
 
 Contrastes verificados: todo par texto/fundo acima ≥ **4,5 : 1** (WCAG AA). Ao criar combinação nova, calcule antes.
 
+**Paleta Tailwind legada → tokens.** `red/rose`→`danger`, `emerald/green/teal`→`ok`, `amber/yellow/orange`→`warn`, `blue/sky/indigo/cyan/purple/violet`→`info` (tons 50–100 = `*-soft`; 200–300 = mistura 35 % com `surface`; 400–950 = a cor do token) e `gray/zinc` → `sunken/raised/fg-*`. Assim classes antigas (`text-red-500`, `bg-amber-500/10`) já seguem o tema e o contraste. **Preenchimento sólido com texto** nunca usa `bg-red-500 text-white`: use `.btn-danger-solid`, `.btn-success`, `.btn-info`, `.btn-warn` ou `bg-danger text-on-danger`.
+
 ### 2.4 Tipografia
 
-- **Fira Sans** (400/500/600/700) — interface. **Fira Code** (400–700) — dígitos do relógio, códigos, identificadores (`font-mono`).
+- **Inter** (400/500/600/700) — interface (família próxima da SF Pro). **Fira Code** (400–700) — dígitos do relógio, códigos, identificadores (`font-mono`).
+- **Tracking e leading por tamanho** (nunca um valor só): títulos grandes apertam (`h1`/`text-3xl` −0,022 a −0,025 em; `text-2xl` −0,02 em; `.stat-value` −0,03 em) com entrelinha 1,1–1,2; corpo 14 px fica em 0 e 1,5; rótulos em caixa alta abrem (+0,04 a +0,06 em). Entrelinha cai quando o corpo cresce. Interface em **Inter** (substitui a Fira Sans, no espírito de "fonte do sistema" do skill); **Fira Code** só nos dígitos do relógio e códigos.
 - Tamanho-base do app: **14 px / 1,5**. Nenhum texto abaixo de **12 px** (`text-xs`). `text-[10px]`, `text-[9px]` etc. estão proibidos.
 - Pesos: 400 corpo · 500 itens de navegação/ênfase leve · **600 rótulos, botões, títulos de cartão** · 700 títulos de página e números de destaque. **`font-black`/`font-extrabold` não existem** no sistema.
 
 | Papel | Classe | Especificação |
 |---|---|---|
-| Título de página | `.page-title` | 24/32 · 700 · tracking −0,01em |
+| Título de página (título grande) | `.page-title` | 32/36 · 700 · tracking −0,03em |
 | Subtítulo de página | `.page-sub` | 14 · `fg-muted` |
 | Título de cartão | `.card-title` | 16 · 600 |
 | Dica de cartão | `.card-hint` | 12 · `fg-subtle` |
@@ -89,9 +102,12 @@ Contrastes verificados: todo par texto/fundo acima ≥ **4,5 : 1** (WCAG AA). Ao
 ### 2.5 Espaço, raio, elevação, movimento
 
 - **Espaçamento:** escala de 4 px do Tailwind. Cartão `p-5` (denso `p-4`), gap entre cartões `gap-4`, página `p-4` mobile / `p-6` desktop, seções separadas por `space-y-6`.
-- **Raio:** `rounded-lg` = 8 px (controles, botões, itens de nav) · `rounded-2xl` = 12 px (cartões, modais, painéis) · `rounded-full` (badges, avatar). A escala antiga `rounded-3xl`, `rounded-[32px]`, `[40px]` foi colapsada para 12 px.
-- **Elevação:** superfícies são **planas** (borda `line`, sem sombra). Sombra só em camada flutuante: modal, drawer, dropdown (`shadow-2xl` = `--shadow-overlay`). Sombras coloridas (`shadow-red-500/20` etc.) são proibidas.
-- **Movimento:** 150–220 ms, `ease-out`; só `opacity`/`transform`/cor. Entrada de modal/drawer ≤ 220 ms; saída mais rápida que a entrada. `prefers-reduced-motion` já zera animações globalmente. Nada de animação decorativa contínua; `animate-pulse` só em indicador de "ao vivo" ou carregando.
+- **Raio:** botões = **cápsula** (`rounded-full`) · campos e itens de nav = 12–14 px · `rounded-2xl` = 20 px (cartões) · `rounded-3xl` = 24 px (modais, sidebar e barra inferior flutuantes) · `rounded-full` (badges, avatar).
+- **Elevação e materiais:** superfícies de **conteúdo** (`.card`) são planas (borda `line`, sem sombra). **Estrutura** (sidebar, barras superior/inferior mobile) usa `.material` (translúcido + `blur(20px) saturate(180%)`). **Camadas flutuantes** (modal, drawer, toast) usam `.material-sheet`/`.modal-panel`: mais espessas (`blur(32px)`), sombra em camadas `--shadow-overlay` e brilho de topo. Regras: nunca empilhar translúcido sobre translúcido; cor sempre em camada sólida, não no translúcido; o fundo de modal escurece (`.modal-backdrop`, blur 3 px) para focar. Sombras coloridas são proibidas.
+- **Fallbacks de acessibilidade (já em `index.css`):** `prefers-reduced-transparency: reduce` e `prefers-contrast: more` trocam todo material por `surface` sólido (contraste: borda `fg-subtle`); navegadores sem `backdrop-filter` também caem para sólido.
+- **Movimento (`lib/motion.js`):** por **molas**, não por duração fixa — `SPRING` (mover, bounce 0, 0,4 s), `SPRING_SNAP` (menus/toast, 0,3 s), `SPRING_SHEET` (gaveta, bounce 0,2 — só porque o gesto tem momento). Modais usam `modalMotion` (escala + opacidade + desfoque "materializam"), fundo `scrimMotion`, blocos de página `riseMotion`. **Saída** mais rápida (160 ms) e pela **mesma trajetória** da entrada (`EXIT`, curva espelhada). Só `opacity`/`transform` (+ desfoque de material). Nada trava a entrada do usuário durante uma transição. Sem animação decorativa contínua; `animate-pulse` só em indicador "ao vivo"/carregando.
+- **Gestos:** o drawer mobile acompanha o dedo **1:1** (`drag="x"`, sem resistência até a borda), resiste com *rubber band* no lado oposto e fecha pela **projeção de momento** (`v·0,499 px`, do código da Apple), não pela posição em que soltou. Links dentro de área arrastável levam `draggable={false}`.
+- **Movimento reduzido:** `MotionConfig reducedMotion="user"` + `@media (prefers-reduced-motion)` removem deslocamento/escala/mola e mantêm só mudanças de opacidade e cor (feedback que ajuda a entender).
 - **Rolagem:** barras finas e neutras definidas globalmente em `index.css` (não estilizar por componente). `.scroll-x` esconde a barra só em carrosséis horizontais.
 - **Foco:** anel de 2 px `brand-fg` com offset de 2 px (global, `:focus-visible`). **Nunca remover.**
 - **Ícones:** apenas `lucide-react`, 16 px (inline/botão), 18 px (navegação), 20–24 px (indicadores). Ícone decorativo leva `aria-hidden="true"`; botão só com ícone leva `aria-label`. **Sem emoji em nenhum lugar da plataforma** (nem ☕, ✓, ⚠ ou ● como ícone): use ícone `lucide-react` (ex.: `Coffee` para intervalo) ou `.dot` para marcador de estado.
@@ -110,19 +126,20 @@ Todas em `index.css`, camada `@layer components`. Combine com utilitários de **
   …conteúdo…
 </section>
 ```
-`.card` = `surface` + borda `line` + 12 px + `p-1.25rem`. Variantes: `.card-flush` (sem padding, para tabelas/listas que vão até a borda), `.panel-sunken` (bloco interno rebaixado). Cartão clicável: `<button className="card text-left hover:border-fg-subtle">`.
+`.card` = `surface` + sombra suave (claro) / hairline (escuro) + 20 px + `p-1.25rem`. Variantes: `.card-flush` (sem padding, para tabelas/listas que vão até a borda), `.panel-sunken` (bloco interno rebaixado). Cartão clicável: `<button className="card text-left hover:border-fg-subtle">`.
 
 ### 3.2 Botões — `.btn` + variante (+ tamanho)
 | Variante | Quando |
 |---|---|
 | `.btn-primary` | **Uma** ação principal por contexto (Salvar, Solicitar, Entrar, Novo…) |
-| `.btn-secondary` | Ações comuns (Cancelar, Fechar, filtros) |
+| `.btn-secondary` | Ações comuns (Cancelar, Fechar, filtros) — cápsula cinza preenchida (`sunken`) |
 | `.btn-ghost` | Ação terciária / ícone sem borda |
-| `.btn-danger` | Destrutiva (contorno vermelho; **confirmar antes**) |
+| `.btn-danger` | Destrutiva (cápsula `danger-soft`; **confirmar antes**) |
 | `.btn-success` · `.btn-warn` · `.btn-info` · `.btn-neutral` | Estados do torneio: Iniciar/Retomar (`success`), Pausar (`warn`), Finalizar (`neutral`) |
+| `.btn-danger-solid` | Destrutiva **confirmada** (preenchida: descartar stack, confirmar exclusão) |
 
 Tamanhos: padrão 40 px · `.btn-sm` 32 px (densidade) · `.btn-lg` 44 px (login, mobile) · `.btn-icon` (quadrado, só ícone + `aria-label`).
-Estados obrigatórios: hover (150 ms), `:disabled` (opacidade .45, `cursor-not-allowed`), carregando (texto "Salvando…" + `disabled`). Ação assíncrona nunca fica sem feedback.
+Estados obrigatórios: **pressionado** (`:active`, escala .97, 60 ms — instantâneo), hover (150 ms), `:disabled` (opacidade .45, `cursor-not-allowed`), carregando (texto "Salvando…" + `disabled`). Ação assíncrona nunca fica sem feedback.
 
 ### 3.3 Campos
 ```jsx
@@ -151,15 +168,15 @@ Semáforo de ocorrência (vermelho/amarelo/verde) usa `SeverityBadge` (texto + �
 ### 3.5 Modal e drawer
 ```jsx
 <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="t">
-  <div className="modal-backdrop" onClick={fechar} />
-  <div className="modal-panel max-w-lg">
+  <motion.div {...scrimMotion} className="modal-backdrop" onClick={fechar} />
+  <motion.div {...modalMotion} className="modal-panel max-w-lg">
     <div className="modal-head"><h2 id="t" className="card-title">Título</h2><button className="btn btn-ghost btn-icon" aria-label="Fechar"><X size={18}/></button></div>
     <div className="p-5">…</div>
     <div className="modal-foot"><button className="btn btn-secondary">Cancelar</button><button className="btn btn-primary">Confirmar</button></div>
-  </div>
+  </motion.div>
 </div>
 ```
-Fecha com `Esc` e clique no fundo (`hooks/useModalDismiss`). Fundo `bg-[var(--overlay)]` **sem blur**. Rodapé: ação primária à direita.
+Fecha com `Esc` e clique no fundo (`hooks/useModalDismiss`). Fundo `.modal-backdrop` (escurece + blur 3 px, "dim to focus"); painel `.modal-panel`/`.material-sheet` (material espesso). Em painéis `.card` use `className="card material-sheet …"`. Toast (`AlertContext`) também é `.material-sheet`, acima da barra inferior no mobile. Rodapé: ação primária à direita.
 
 ### 3.6 Tabela densa — `.table-dense`
 Cabeçalho 12 px maiúsculo `fg-subtle`; células 14 px tabulares; linha com hover `sunken`; coluna numérica com `.num-col` (alinhada à direita). Em telas estreitas a tabela fica dentro de `overflow-x-auto` (nunca rolagem horizontal da página).
@@ -171,8 +188,8 @@ Seção "Torneios ativos": um cartão por **sessão** rodando/pausada (nome do t
 `<Avatar user={user} size="xs|sm|md|lg|xl" />`: imagem redonda com borda `line`; **sem foto, a inicial do nome** sobre `sunken`. É decorativo (`alt=""`): o nome sempre aparece ao lado. Tamanhos: `xs` 20 (listas compactas) · `sm` 32 (mensagens do chat) · `md` 36 (menu) · `lg` 48 (cartão de usuário) · `xl` 96 (Minha conta). Cada usuário troca a **própria** foto em *Minha conta → Dados → Foto de perfil* (`PUT/DELETE /me/avatar`): o navegador recorta o centro em quadrado de 256 px, converte para JPEG e comprime (`lib/image.js › fileToAvatarDataURL`); o servidor só aceita JPEG/PNG/WebP (SVG é recusado) e até ~150 mil caracteres. No **Chat** a foto vem de `GET /chat/avatars` (mapa `{e-mail: foto}`, uma vez por sessão e de novo quando aparece um remetente novo), nunca embutida em cada mensagem. Novas telas que mostram uma pessoa devem usar `Avatar` ao lado do nome.
 
 ### 3.9 Navegação
-- **Desktop:** sidebar fixa de 240 px (`w-60`), `bg-surface`, borda à direita. Item `.nav-item`; ativo `.nav-item-active` (fundo `brand-soft`, texto `brand-fg`, barra de 3 px à esquerda).
-- **Mobile:** barra superior de 56 px (menu · marca · tema), **barra inferior de 5 itens no máximo** (60 px + safe-area) e drawer para o restante.
+- **Desktop:** sidebar **flutuante** (240 px, 12 px de margem, `rounded-3xl`, `.material` + sombra), conteúdo com `md:ml-[16.5rem]`. Item `.nav-item` (36 px com mouse, 40–44 px no toque; `:active` encolhe a 98 %); ativo `.nav-item-active` = **pílula suave** (fundo `brand-soft`, texto/ícone `brand-fg`, sem barra lateral). Sidebar e barras mobile são `.material`; o drawer é `.material-sheet` com arrasto por gesto. Título de grupo = `.nav-group-title` (12 px, caixa de frase, sem MAIÚSCULAS).
+- **Mobile:** barra superior de 56 px (menu · marca · tema), **barra inferior flutuante em pílula** (inset 12 px, 64 px, `rounded-3xl`, `.material`, 5 itens no máximo) e drawer para o restante.
 - **Menu em 4 grupos** (mesma ordem para todos os perfis; só entram os itens autorizados por `config.js › PERMISSIONS` e **grupo vazio não aparece**):
   1. *Visão geral e planejamento* — Dashboard, Eventos, Torneios, Tracking Sheet.
   2. *Operação* — Salão, Chip Race / Color Up, Ocorrências, Chat.
@@ -227,7 +244,8 @@ Rota `/torneios/:id/telao`. Raiz com classe `dark` (tema escuro forçado), sem s
 - [ ] Alvo de toque ≥ 40 px (44 px no mobile); espaço ≥ 8 px entre alvos.
 - [ ] Modal: `role="dialog" aria-modal="true"`, `Esc` fecha, foco volta ao gatilho.
 - [ ] `aria-current="page"` no item ativo da barra inferior; `aria-expanded` em disclosure; `aria-pressed` em alternadores (idioma).
-- [ ] Respeitar `prefers-reduced-motion` (já global).
+- [ ] Respeitar `prefers-reduced-motion`, `prefers-reduced-transparency` e `prefers-contrast: more` (já globais em `index.css` + `MotionConfig`).
+- [ ] Resposta no **pressionar**: todo botão tem `:active`; nenhum feedback depende de soltar/`click`.
 
 ---
 
@@ -237,8 +255,11 @@ Rota `/torneios/:id/telao`. Raiz com classe `dark` (tema escuro forçado), sem s
 |---|---|
 | `text-[10px]`, `font-black`, `tracking-widest`, MAIÚSCULAS em títulos/botões | `text-xs` mínimo, `font-semibold`/`bold`, caixa de frase |
 | `bg-[#141414]`, `dark:bg-zinc-800`, `text-gray-400 dark:text-gray-500` | `bg-surface`, `bg-sunken`, `text-fg-subtle` |
-| `rounded-3xl`, `rounded-[40px]` | `rounded-2xl` (cartão/modal) ou `rounded-lg` (controle) |
-| Sombra em cartão, sombra colorida, `backdrop-blur` em modal | Borda `line`; sombra só no overlay |
+| `rounded-3xl`, `rounded-[40px]` | `rounded-2xl` (16 px, cartão/modal) ou `rounded-lg` (10 px, controle) |
+| Sombra em cartão, sombra colorida, material translúcido em cartão de conteúdo, translúcido sobre translúcido | Cartão = borda `line`; `.material`/`.material-sheet` só em estrutura e camadas flutuantes |
+| `bg-red-500 text-white`, `bg-gray-900 dark:bg-white …` (quebram no outro tema) | `.btn-danger-solid`, `.btn-neutral`, `bg-danger text-on-danger` |
+| Animação por duração fixa em algo que o usuário toca; `bounce` em menu/toast; sair por caminho diferente do de entrada | Mola de `lib/motion.js`, bounce 0, mesma trajetória na saída |
+| Esperar o `click` para dar feedback | `:active` no pressionar |
 | Botão vermelho para tudo | `btn-primary` só na ação principal; resto `secondary`/`ghost` |
 | Emoji ou símbolo-emoji (☕ ✓ ⚠ ●) em qualquer texto/ícone, ícone sem rótulo | `lucide-react` + `aria-label`; `.dot` para marcador |
 | Valor em R$, "buy-in" monetário, premiação | Só valor **nominal** de ficha |
@@ -251,7 +272,7 @@ Rota `/torneios/:id/telao`. Raiz com classe `dark` (tema escuro forçado), sem s
 1. **Reaproveite** classe/token existente. Só crie novo quando houver 3+ usos.
 2. Novo token de cor: definir em `:root` e `.dark`, expor em `@theme inline`, **verificar contraste ≥ 4,5 : 1**, registrar na §2.
 3. Novo componente: classe em `@layer components` de `index.css` (nome `.kebab-case`), exemplo na §3, estados hover/focus/disabled.
-4. Teste visual nos **dois temas** e em 375 px antes de concluir; rode `npm run lint`, `npm test` e `npm run build`.
+4. Teste visual nos **dois temas** e em 375 px antes de concluir; rode `npm run lint`, `npm test` e `npm run build`. Verifique também `prefers-reduced-motion`, `-transparency` e `prefers-contrast: more`, e meça contraste real (texto × fundo efetivo ≥ 4,5 : 1).
 5. Atualize este documento **no mesmo commit** da mudança de interface.
 
 ---
@@ -311,6 +332,7 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 | Arquivo | Papel |
 |---|---|
 | `frontend/src/index.css` | Tokens, tema, base e **todas as classes de componente** |
+| `frontend/src/lib/motion.js` | Molas, saída espelhada, `modalMotion`/`scrimMotion`/`riseMotion` |
 | `frontend/src/components/Sidebar.jsx` | Navegação em grupos (desktop, drawer, barra inferior), marca |
 | `frontend/src/pages/TrackingSheet.jsx` · `components/BlindRowsTable.jsx` · `lib/blinds.js` | Estruturas de blinds (Tracking Sheet), tabela compartilhada com a Logística e helpers puros |
 | `frontend/src/App.jsx` | Shell (header mobile, `main`, rotas) |

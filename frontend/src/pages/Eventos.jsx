@@ -6,6 +6,7 @@ import { CalendarRange, Plus, Edit2, Trash2, X, MapPin, ChevronDown, Trophy } fr
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
+import { modalMotion, scrimMotion } from '../lib/motion';
 
 const EMPTY = { name: '', start_date: '', end_date: '', location: '', notes: '' };
 const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
@@ -142,8 +143,8 @@ export default function Eventos() {
       <AnimatePresence>
         {modal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setModal(false)} className="absolute inset-0 bg-[var(--overlay)]" />
-            <motion.form onSubmit={save} initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="card relative w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl">
+            <motion.div {...scrimMotion} onClick={() => setModal(false)} className="absolute inset-0 modal-backdrop" />
+            <motion.form onSubmit={save} {...modalMotion} className="card material-sheet relative w-full max-w-lg max-h-[92vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b border-line-soft p-6">
                 <h2 className="text-xl font-bold text-fg">{editing ? 'Editar evento' : 'Novo evento'}</h2>
                 <button type="button" onClick={() => setModal(false)} className="text-fg-subtle hover:text-gray-600"><X /></button>

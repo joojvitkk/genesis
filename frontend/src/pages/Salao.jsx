@@ -146,7 +146,7 @@ function TournamentCard({ tournament, onOpen }) {
       <div className="px-8 pb-8">
         <button 
           onClick={onOpen}
-          className="w-full py-4 bg-gray-900 dark:bg-white dark:text-gray-900 text-white font-bold text-xs rounded-2xl hover:bg-brand dark:hover:bg-brand dark:hover:text-white transition-all flex items-center justify-center gap-2 group-hover:scale-[1.02]"
+          className="btn btn-neutral btn-lg w-full"
         >
           Abrir Visão do Salão <ChevronRight size={16}/>
         </button>

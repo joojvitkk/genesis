@@ -339,7 +339,7 @@ export default function Chat() {
                     {msg.sender_role}
                   </span>
                 </div>
-                <div className={`max-w-[85%] md:max-w-[70%] p-4 rounded-3xl  relative ${msg.is_urgent ? 'bg-red-500 text-white  ' : isMe ? 'bg-brand text-white' : 'bg-surface text-gray-900 dark:text-gray-100 border border-line-soft'}`}>
+                <div className={`max-w-[85%] md:max-w-[70%] p-4 rounded-3xl  relative ${msg.is_urgent ? 'bg-danger text-on-danger' : isMe ? 'bg-brand text-white' : 'bg-surface text-gray-900 dark:text-gray-100 border border-line-soft'}`}>
                   {msg.reply_preview && (
                     <button type="button" onClick={() => jumpTo(msg.reply_to)}
                       className={`mb-2 block w-full rounded-xl border-l-4 px-3 py-1.5 text-left text-xs ${msg.is_urgent || isMe ? 'border-white/70 bg-black/15' : 'border-brand bg-sunken'}`}>
@@ -458,7 +458,7 @@ export default function Chat() {
               <button
                 type="button"
                 onClick={() => setIsUrgent(!isUrgent)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all border ${isUrgent ? 'bg-red-500 border-red-500 text-white  ' : 'bg-raised border-line text-fg-subtle hover:text-red-500'}`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all border ${isUrgent ? 'bg-danger border-danger text-on-danger' : 'bg-raised border-line text-fg-muted hover:text-danger'}`}
               >
                 <AlertTriangle size={14}/> Urgente
               </button>
@@ -469,7 +469,7 @@ export default function Chat() {
               {pendingImage && (
                 <div className="relative">
                   <img src={pendingImage} alt="prévia" className="h-10 w-10 rounded-lg object-cover" />
-                  <button type="button" onClick={() => setPendingImage(null)} className="absolute -right-1.5 -top-1.5 rounded-full bg-gray-900 p-0.5 text-white"><X size={11}/></button>
+                  <button type="button" onClick={() => setPendingImage(null)} className="absolute -right-1.5 -top-1.5 rounded-full bg-fg p-0.5 text-canvas"><X size={11}/></button>
                 </div>
               )}
             </div>

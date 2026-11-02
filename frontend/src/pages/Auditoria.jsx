@@ -7,6 +7,7 @@ import { useAlert } from '../contexts/AlertContext';
 import { apiGet } from '../lib/api';
 import CustomSelect from '../components/CustomSelect';
 import BalanceHistory from '../components/BalanceHistory';
+import { modalMotion, scrimMotion } from '../lib/motion';
 
 export default function Auditoria() {
   const [logs, setLogs] = useState([]);
@@ -187,8 +188,8 @@ export default function Auditoria() {
       <AnimatePresence>
         {selectedLog && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedLog(null)} className="absolute inset-0 bg-[var(--overlay)]" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="card relative w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto">
+            <motion.div {...scrimMotion} onClick={() => setSelectedLog(null)} className="absolute inset-0 modal-backdrop" />
+            <motion.div {...modalMotion} className="card material-sheet relative w-full max-w-lg max-h-[92vh] overflow-y-auto">
               <div className="p-8 space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -223,7 +224,7 @@ export default function Auditoria() {
                   </div>
                 </div>
 
-                <button onClick={() => setSelectedLog(null)} className="w-full py-4 bg-gray-900 dark:bg-white dark:text-gray-900 text-white font-bold text-xs rounded-2xl hover:opacity-90 transition-all">Fechar Auditoria</button>
+                <button onClick={() => setSelectedLog(null)} className="btn btn-neutral btn-lg w-full">Fechar Auditoria</button>
               </div>
             </motion.div>
           </div>

@@ -12,6 +12,7 @@ import { apiGet } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
 import { exportToCSV } from '../utils/csvExport';
 import { tournamentDate } from '../lib/format';
+import { modalMotion, scrimMotion } from '../lib/motion';
 
 const PRESETS_KEY = 'genesis_report_presets';
 const readPresets = () => { try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]'); } catch { return []; } };
@@ -131,7 +132,7 @@ export default function Relatorios() {
             {isDatePickerOpen && (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-                className="absolute top-full right-0 mt-2 p-6 bg-surface rounded-2xl border border-line shadow-2xl z-50 w-72"
+                className="absolute top-full right-0 mt-2 p-6 bg-surface rounded-2xl border border-line z-50 w-72"
               >
                 <div className="space-y-4">
                   <div>
@@ -218,17 +219,17 @@ export default function Relatorios() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
-        <StatCard title="Torneios" value={data.stats.totalTournaments} subValue={`${data.stats.finishedTournaments} finalizados`} icon={<Trophy size={20}/>} color="bg-blue-500" />
-        <StatCard title="Chip Races" value={data.stats.totalChipRaces} subValue="Confirmados" icon={<Activity size={20}/>} color="bg-amber-500" />
-        <StatCard title="Total de Fichas" value={data.stats.totalChips.toLocaleString(locale())} subValue={`${(data.stats.chipsInBinders || 0).toLocaleString(locale())} em fichários · ${(data.stats.chipsAtHall || 0).toLocaleString(locale())} no Salão`} icon={<Coins size={20}/>} color="bg-emerald-500" />
+        <StatCard title="Torneios" value={data.stats.totalTournaments} subValue={`${data.stats.finishedTournaments} finalizados`} icon={<Trophy size={20}/>} color="bg-info-soft text-info" />
+        <StatCard title="Chip Races" value={data.stats.totalChipRaces} subValue="Confirmados" icon={<Activity size={20}/>} color="bg-warn-soft text-warn" />
+        <StatCard title="Total de Fichas" value={data.stats.totalChips.toLocaleString(locale())} subValue={`${(data.stats.chipsInBinders || 0).toLocaleString(locale())} em fichários · ${(data.stats.chipsAtHall || 0).toLocaleString(locale())} no Salão`} icon={<Coins size={20}/>} color="bg-ok-soft text-ok" />
         <StatCard title="Valor nominal das fichas" value={(data.stats.stockValue || 0).toLocaleString(locale())} subValue="Σ valor nominal × saldo (não é valor financeiro)" icon={<Coins size={20}/>} color="bg-violet-500" />
-        <StatCard title="Logs Totais" value={data.pagination.total} subValue="Registros" icon={<Clock size={20}/>} color="bg-purple-500" />
+        <StatCard title="Logs Totais" value={data.pagination.total} subValue="Registros" icon={<Clock size={20}/>} color="bg-info-soft text-info" />
       </div>
 
       {/* Fichas: descartes, perdas e recuperações (derivados das movimentações) */}
       <div data-testid="chip-flow-stats" className="grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-6">
         <StatCard title="Descartadas" value={(data.stats.discardedChips || 0).toLocaleString()} subValue={`valor ${(data.stats.discardedValue || 0).toLocaleString(locale())}`} icon={<Coins size={20}/>} color="bg-rose-500" />
-        <StatCard title="Perdidas" value={(data.stats.lostChips || 0).toLocaleString()} subValue={`valor ${(data.stats.lostValue || 0).toLocaleString(locale())}`} icon={<Activity size={20}/>} color="bg-red-500" />
+        <StatCard title="Perdidas" value={(data.stats.lostChips || 0).toLocaleString()} subValue={`valor ${(data.stats.lostValue || 0).toLocaleString(locale())}`} icon={<Activity size={20}/>} color="bg-danger-soft text-danger" />
         <StatCard title="Recuperadas" value={(data.stats.recoveredChips || 0).toLocaleString()} subValue={`valor ${(data.stats.recoveredValue || 0).toLocaleString(locale())}`} icon={<Activity size={20}/>} color="bg-emerald-600" />
         <StatCard title="Ocorrências abertas" value={data.stats.openOccurrences || 0} subValue={`${data.stats.redOccurrences || 0} vermelha(s)`} icon={<Info size={20}/>} color="bg-amber-600" />
       </div>
@@ -240,14 +241,14 @@ export default function Relatorios() {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data.charts.racesByTournament}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#8882" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line-soft)" />
                 <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
                 <YAxis fontSize={10} axisLine={false} tickLine={false} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#111', border: 'none', borderRadius: '12px', fontSize: '12px', color: '#fff' }}
                   itemStyle={{ color: '#fff' }}
                 />
-                <Bar dataKey="count" fill="#E21D1D" radius={[6, 6, 0, 0]} barSize={30} />
+                <Bar dataKey="count" fill="var(--brand)" radius={[6, 6, 0, 0]} barSize={30} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -264,7 +265,7 @@ export default function Relatorios() {
                   ))}
                 </Pie>
                 <Tooltip />
-                <Legend />
+                <Legend formatter={(v) => <span style={{ color: "var(--fg-muted)" }}>{v}</span>} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -366,8 +367,8 @@ export default function Relatorios() {
       <AnimatePresence>
         {selectedLog && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedLog(null)} className="absolute inset-0 bg-[var(--overlay)]" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="card relative w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto">
+            <motion.div {...scrimMotion} onClick={() => setSelectedLog(null)} className="absolute inset-0 modal-backdrop" />
+            <motion.div {...modalMotion} className="card material-sheet relative w-full max-w-lg max-h-[92vh] overflow-y-auto">
               <div className="p-8 space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -396,7 +397,7 @@ export default function Relatorios() {
                   </div>
                 </div>
 
-                <button onClick={() => setSelectedLog(null)} className="w-full py-4 bg-gray-900 dark:bg-white dark:text-gray-900 text-white font-bold text-xs rounded-2xl hover:opacity-90 transition-all">Fechar Detalhes</button>
+                <button onClick={() => setSelectedLog(null)} className="btn btn-neutral btn-lg w-full">Fechar Detalhes</button>
               </div>
             </motion.div>
           </div>
@@ -409,10 +410,9 @@ export default function Relatorios() {
 function StatCard({ title, value, subValue, icon, color }) {
   return (
     <div className="card p-6 relative group hover:border-brand transition-all overflow-hidden">
-      <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-5 group-hover:opacity-10 transition-all ${color}`}></div>
       <div className="flex flex-col h-full justify-between">
         <div className="flex items-center justify-between mb-4">
-          <div className={`p-3 rounded-2xl text-white ${color}`}>{icon}</div>
+          <div className={`p-3 rounded-2xl ${color}`}>{icon}</div>
           <ArrowUpRight size={16} className="text-gray-300 group-hover:text-genesis-red transition-all" />
         </div>
         <div>

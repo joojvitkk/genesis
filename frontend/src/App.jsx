@@ -177,7 +177,7 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
 
   return (
       <div className="min-h-screen flex bg-canvas text-fg">
-        <header className="md:hidden fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-line bg-surface px-3"
+        <header className="material md:hidden fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b px-3"
                 style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
           <button onClick={() => setSidebarOpen(true)} className="btn btn-ghost btn-icon" aria-label="Abrir menu"><Menu size={22} /></button>
           <span className="inline-flex items-center gap-2 text-base font-bold tracking-[0.18em]"><span className="inline-block h-3 w-3 rounded-sm bg-brand" aria-hidden="true" />GENESIS</span>
@@ -194,9 +194,9 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
           onToggleTheme={toggleTheme}
         />
 
-        <div className="flex-1 flex flex-col md:ml-60 min-h-screen overflow-x-hidden">
+        <div className="flex-1 flex flex-col md:ml-[16.5rem] min-h-screen overflow-x-hidden">
           <main className="flex-1 p-4 md:p-6 overflow-y-auto pt-[calc(3.5rem+1rem)] md:pt-6
-                           pb-[calc(60px+env(safe-area-inset-bottom,0px)+1rem)] md:pb-6">
+                           pb-[calc(84px+env(safe-area-inset-bottom,0px)+1rem)] md:pb-6">
             <Routes>
               <Route path="/" element={<Navigate to={homeRoute(role)} replace />} />
               <Route path="/conta" element={<Conta user={auth.user} onPasswordChanged={onPasswordChanged} onAvatarChanged={onAvatarChanged} />} />

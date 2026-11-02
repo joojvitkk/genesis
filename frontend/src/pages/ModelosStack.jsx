@@ -6,6 +6,7 @@ import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 import CustomSelect from '../components/CustomSelect';
+import { modalMotion, scrimMotion } from '../lib/motion';
 
 const DEFAULT_ACTIONS = [
   { key: 'buy_in', label: 'Buy-in padrão' },
@@ -200,7 +201,7 @@ export default function ModelosStack() {
                         </td>
                         {stack.actions.map((a) => (
                           <td key={a.key} className="text-right py-2 px-2 font-bold tabular-nums text-fg-muted">
-                            {l.quantities?.[a.key] ? l.quantities[a.key] : <span className="text-gray-300 dark:text-zinc-700">—</span>}
+                            {l.quantities?.[a.key] ? l.quantities[a.key] : <span className="text-fg-subtle">—</span>}
                           </td>
                         ))}
                       </tr>
@@ -228,8 +229,8 @@ export default function ModelosStack() {
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-[var(--overlay)]" />
-            <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }} className="card relative w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+            <motion.div {...scrimMotion} onClick={() => setIsModalOpen(false)} className="absolute inset-0 modal-backdrop" />
+            <motion.div {...modalMotion} className="card material-sheet relative w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
               <form onSubmit={handleSave} className="flex flex-col min-h-0">
                 <div className="p-6 border-b border-line-soft flex justify-between items-center shrink-0">
                   <div>
@@ -322,8 +323,8 @@ export default function ModelosStack() {
       <AnimatePresence>
         {calc && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCalc(null)} className="absolute inset-0 bg-[var(--overlay)]" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="card relative w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl">
+            <motion.div {...scrimMotion} onClick={() => setCalc(null)} className="absolute inset-0 modal-backdrop" />
+            <motion.div {...modalMotion} className="card material-sheet relative w-full max-w-lg max-h-[92vh] overflow-y-auto">
               <div className="p-6 border-b border-line-soft flex justify-between items-center">
                 <h2 className="flex items-center gap-2 text-xl font-bold text-fg"><Calculator className="text-brand-fg" size={20} /> Quantas fichas preciso?</h2>
                 <button onClick={() => setCalc(null)} className="text-fg-subtle hover:text-gray-600"><X /></button>

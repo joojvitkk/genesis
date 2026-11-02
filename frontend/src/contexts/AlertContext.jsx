@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertTriangle, CheckCircle, Info, X } from 'lucide-react';
+import { SPRING_SNAP, EXIT, scrimMotion, modalMotion } from '../lib/motion';
 
 const AlertContext = createContext();
 
@@ -89,16 +90,13 @@ export const AlertProvider = ({ children }) => {
       <AnimatePresence>
         {toast && (
           <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            transition={{ type: 'spring', bounce: 0.4 }}
+            initial={{ opacity: 0, y: 24, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1, transition: SPRING_SNAP }}
+            exit={{ opacity: 0, y: 12, scale: 0.97, transition: EXIT }}
             role="status"
             aria-live="polite"
-            className={`fixed bottom-6 right-6 z-[110] flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border ${
-              toast.type === 'error' ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20 text-red-700 dark:text-red-400' :
-              toast.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400' :
-              'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-700 dark:text-blue-400'
+            className={`material-sheet fixed inset-x-4 bottom-[calc(92px+env(safe-area-inset-bottom,0px))] z-[110] flex items-center gap-3 rounded-2xl px-5 py-4 md:inset-x-auto md:bottom-6 md:right-6 ${
+              toast.type === 'error' ? 'text-danger' : toast.type === 'success' ? 'text-ok' : 'text-info'
             }`}
           >
             {toast.type === 'error' && <AlertTriangle size={20} />}
@@ -114,19 +112,16 @@ export const AlertProvider = ({ children }) => {
       <AnimatePresence>
         {dialog && (
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            {...scrimMotion}
             onClick={() => close(cancelResult)}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[var(--overlay)]"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 modal-backdrop"
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 8 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 8 }}
-              transition={{ type: 'spring', bounce: 0.3 }}
+              {...modalMotion}
               role={dialog.kind === 'confirm' ? 'alertdialog' : 'dialog'}
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
-              className="card relative w-full max-w-sm max-h-[92vh] overflow-y-auto p-6 shadow-2xl"
+              className="card material-sheet relative w-full max-w-sm max-h-[92vh] overflow-y-auto p-6"
             >
               <div className={`absolute left-0 top-0 h-1 w-full ${tone.bar}`} />
               <button onClick={() => close(cancelResult)} className="absolute right-4 top-4 text-gray-300 hover:text-gray-500" aria-label="Fechar"><X size={18} /></button>
@@ -170,9 +165,7 @@ export const AlertProvider = ({ children }) => {
                     else if (dialog.kind === 'confirm') close(true);
                     else close(undefined);
                   }}
-                  className={`flex-1 rounded-xl py-3 font-bold text-white  transition-all ${
-                    dialog.tone === 'danger' ? 'bg-red-600 hover:bg-brand-hover ' : 'bg-brand hover:bg-brand-hover '
-                  }`}
+                  className={`btn btn-lg flex-1 ${dialog.tone === 'danger' ? 'btn-danger-solid' : 'btn-primary'}`}
                 >
                   {dialog.confirmLabel}
                 </button>

@@ -22,6 +22,7 @@ import BlindRowsTable from '../components/BlindRowsTable';
 import { nextLevelRow, cloneRows } from '../lib/blinds';
 import { enqueue } from '../lib/offlineQueue';
 import { tournamentWhen } from '../lib/format';
+import { modalMotion, scrimMotion, SPRING_SHEET, EXIT } from '../lib/motion';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -543,14 +544,13 @@ export default function Torneios() {
       <AnimatePresence>
         {selectedTournament && (
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm"
+            {...scrimMotion}
+            className="fixed inset-0 z-50 flex items-end md:items-center justify-center modal-backdrop"
             onClick={() => setSelectedTournament(null)}
           >
             <motion.div
-              initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '100%', opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 35 }}
-              className="bg-sunken dark:bg-canvas w-full max-w-6xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+              initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1, transition: SPRING_SHEET }} exit={{ y: '100%', opacity: 0, transition: EXIT }}
+              className="bg-canvas w-full max-w-6xl rounded-t-3xl md:rounded-3xl flex flex-col overflow-hidden border border-line"
               style={{ maxHeight: '92dvh' }}
               onClick={e => e.stopPropagation()}
             >
@@ -892,14 +892,14 @@ export default function Torneios() {
                             <button
                               onClick={() => handleRegisterEntry('buy-in', 'buy_in')}
                               disabled={entriesLocked}
-                              className="py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex flex-col items-center justify-center gap-1 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
+                              className="btn btn-success flex-col !h-auto gap-1 py-3"
                             >
                               <Plus size={18} /> Buy-in
                             </button>
                             <button
                               onClick={() => handleRegisterEntry('re-entry', 're_entry')}
                               disabled={entriesLocked}
-                              className="py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-600 transition-all flex flex-col items-center justify-center gap-1 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
+                              className="btn btn-info flex-col !h-auto gap-1 py-3"
                             >
                               <Plus size={18} /> Re-entry
                             </button>
@@ -908,7 +908,7 @@ export default function Torneios() {
                                 key={a.key}
                                 onClick={() => handleRegisterEntry('buy-in', a.key)}
                                 disabled={entriesLocked}
-                                className="col-span-2 py-2.5 bg-emerald-600/90 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
+                                className="btn btn-success col-span-2"
                               >
                                 <Plus size={16} /> Buy-in — {a.label}
                               </button>
@@ -917,7 +917,7 @@ export default function Torneios() {
                               <button
                                 onClick={() => handleRegisterEntry('add-on', 'add_on')}
                                 disabled={entriesLocked}
-                                className="col-span-2 py-2.5 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
+                                className="btn btn-warn col-span-2"
                               >
                                 <Plus size={16} /> Add-on
                               </button>
@@ -1022,11 +1022,11 @@ export default function Torneios() {
         {isCreateModalOpen && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4"
             onClick={closeCreateModal}
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              {...modalMotion}
               className="bg-surface w-full max-w-lg rounded-3xl shadow-2xl max-h-[92dvh] overflow-y-auto"
               onClick={e => e.stopPropagation()}
             >

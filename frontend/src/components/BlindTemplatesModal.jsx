@@ -4,6 +4,7 @@ import { X, Trash2, Save, Check } from 'lucide-react';
 import { apiGet, apiPost, apiDelete } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { modalMotion } from '../lib/motion';
 
 /**
  * Gerencia templates de estrutura de blinds.
@@ -50,10 +51,10 @@ export default function BlindTemplatesModal({ open, onClose, currentRows = [], o
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={onClose} className="absolute inset-0 bg-[var(--overlay)]" />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={onClose} className="absolute inset-0 modal-backdrop" />
       <motion.div
-        initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="card relative w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl"
+        {...modalMotion}
+        className="card material-sheet relative w-full max-w-lg max-h-[92vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between border-b border-line-soft p-6">
           <h2 className="text-xl font-bold text-fg">Templates de blinds</h2>

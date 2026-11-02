@@ -7,6 +7,7 @@ import { UserPlus, Mail, Trash2, Edit2, X, Save,
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
+import { modalMotion, scrimMotion } from '../lib/motion';
 
 export default function Usuarios() {
   const { showAlert, showConfirm, showModal } = useAlert();
@@ -183,7 +184,6 @@ export default function Usuarios() {
               className="card p-8 relative group overflow-hidden"
             >
               {/* Decorative ball — bottom-left, behind content */}
-              <div className={`absolute -left-6 -bottom-6 w-28 h-28 rounded-full opacity-5 group-hover:opacity-10 transition-all pointer-events-none ${getRoleColor(user.role)}`}></div>
               
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -238,10 +238,10 @@ export default function Usuarios() {
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-[var(--overlay)]" />
+            <motion.div {...scrimMotion} onClick={() => setIsModalOpen(false)} className="absolute inset-0 modal-backdrop" />
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="card relative w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto"
+              {...modalMotion}
+              className="card material-sheet relative w-full max-w-lg max-h-[92vh] overflow-y-auto"
             >
               <form onSubmit={handleSubmit} className="p-8 space-y-6">
                 <div className="flex items-center justify-between">
@@ -306,7 +306,7 @@ export default function Usuarios() {
                           key={role}
                           type="button"
                           onClick={() => setForm({...form, role})}
-                          className={`py-3 rounded-xl text-xs font-bold border-2 transition-all ${form.role === role ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 border-gray-900 dark:border-white' : 'border-line-soft text-fg-subtle'}`}
+                          className={`py-3 rounded-xl text-xs font-bold border-2 transition-all ${form.role === role ? 'bg-fg text-canvas border-fg' : 'border-line-soft text-fg-subtle'}`}
                         >
                           {role}
                         </button>
@@ -342,11 +342,6 @@ export default function Usuarios() {
       </AnimatePresence>
     </div>
   );
-}
-
-function getRoleColor(role) {
-  const colors = { admin: 'bg-red-500', material: 'bg-emerald-500', salao: 'bg-blue-500' };
-  return colors[role] || 'bg-gray-500';
 }
 
 function getRoleBadge(role) {

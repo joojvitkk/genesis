@@ -5,6 +5,7 @@ export default {
   'nav.group.stock': 'Estoque e configurações',
   'nav.group.control': 'Gestão e controle',
   'nav.tracking': 'Tracking Sheet',
+  'nav.chipRaceShort': 'Chip Race',
   'nav.dashboard': 'Dashboard',
   'nav.salao': 'Salão',
   'nav.eventos': 'Eventos',
