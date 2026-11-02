@@ -343,6 +343,8 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 - **Cor da marca só como sinal** (botão primário, item ativo, destaque do nível 17); o resto é neutro.
 - Conteúdo que depende do produto vem do produto: o menu de cada perfil na seção Perfis usa `NAV_GROUPS` + `PERMISSIONS` (mesma fonte do aplicativo).
 
+**Estrutura do `/site` (inspirada na análise de um concorrente do setor, sem copiar nada):** (1) herói com o produto em mais de um aparelho — `DeviceStage`: TV do salão + celular do Salão **compartilham o mesmo estado** (pausar/registrar entrada no celular muda a TV), mostrando a fonte única da verdade; (2) faixa de **fatos verificáveis** (módulos = `NAV_ITEMS.length`, perfis = `PROFILES.length`, "1 relógio por sessão", "0 valores em dinheiro") — nunca número de cliente inventado; (3) a noite com e sem sistema; (4) capítulos do produto com interface real; (5) perfis com o menu real; (6) **Confiança por construção**: seis garantias que existem no código, em lista com hairlines (sem ícones); (7) perguntas; (8) fechamento. Fora do escopo por regra do projeto: preços, ROI, financeiro, depoimentos.
+
 **Login (padrão Apple ID):** uma coluna centrada (`max-w-[26rem]`), título grande, **os dois campos num único bloco** (rótulo à esquerda, valor à direita, divisória hairline, anel de foco no bloco), uma ação (`Entrar`, pílula), erro em texto com `role="alert"` e **chacoalho em mola** do bloco, aviso de Caps Lock, mostrar/ocultar senha (`aria-pressed`), ajuda de primeiro acesso sob demanda (`<details>`), foco automático no e-mail.
 
 ---

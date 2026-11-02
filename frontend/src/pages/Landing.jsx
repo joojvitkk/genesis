@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
-import { ArrowRight, ArrowDown, ChevronDown, Check } from 'lucide-react';
+import { ArrowRight, ArrowDown, ChevronDown, Check, Pause, Play, Plus } from 'lucide-react';
 import Logo from '../components/brand/Logo';
 import SiteHeader from '../components/brand/SiteHeader';
-import { visibleGroups } from '../components/Sidebar';
+import { visibleGroups, NAV_ITEMS } from '../components/Sidebar';
 import { useT } from '../lib/i18n.jsx';
 import { SPRING_SNAP } from '../lib/motion';
 
@@ -13,6 +13,7 @@ const NAV = [
   { id: 'problema', label: 'O problema' },
   { id: 'pratica', label: 'Na prática' },
   { id: 'perfis', label: 'Perfis' },
+  { id: 'confianca', label: 'Confiança' },
   { id: 'faq', label: 'Perguntas' },
 ];
 
@@ -31,49 +32,78 @@ const PROFILES = [
   { role: 'salao', label: 'Salão', text: 'Conduz a mesa: relógio, entradas, jogadores ativos, mesas e chamados para o Material.' },
 ];
 
+// Garantias reais do sistema (cada uma existe no código); sem adjetivo, sem número inventado.
+const TRUST = [
+  { t: 'Livro imutável', d: 'Cada movimento de ficha é gravado e nunca é editado nem apagado.' },
+  { t: 'Erro se corrige por estorno', d: 'O estorno aparece no histórico, ao lado do lançamento original.' },
+  { t: 'Saldo nunca negativo', d: 'O sistema recusa uma saída maior do que o saldo do fichário.' },
+  { t: 'Permissão no servidor', d: 'Esconder o botão não basta: a API confere o perfil em cada ação.' },
+  { t: 'Auditoria de cada ação', d: 'Quem fez, quando e o quê, com data, usuário e tipo de ação.' },
+  { t: 'Abre sem rede', d: 'Com os últimos dados. As ações em fila sincronizam quando a conexão volta.' },
+];
+
 const FAQ = [
   { q: 'O Genesis trabalha com valores em dinheiro?', a: 'Não. O Genesis cuida da logística. As fichas têm apenas valor nominal e não há financeiro, premiação nem buy-in monetário no sistema.' },
   { q: 'Funciona no celular e na TV do salão?', a: 'Sim. A interface se adapta a computador, tablet e celular, pode ser instalada como aplicativo e tem uma tela de projeção própria para a TV.' },
   { q: 'E se a internet oscilar?', a: 'O aplicativo abre sem rede com os últimos dados e sincroniza as ações que ficaram na fila assim que a conexão volta.' },
   { q: 'Cada pessoa vê tudo?', a: 'Não. Cada perfil enxerga só o que precisa, e as permissões são conferidas no servidor, não apenas escondidas na tela.' },
+  { q: 'Serve só para torneio grande?', a: 'Não. Um torneio de uma noite e um evento com vários dias usam o mesmo fluxo: evento, torneio, sessões e a estrutura de blinds.' },
   { q: 'Como consigo acesso?', a: 'O Administrador Geral da sua operação cria o acesso. Você recebe uma senha provisória e define a sua no primeiro login.' },
 ];
 
 /* ── Peças de interface (reproduzem o produto real; nada aqui é imagem) ──────────────────────────────── */
 
-/** Relógio de demonstração: conta regressiva em loop, só para mostrar o Telão. Marcado como exemplo. */
-function useDemoClock(start = 18 * 60 + 42) {
-  const [left, setLeft] = useState(start);
+/**
+ * "Um sistema, todas as telas": a TV do salão e o celular de quem opera compartilham o MESMO estado. Toque no celular
+ * (pausar, registrar entrada) e a TV muda junto. É só uma demonstração local, marcada como exemplo.
+ */
+function DeviceStage() {
+  const START = 18 * 60 + 42;
+  const [left, setLeft] = useState(START);
+  const [running, setRunning] = useState(true);
+  const [players, setPlayers] = useState(142);
   useEffect(() => {
-    const id = setInterval(() => setLeft((s) => (s <= 1 ? start : s - 1)), 1000);
+    if (!running) return undefined;
+    const id = setInterval(() => setLeft((s) => (s <= 1 ? START : s - 1)), 1000);
     return () => clearInterval(id);
-  }, [start]);
-  return `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
-}
+  }, [running]);
+  const clock = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
 
-/** O Telão (tela de projeção da TV). Sempre escuro, como no produto. */
-function TelaoPreview() {
-  const clock = useDemoClock();
   return (
-    <div className="dark overflow-hidden rounded-3xl border border-line bg-canvas text-fg shadow-[var(--shadow-overlay)]" data-testid="demo-clock" role="img"
-      aria-label="Exemplo da tela de projeção: nível 7, blinds 400 e 800, dezoito minutos e quarenta e dois segundos restantes">
-      <div className="flex items-center justify-between px-6 pt-5 md:px-10 md:pt-8">
-        <Logo height={24} className="text-fg" />
-        <span className="badge badge-ok"><span className="dot" aria-hidden="true" /> Em andamento</span>
+    <div className="dark relative mx-auto max-w-5xl" data-testid="device-stage">
+      {/* TV */}
+      <div className="overflow-hidden rounded-3xl border border-line bg-canvas text-fg shadow-[var(--shadow-overlay)]" data-testid="demo-clock">
+        <div className="flex items-center justify-between px-6 pt-5 md:px-10 md:pt-8">
+          <Logo height={24} className="text-fg" />
+          <span className={`badge ${running ? 'badge-ok' : 'badge-warn'}`}><span className="dot" aria-hidden="true" /> {running ? 'Em andamento' : 'Pausado'}</span>
+        </div>
+        <div className="px-6 pb-2 pt-6 text-center md:pt-10">
+          <p className="font-mono text-[clamp(3.25rem,12vw,9rem)] font-semibold leading-none tracking-tight tabular-nums" aria-live="off">{clock}</p>
+          <p className="mt-3 text-sm font-semibold text-fg-muted">Nível 7 · Dia 1A · Warm Up</p>
+        </div>
+        <div className="mt-6 grid grid-cols-3 border-t border-line-soft md:mt-10 [&>*+*]:border-l [&>*]:border-line-soft">
+          {[['Blinds', '400 / 800'], ['Próximo', '500 / 1.000'], ['Jogando', String(players)]].map(([k, v]) => (
+            <div key={k} className="px-4 py-4 md:px-10 md:py-6"><p className="label !mb-1">{k}</p><p className="num text-lg font-bold md:text-2xl" data-testid={k === 'Jogando' ? 'tv-players' : undefined}>{v}</p></div>
+          ))}
+        </div>
+        <p className="px-6 py-3 text-xs text-fg-subtle md:px-10">TV do salão · exemplo ilustrativo</p>
       </div>
-      <div className="px-6 pb-2 pt-6 text-center md:pt-10">
-        <p className="font-mono text-[clamp(3.5rem,13vw,9.5rem)] font-semibold leading-none tracking-tight tabular-nums">{clock}</p>
-        <p className="mt-3 text-sm font-semibold text-fg-muted">Nível 7 · Dia 1A · Warm Up</p>
+
+      {/* Celular (Salão): mexe aqui e a TV acompanha */}
+      <div className="relative mx-auto mt-6 w-64 rounded-[2.25rem] border-[7px] border-raised bg-canvas p-4 text-fg shadow-[var(--shadow-overlay)] md:absolute md:-bottom-10 md:-right-4 md:mt-0 md:w-60 lg:-right-10"
+        role="group" aria-label="Celular do Salão (demonstração interativa)" data-testid="demo-phone">
+        <div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-raised" aria-hidden="true" />
+        <p className="eyebrow">Salão · Dia 1A</p>
+        <p className="mt-1 text-sm text-fg-muted">Jogando agora</p>
+        <p className="num text-4xl font-bold" data-testid="phone-players">{players}</p>
+        <div className="mt-4 grid gap-2">
+          <button type="button" onClick={() => setPlayers((n) => n + 1)} className="btn btn-primary btn-sm"><Plus size={14} aria-hidden="true" /> Registrar entrada</button>
+          <button type="button" onClick={() => setRunning((r) => !r)} className="btn btn-secondary btn-sm" aria-pressed={!running}>
+            {running ? <><Pause size={14} aria-hidden="true" /> Pausar relógio</> : <><Play size={14} aria-hidden="true" /> Retomar relógio</>}
+          </button>
+        </div>
+        <p className="mt-3 text-xs text-fg-subtle">Toque e veja a TV mudar junto.</p>
       </div>
-      <div className="mt-6 grid grid-cols-2 border-t border-line-soft md:mt-10 md:grid-cols-4 md:[&>*+*]:border-l md:[&>*]:border-line-soft">
-        {[['Blinds', '400 / 800'], ['Próximo', '500 / 1.000'], ['Jogando', '142'], ['Stack médio', '28.400']].map(([k, v]) => (
-          <div key={k} className="px-6 py-4 md:px-10 md:py-6">
-            <p className="label !mb-1">{k}</p>
-            <p className="num text-lg font-bold md:text-2xl">{v}</p>
-          </div>
-        ))}
-      </div>
-      <p className="px-6 py-3 text-right text-xs text-fg-subtle md:px-10">Exemplo ilustrativo</p>
     </div>
   );
 }
@@ -236,7 +266,16 @@ export default function Landing({ theme, onToggleTheme, ctaTo = '/login', ctaLab
             <Link to={ctaTo} className="btn btn-primary btn-lg">{ctaLabel === 'Entrar' ? 'Entrar no Genesis' : ctaLabel} <ArrowRight size={18} aria-hidden="true" /></Link>
             <a href="#problema" onClick={go('problema')} className="inline-flex items-center gap-1.5 text-base font-semibold text-fg-muted hover:text-fg">Ver uma noite de torneio <ArrowDown size={16} aria-hidden="true" /></a>
           </div>
-          <motion.div style={{ scale, transformOrigin: 'top center' }} className="mt-14 md:mt-20"><TelaoPreview /></motion.div>
+          <motion.div style={{ scale, transformOrigin: 'top center' }} className="mt-14 pb-4 md:mt-20 md:pb-14"><DeviceStage /></motion.div>
+        </section>
+
+        {/* ── Fatos do produto (todos verificáveis; nada de número de cliente) ─ */}
+        <section aria-label="O Genesis em fatos" className="border-y border-line-soft bg-surface">
+          <dl className="mx-auto grid max-w-6xl grid-cols-2 gap-y-6 px-5 py-8 md:grid-cols-4 md:[&>*+*]:border-l md:[&>*]:border-line-soft md:[&>*]:px-8 md:[&>*:first-child]:pl-0">
+            {[[String(NAV_ITEMS.length), 'módulos de operação'], [String(PROFILES.length), 'perfis com menus próprios'], ['1', 'relógio por sessão'], ['0', 'valores em dinheiro']].map(([n, l]) => (
+              <div key={l}><dd className="num text-4xl font-bold md:text-5xl">{n}</dd><dt className="mt-1 text-sm text-fg-muted">{l}</dt></div>
+            ))}
+          </dl>
         </section>
 
         {/* ── O problema × a mesma noite no Genesis ───────────── */}
@@ -300,8 +339,24 @@ export default function Landing({ theme, onToggleTheme, ctaTo = '/login', ctaLab
           </div>
         </section>
 
+        {/* ── Confiança ───────────────────────────────────────── */}
+        <section id="confianca" className="scroll-mt-20 bg-surface py-24 md:py-36" aria-labelledby="conf-title">
+          <div className="mx-auto grid max-w-6xl gap-12 px-5 md:grid-cols-[1fr_1.4fr] md:gap-20">
+            <div className="md:sticky md:top-28 md:self-start">
+              <p className="eyebrow">Confiança por construção</p>
+              <h2 id="conf-title" className="headline mt-3">Feito para não perder uma ficha.</h2>
+              <p className="lede mt-5">Seis garantias que o sistema cumpre sozinho, sem depender de memória nem de boa vontade.</p>
+            </div>
+            <dl className="hairline-list">
+              {TRUST.map((x) => (
+                <div key={x.t} className="grid gap-1 py-5 md:grid-cols-[13rem_1fr] md:gap-8"><dt className="font-semibold">{x.t}</dt><dd className="text-fg-muted">{x.d}</dd></div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
         {/* ── Perguntas ───────────────────────────────────────── */}
-        <section id="faq" className="scroll-mt-20 bg-surface py-24 md:py-36" aria-labelledby="faq-title">
+        <section id="faq" className="scroll-mt-20 py-24 md:py-36" aria-labelledby="faq-title">
           <div className="mx-auto max-w-3xl px-5">
             <h2 id="faq-title" className="headline">Perguntas frequentes</h2>
             <div className="hairline-list mt-10">{FAQ.map((f) => <Faq key={f.q} item={f} />)}</div>
