@@ -356,7 +356,7 @@ async function summary(tournamentId, { sessionId } = {}) {
   }).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
   const val = (f) => rows.reduce((s, r) => s + r[f] * (r.chip.value || 0), 0);
   // Dia 2 / Dia Final (Simulação 3.0 §2): só a posição ATUAL das fichas em jogo (herdada, com Chip Race/Color Up/descartes)
-  const phase = sessionId && (await TournamentSession.exists({ _id: sessionId, type: 'FINAL' })) ? 'final' : 'qualifier';
+  const phase = sessionId && (await TournamentSession.exists({ _id: sessionId, type: { $ne: 'QUALIFIER' } })) ? 'final' : 'qualifier';
   return {
     tournament_id: String(tournamentId), session_id: sessionId || null, phase, rows, binders,
     chip_count: { quantity: rows.reduce((s, r) => s + r.in_play, 0), value: val('in_play') },

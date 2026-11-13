@@ -20,9 +20,9 @@ const { diffFields } = require('../services/activityLogger');
 const { escapeRegex, toInt, pick } = require('../utils/sanitize');
 const { REACTION_KINDS, publicMessage } = require('../lib/chat');
 const { paginate } = require('../lib/pagination');
-const { applyAction, clockPayload } = require('../lib/tournamentClock');
+const { applyAction, clockPayload, levelDurationMs } = require('../lib/tournamentClock');
 const { clockView } = require('../lib/sessions');
-const { SESSION_TYPES } = require('../models/TournamentSession');
+const { SESSION_TYPES, START_MODES } = require('../models/TournamentSession');
 const { entryContribution, summarize, payoutTable, validateTemplate } = require('../lib/tournamentFinance');
 const { postBatch, reverseMovements, balances, chipTotal } = require('../lib/movements');
 const {
@@ -1086,7 +1086,14 @@ async function ensureClockStarted(tournamentId, req, sessionId = null) {
   }
   const owner = session || t;
   if (owner.clock_status !== 'stopped') return t;
-  Object.assign(owner, applyAction(clockView(t, session), 'start'));
+  if (session && sessionsLib.isInheriting(session)) await sessionsLib.applyStartMode(session);
+  const startUpdates = applyAction(clockView(t, session), 'start');
+  if (session?.resume_remaining_ms != null && startUpdates.clock_status) {
+    const dur = levelDurationMs(clockView(t, session).blind_structure[session.current_level || 0]);
+    startUpdates.clock_adjust_seconds = Math.round((Math.min(session.resume_remaining_ms, dur) - dur) / 1000);
+    session.resume_remaining_ms = null;
+  }
+  Object.assign(owner, startUpdates);
   if (session) {
     if (session.status === 'scheduled') sessionsLib.applyStatus(session, 'running', { isAdmin: true });
     await session.save();
@@ -1154,12 +1161,19 @@ async function runClockAction(req, res, tournamentId, requestedSession) {
     }
     let { t, session } = await clockTarget(tournamentId, requestedSession);
     if (session?.status === 'finished') throw new HttpError(409, `A sessão "${session.name}" está encerrada.`);
-    if (session?.type === 'FINAL' && action === 'start' && session.clock_status === 'stopped') {
-      await sessionsLib.prepareFinalLevels(t._id); // níveis da fase seguinte continuam os das classificatórias (Simulação 3.0 §4)
+    if (sessionsLib.isInheriting(session) && action === 'start' && session.clock_status === 'stopped') {
+      await sessionsLib.prepareFinalLevels(t._id); // fases seguintes começam no nível configurado, sem avançar desde o 1 (Simulação 3.0 §4)
       session = await TournamentSession.findById(session._id);
+      await sessionsLib.applyStartMode(session); // estrutura própria: retomar nível anterior ou iniciar no próximo
     }
 
     const updates = applyAction(clockView(t, session), action, { seconds });
+    // Retomar o nível anterior: aplica o tempo restante registrado (ajuste manual autorizado continua possível)
+    if (session?.resume_remaining_ms != null && action === 'start' && updates.clock_status) {
+      const dur = levelDurationMs(clockView(t, session).blind_structure[session.current_level || 0]);
+      updates.clock_adjust_seconds = Math.round((Math.min(session.resume_remaining_ms, dur) - dur) / 1000);
+      session.resume_remaining_ms = null;
+    }
     if (updates === null) return res.status(400).json({ error: 'Ação inválida.' });
 
     let fresh = t;
@@ -1189,6 +1203,67 @@ async function runClockAction(req, res, tournamentId, requestedSession) {
 }
 router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'operate'), (req, res) => runClockAction(req, res, req.params.id, req.body?.session_id));
 router.post('/tournaments/:tid/sessions/:sid/clock', verifyToken, requirePageAccess('mesas', 'operate'), (req, res) => runClockAction(req, res, req.params.tid, req.params.sid));
+
+// Estrutura de blinds PRÓPRIA da sessão (Tracking Sheet por sessão): copia por valor uma estrutura cadastrada (`template_id`),
+// a do torneio (`source: 'tournament'`) ou linhas enviadas (`rows`), opcionalmente só a faixa de níveis oficiais
+// `level_from`–`level_to` (ex.: Dia 2 = 9–16). Mexer na estrutura de uma sessão nunca altera as outras nem o cadastro.
+router.put('/tournaments/:tid/sessions/:sid/blinds', verifyToken, requirePageAccess('torneios'), adminOnly, async (req, res) => {
+  try {
+    const session = await TournamentSession.findOne({ _id: req.params.sid, tournament_id: req.params.tid });
+    if (!session) throw new HttpError(404, 'Sessão não encontrada.');
+    if (session.status === 'finished') throw new HttpError(409, `A sessão "${session.name}" está encerrada.`);
+    if (session.level_started_at) throw new HttpError(409, 'O relógio desta sessão já começou: edite os valores do nível pelo painel de blinds.');
+    const tournament = await Tournament.findById(session.tournament_id);
+    let rows; let source;
+    if (req.body?.template_id) {
+      const tpl = await BlindStructureTemplate.findById(req.body.template_id);
+      if (!tpl) throw new HttpError(404, 'Estrutura de blinds não encontrada.');
+      rows = tpl.rows.map((r) => r.toObject()); source = tpl.name;
+    } else if (Array.isArray(req.body?.rows)) {
+      rows = req.body.rows; source = 'Personalizada';
+    } else {
+      rows = (tournament.blind_structure || []).map((r) => r.toObject()); source = 'Torneio';
+    }
+    rows = rows.map(({ _id: _omit, ...r }) => r);
+    const from = req.body?.level_from === undefined || req.body.level_from === null || req.body.level_from === '' ? null : Number(req.body.level_from);
+    const to = req.body?.level_to === undefined || req.body.level_to === null || req.body.level_to === '' ? null : Number(req.body.level_to);
+    for (const [v, label] of [[from, 'level_from'], [to, 'level_to']]) if (v !== null && (!Number.isInteger(v) || v < 1)) throw new HttpError(400, `${label} deve ser um inteiro ≥ 1.`);
+    if (from !== null && to !== null && to < from) throw new HttpError(400, 'O nível final da faixa não pode ser menor que o inicial.');
+    if (from !== null || to !== null) {
+      const lo = from ?? 1; const hi = to ?? Infinity;
+      const base = require('../lib/tournamentClock').levelBase(rows);
+      const kept = [];
+      let n = base - 1; let started = false;
+      for (const r of rows) {
+        if (!r.row_type || r.row_type === 'level') {
+          n += 1;
+          if (n > hi) break;
+          if (n >= lo) { if (!started) { started = true; r.level = n; } kept.push(r); }
+        } else if (started) kept.push(r);
+      }
+      while (kept.length && kept[kept.length - 1].row_type && kept[kept.length - 1].row_type !== 'level') kept.pop(); // sem break/marcador sobrando no fim
+      rows = kept;
+      if (!rows.length) throw new HttpError(400, 'A estrutura escolhida não tem níveis nessa faixa.');
+    } else if (!rows.some((r) => !r.row_type || r.row_type === 'level')) {
+      throw new HttpError(400, 'A estrutura precisa ter ao menos um nível.');
+    }
+    session.blind_structure = rows;
+    session.blind_source = source;
+    session.level_offset = 0;
+    session.current_level = 0;
+    session.resume_remaining_ms = null;
+    session.blinds_edited = true; // estrutura escolhida pela direção: não é mais derivada automaticamente
+    const cfg = cleanSessionConfig(req.body);
+    if (cfg.start_mode !== undefined) session.start_mode = cfg.start_mode;
+    await session.save();
+    emitClock(req, tournament, session);
+    req.app.get('io').emit('tournamentsChanged', { tournament_id: session.tournament_id, session_id: session._id });
+    await logActivity('Estrutura da Sessão', 'tournament', `${tournament.name} · ${session.name} | ${source}${from !== null || to !== null ? ` | níveis ${from ?? 1}–${to ?? 'fim'}` : ''}`, req.user);
+    res.json(session);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
 
 // Blinds da fase seguinte (Dia Final, Simulação 3.0 §4): SB/BB/ante do nível atual são editáveis livremente e NÃO mudam o
 // NÚMERO do nível (a numeração continua a das classificatórias). `append: true` acrescenta um nível ao fim da estrutura da fase.
@@ -1561,7 +1636,9 @@ router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('mesas', 
     // a ação vai para UMA sessão (1 sessão → ela; várias → a em andamento ou `session_id`); sessão encerrada não recebe
     const session = await sessionsLib.resolveSession(tournament._id, req.body?.session_id, { open: true });
     // Dia Final: sem buy-in nem reentrada (Simulação 2.1 §4.2) — só controle de ativos/eliminações e fichas
-    if (sessionsLib.isFinal(session) && type !== 'add-on') throw new HttpError(409, `A sessão "${session.name}" é o Dia Final: não aceita buy-in nem reentrada.`);
+    // Inscrições por sessão (Dia 2 pode aceitar, Dia Final pode bloquear): configuração da sessão, não do tipo de fase
+    const blocked = session && sessionsLib.registrationBlock(session, type, sessionsLib.clockView(tournament, session));
+    if (blocked) throw new HttpError(409, blocked);
     const money = entryContribution(tournament, type);
     // numeração: o contador do torneio avança de forma atômica (nunca repete nem volta atrás, mesmo ao cancelar)
     const { entry_seq: lastSeq } = await Tournament.findByIdAndUpdate(tournament._id, { $inc: { entry_seq: quantity } }, { new: true }).select('entry_seq');
@@ -1762,12 +1839,34 @@ function resolveSessionStart(body, tournament) {
   return undefined;
 }
 
+// Configuração por sessão (admin): inscrições, encerramento do registro e modo de início da fase.
+const SESSION_CONFIG_FIELDS = ['allow_buyins', 'allow_reentries', 'registration_close_level', 'registration_close_marker', 'start_mode'];
+function cleanSessionConfig(body) {
+  const out = {};
+  for (const k of ['allow_buyins', 'allow_reentries']) {
+    if (body?.[k] === undefined) continue;
+    if (body[k] !== null && typeof body[k] !== 'boolean') throw new HttpError(400, `${k} deve ser verdadeiro, falso ou nulo (padrão do tipo).`);
+    out[k] = body[k];
+  }
+  if (body?.registration_close_marker !== undefined) out.registration_close_marker = !!body.registration_close_marker;
+  if (body?.registration_close_level !== undefined) {
+    const n = body.registration_close_level === null || body.registration_close_level === '' ? null : Number(body.registration_close_level);
+    if (n !== null && (!Number.isInteger(n) || n < 1)) throw new HttpError(400, 'O nível de encerramento do registro deve ser um inteiro ≥ 1.');
+    out.registration_close_level = n;
+  }
+  if (body?.start_mode !== undefined) {
+    if (body.start_mode !== null && !START_MODES.includes(body.start_mode)) throw new HttpError(400, `Modo de início inválido. Use: ${START_MODES.join(', ')}.`);
+    out.start_mode = body.start_mode;
+  }
+  return out;
+}
+
 router.post('/tournaments/:id/sessions', verifyToken, requirePageAccess('torneios'), adminOnly, async (req, res) => {
   try {
     const t = await Tournament.findById(req.params.id);
     if (!t) throw new HttpError(404, 'Torneio não encontrado.');
     if (CLOSED_STATES.includes(t.status)) throw new HttpError(409, 'O torneio está encerrado: não aceita novas sessões.');
-    const session = await sessionsLib.createSession(t._id, { ...pick(req.body, ['name', 'notes', 'type']), starts_at: resolveSessionStart(req.body, t) });
+    const session = await sessionsLib.createSession(t._id, { ...pick(req.body, ['name', 'notes', 'type']), ...cleanSessionConfig(req.body), starts_at: resolveSessionStart(req.body, t) });
     await sessionsLib.prepareFinalLevels(t._id);
     await logActivity('Sessão Criada', 'tournament', `${t.name} | ${session.name}`, req.user);
     res.status(201).json(session);
@@ -1793,6 +1892,11 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
       await sessionsLib.assertUniqueName(session.tournament_id, structural.name, session._id);
     }
     session.set(structural);
+    const config = cleanSessionConfig(req.body);
+    if (Object.keys(config).length) {
+      if (!isAdmin) throw new HttpError(403, 'Apenas administradores alteram a configuração da sessão.');
+      session.set(config);
+    }
     if (req.body?.type !== undefined) {
       if (!isAdmin) throw new HttpError(403, 'Apenas administradores mudam o tipo da sessão.');
       if (!SESSION_TYPES.includes(req.body.type)) throw new HttpError(400, `Tipo de sessão inválido. Use: ${SESSION_TYPES.join(', ')}.`);
@@ -1803,9 +1907,13 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
     if (req.body?.status !== undefined) sessionsLib.applyStatus(session, req.body.status, { isAdmin });
     let qualified = null;
     if (session.status === 'finished' && !wasFinished) {
-      // encerrar: o relógio da sessão para e (classificatória) registra os classificados = ativos no encerramento
+      // encerrar: guarda o último nível efetivamente jogado (e o tempo restante) para a fase seguinte; o relógio da sessão para e
+      // (classificatória ou continuação) registra os classificados = ativos no encerramento
+      const ended = sessionsLib.endedState(clockView(tournament, session));
+      session.ended_level_number = ended ? ended.number : null;
+      session.ended_remaining_ms = ended ? ended.remaining_ms : null;
       Object.assign(session, { clock_status: 'stopped', paused_at: null });
-      if (session.type === 'QUALIFIER') {
+      if (session.type !== 'FINAL') {
         const counts = await playersLib.playerCounts(session.tournament_id, session._id);
         const wanted = req.body?.qualified_count;
         qualified = wanted === undefined || wanted === null || wanted === '' ? counts.active : Number(wanted);
@@ -1840,7 +1948,7 @@ router.put('/tournaments/:tid/sessions/:sid/qualified', verifyToken, requirePage
   try {
     const session = await TournamentSession.findOne({ _id: req.params.sid, tournament_id: req.params.tid });
     if (!session) throw new HttpError(404, 'Sessão não encontrada.');
-    if (session.type !== 'QUALIFIER') throw new HttpError(409, 'Só sessões classificatórias têm classificados.');
+    if (session.type === 'FINAL') throw new HttpError(409, 'O Dia Final não tem classificados.');
     if (session.status !== 'finished') throw new HttpError(409, 'Encerre a sessão para registrar os classificados.');
     const to = Number(req.body?.qualified_count);
     if (!Number.isInteger(to) || to < 0 || to > 100000) throw new HttpError(400, 'Classificados deve ser um inteiro (0 ou mais).');

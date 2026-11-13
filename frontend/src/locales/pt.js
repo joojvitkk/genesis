@@ -4,7 +4,7 @@ export default {
   'nav.group.operation': 'Operação',
   'nav.group.stock': 'Estoque e configurações',
   'nav.group.control': 'Gestão e controle',
-  'nav.tracking': 'Tracking Sheet',
+  'nav.tracking': 'Estruturas de Blinds',
   'nav.chipRaceShort': 'Chip Race',
   'nav.dashboard': 'Dashboard',
   'nav.salao': 'Salão',

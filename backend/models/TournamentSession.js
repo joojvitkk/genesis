@@ -6,9 +6,13 @@ const softDelete = require('../lib/softDelete');
 // stack) é compartilhada com o torneio, mas o ESTADO EM EXECUÇÃO é da sessão (Simulação 2.1 §4): relógio,
 // nível, entradas, reentradas, jogadores ativos, fichas em jogo e Chip Race. Pausar o 1A nunca mexe no 1B.
 //   type QUALIFIER = permite buy-in, reentrada e atualização de ativos; ao encerrar registra os classificados.
-//   type FINAL     = Dia Final: sem buy-in nem reentrada; começa com a soma dos classificados.
+//   type CONTINUATION = fase de continuação (Dia 2, 3, 4…): herda classificados e fichas da fase anterior.
+//   type FINAL     = Dia Final: herda como a continuação; sem buy-in/reentrada por padrão.
+// Inscrições são configuráveis POR SESSÃO (allow_buyins/allow_reentries/encerramento); null = padrão do tipo
+// (classificatória permite, continuação e final não). Cada sessão tem a SUA estrutura de blinds (blind_structure).
 const SESSION_STATUS = ['scheduled', 'running', 'finished'];
-const SESSION_TYPES = ['QUALIFIER', 'FINAL'];
+const SESSION_TYPES = ['QUALIFIER', 'CONTINUATION', 'FINAL'];
+const START_MODES = ['manual', 'next', 'resume'];
 
 const TournamentSessionSchema = new mongoose.Schema({
   tournament_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament', required: true },
@@ -34,9 +38,22 @@ const TournamentSessionSchema = new mongoose.Schema({
   blind_structure: [{
     _id: false,
     row_type: { type: String, enum: ['level', 'break', 'end_registration', 'end_day'], default: 'level' },
+    level: Number, // número OFICIAL do nível (a 1ª linha da estrutura não precisa ser o Nível 1)
     small_blind: Number, big_blind: Number, ante: Number, duration: Number, label: String,
   }],
+  blind_source: { type: String, default: null }, // nome da estrutura (Tracking Sheet) ou "Torneio" de onde a sessão copiou os níveis
   blinds_edited: { type: Boolean, default: false },
+  // Continuidade configurável: como a fase começa em relação ao último nível da fase anterior.
+  start_mode: { type: String, enum: [...START_MODES, null], default: null }, // next (padrão) | resume | manual
+  resume_remaining_ms: { type: Number, default: null },  // tempo restante a aplicar ao iniciar (modo resume)
+  // Ao encerrar: último nível efetivamente jogado (número oficial) e o tempo que restava nele
+  ended_level_number: { type: Number, default: null },
+  ended_remaining_ms: { type: Number, default: null },
+  // Inscrições da sessão (null = padrão do tipo) e encerramento opcional do registro
+  allow_buyins: { type: Boolean, default: null },
+  allow_reentries: { type: Boolean, default: null },
+  registration_close_level: { type: Number, default: null },   // registro fecha após este nível oficial
+  registration_close_marker: { type: Boolean, default: false }, // ou ao passar o marcador "Fim do Registro" da estrutura
   active_offset: { type: Number, default: 0 },   // ajuste do Salão sobre os ativos derivados desta sessão
   // caches (derivados): atualizados por lib/headcount e lib/tournamentChips
   actual_players: { type: Number, default: 0 },
@@ -54,3 +71,4 @@ TournamentSessionSchema.plugin(softDelete);
 module.exports = mongoose.model('TournamentSession', TournamentSessionSchema);
 module.exports.SESSION_STATUS = SESSION_STATUS;
 module.exports.SESSION_TYPES = SESSION_TYPES;
+module.exports.START_MODES = START_MODES;

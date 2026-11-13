@@ -15,6 +15,7 @@ import SessionBar from '../components/SessionBar';
 import AllocationModal from '../components/AllocationModal';
 import MaterialPanel from '../components/MaterialPanel';
 import PhaseBlindsEditor from '../components/PhaseBlindsEditor';
+import SessionConfigPanel from '../components/SessionConfigPanel';
 import { can } from '../config';
 import { getStoredUser } from '../lib/auth';
 import BlindTemplatesModal from '../components/BlindTemplatesModal';
@@ -471,10 +472,14 @@ export default function Torneios() {
   const eventName = (id) => events.find((ev) => ev._id === id)?.name;
   const selectedSession = sessions.find((x) => x._id === selectedSessionId);
   const sessionClosed = selectedSession?.status === 'finished';
-  const isFinalSession = selectedSession?.type === 'FINAL'; // Dia Final: sem buy-in nem reentrada
+  const isFinalSession = !!selectedSession && selectedSession.type !== 'QUALIFIER'; // fase de continuação (Dia 2…Final): herda classificados e fichas
+  // inscrições são configuração da SESSÃO (padrão: classificatória permite; continuação/final não)
+  const allowBuyins = selectedSession?.allow_buyins ?? !isFinalSession;
+  const allowReentries = selectedSession?.allow_reentries ?? !isFinalSession;
+  const noNewEntries = isFinalSession && !allowBuyins && !allowReentries;
   // entradas: bloqueadas com o torneio encerrado OU a sessão encerrada
   // o Material só consulta as entradas: quem lança é o Salão (ou o admin)
-  const entriesLocked = ['finished', 'finalized'].includes(selectedTournament?.status) || sessionClosed || isFinalSession || !canOperateFloor;
+  const entriesLocked = ['finished', 'finalized'].includes(selectedTournament?.status) || sessionClosed || noNewEntries || !canOperateFloor;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12">
@@ -642,12 +647,16 @@ export default function Torneios() {
                 <div className="p-4 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
                   {/* (Existing Logistics View Content) */}
                   <div className="lg:col-span-2 space-y-8">
+                    {isAdmin && selectedSession && !sessionClosed && (
+                      <SessionConfigPanel key={selectedSession._id} tournamentId={selectedTournament._id} session={selectedSession} templates={blindTemplates} onChanged={() => fetchFloorData(selectedTournament._id, selectedSession._id)} />
+                    )}
                     {/* Inscrições × jogadores ativos (BUG-04/05): números distintos, cada um com a sua regra */}
                     <div className="card p-6">
                       <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><Users className="text-brand-fg" /> Inscrições e jogadores{selectedSession && sessions.length > 1 ? ` · ${selectedSession.name}` : ''}</h3>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 text-center">
                         {(isFinalSession ? [
                           ['Iniciais (classificados)', counts?.starting_players],
+                          ...(allowBuyins || allowReentries ? [['Novas inscrições', counts?.entries_total]] : []),
                           ['Eliminados', counts?.eliminated],
                         ] : [
                           ['Entradas iniciais', counts?.entries_initial],
@@ -867,12 +876,12 @@ export default function Torneios() {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Entry Registration Form */}
                     <div className="lg:col-span-1 space-y-6">
-                      {isFinalSession ? (
+                      {noNewEntries ? (
                         <div className="card p-6" data-testid="final-no-entries">
                           <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Users className="text-brand-fg" /> Dados herdados</h3>
                           <p className="text-sm text-fg-muted">
                             Esta fase começa com os {(selectedSession.players?.starting_players ?? 0).toLocaleString()} classificados e com as fichas em jogo das sessões anteriores
-                            (já com Chip Race, Color Up e descartes). Não há buy-in, reentrada nem novos stacks — os totais acima são só para consulta.
+                            (já com Chip Race, Color Up e descartes). Esta sessão não aceita buy-in nem reentrada — os totais acima são só para consulta (a direção pode permitir inscrições na configuração da sessão).
                           </p>
                         </div>
                       ) : (

@@ -5,17 +5,23 @@ export const DEFAULT_LEVEL = { small_blind: 50, big_blind: 100, ante: 0, duratio
 
 export const isLevelRow = (r) => !r?.row_type || r.row_type === 'level';
 
-/** Número do nível exibido na linha `idx` (só linhas `level` contam), ou null se não for um nível. */
+/** Número oficial do 1º nível: `level` da 1ª linha de nível (ex.: 9 numa estrutura de Dia 2); sem ele, 1. */
+export function levelBase(rows) {
+  const n = Number(rows.find(isLevelRow)?.level);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
+
+/** Número OFICIAL do nível na linha `idx` (só linhas `level` contam; o índice da linha é interno), ou null se não for um nível. */
 export function levelNumberAt(rows, idx) {
   if (!isLevelRow(rows[idx])) return null;
-  return rows.slice(0, idx + 1).filter(isLevelRow).length;
+  return levelBase(rows) - 1 + rows.slice(0, idx + 1).filter(isLevelRow).length;
 }
 
 /** Novo nível: numeração seguinte e valores do ÚLTIMO nível configurado (editáveis). Nunca dobra nem volta ao Nível 1. */
 export function nextLevelRow(rows) {
   const levels = rows.filter(isLevelRow);
   const last = levels[levels.length - 1] || DEFAULT_LEVEL;
-  return { row_type: 'level', level: levels.length + 1, small_blind: last.small_blind, big_blind: last.big_blind, ante: last.ante || 0, duration: last.duration };
+  return { row_type: 'level', level: levelBase(rows) + levels.length, small_blind: last.small_blind, big_blind: last.big_blind, ante: last.ante || 0, duration: last.duration };
 }
 
 /** Break (ou Dinner Break) com duração própria; não incrementa o número do nível. */

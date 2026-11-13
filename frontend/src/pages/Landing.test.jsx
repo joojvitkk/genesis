@@ -45,7 +45,7 @@ describe('Landing /site', () => {
     const btn = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Salão');
     await act(async () => { btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(menu()).not.toContain('Usuários'); expect(menu()).not.toContain('Auditoria'); expect(menu()).toContain('Tracking Sheet');
+    expect(menu()).not.toContain('Usuários'); expect(menu()).not.toContain('Auditoria'); expect(menu()).toContain('Estruturas de Blinds');
   });
   it('celular e TV compartilham o mesmo estado: registrar entrada e pausar refletem na TV', async () => {
     await mount();

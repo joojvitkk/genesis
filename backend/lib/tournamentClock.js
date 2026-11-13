@@ -15,10 +15,27 @@ function levelDurationMs(row) {
   return (Number(row.duration) || 0) * 60_000;
 }
 
-/** Nº do nível de JOGO na linha `idx` (1, 2, 3…): só linhas `level` contam — intervalos e marcadores não. null = não é nível. */
+const isLevelRow = (r) => !r.row_type || r.row_type === 'level';
+
+/** Número oficial do 1º nível da estrutura: `level` da 1ª linha de nível (ex.: 9 no Dia 2); sem ele, 1. */
+function levelBase(rows) {
+  const n = Number((rows.find(isLevelRow) || {}).level);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
+
+/**
+ * Nº OFICIAL do nível de JOGO na linha `idx`: só linhas `level` contam — intervalos e marcadores não. null = não é nível.
+ * O índice da linha é interno; o número parte do `level` da 1ª linha de nível (o 1º registro não precisa ser o Nível 1).
+ */
 function levelNumber(rows, idx) {
-  if (!rows[idx] || (rows[idx].row_type && rows[idx].row_type !== 'level')) return null;
-  return rows.slice(0, idx + 1).filter((r) => !r.row_type || r.row_type === 'level').length;
+  if (!rows[idx] || !isLevelRow(rows[idx])) return null;
+  return levelBase(rows) - 1 + rows.slice(0, idx + 1).filter(isLevelRow).length;
+}
+
+/** Índice da linha cujo número oficial é `n` (com `offset` da sessão), ou -1. */
+function indexOfLevel(rows, n, offset = 0) {
+  for (let i = 0; i < rows.length; i += 1) if (levelNumber(rows, i) !== null && levelNumber(rows, i) + offset === n) return i;
+  return -1;
 }
 
 /** Tempo restante no nível atual em ms (pode ser negativo se estourou). */
@@ -165,4 +182,4 @@ function clockPayload(t, now = Date.now()) {
   };
 }
 
-module.exports = { levelNumber, MARKER_TYPES, levelDurationMs, remainingMs, applyAction, gotoLevel, autoAdvance, clockPayload };
+module.exports = { levelNumber, levelBase, indexOfLevel, MARKER_TYPES, levelDurationMs, remainingMs, applyAction, gotoLevel, autoAdvance, clockPayload };

@@ -379,6 +379,10 @@ html.theme-wave, html.theme-wave *, html.theme-wave *::before, html.theme-wave *
   button:not(:disabled):not(.no-press):active { transform: scale(0.975); }
   button:disabled { cursor: not-allowed; }
   input[type="number"] { font-variant-numeric: tabular-nums; }
+  /* Campo numérico sem os botões nativos de +1/−1 do navegador (valor só por digitação) */
+  input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .tabular-nums { font-variant-numeric: tabular-nums; }
   ::selection { background: var(--brand); color: #fff; }
 

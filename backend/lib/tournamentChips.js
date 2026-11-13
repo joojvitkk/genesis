@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const { Tournament, TournamentSession, TournamentEntry, StackModel, Chip, Conversion, Movement } = require('../models');
 const { HttpError } = require('./catalog');
 const calc = require('./stackCalc');
+const sessionsLib = require('./sessions');
 
 const idOf = (x) => String(x && x._id ? x._id : x);
 
@@ -71,9 +72,14 @@ function shape({ tournament, usages, models, chips, counts }) {
  * encerradas — já com Chip Race, Color Up e descartes delas — mais o que a própria fase converteu/descartou.
  */
 async function inheritedChipsInPlay(tournament, sessionId) {
-  const quals = await TournamentSession.find({ tournament_id: tournament._id, type: 'QUALIFIER', status: 'finished' }).select('_id').lean();
+  const all = await TournamentSession.find({ tournament_id: tournament._id }).sort({ order: 1, createdAt: 1 });
+  const self = all.find((x) => String(x._id) === String(sessionId));
+  const sources = sessionsLib.sourceSessions(all, self).filter((x) => x.status === 'finished');
   const parts = [];
-  for (const q of quals) parts.push(await chipsInPlay(tournament._id, { sessionId: q._id }));
+  for (const q of sources) parts.push(await chipsInPlay(tournament._id, { sessionId: q._id }));
+  // Novas inscrições da própria fase (quando permitidas): SÓ os novos stacks somam ao Chip Count herdado
+  const ownEntries = await TournamentEntry.find({ tournament_id: tournament._id, session_id: sessionId }).select('type action stack_model_id').lean();
+  if (ownEntries.length) parts.push(await entriesBase(tournament, ownEntries));
   const merged = new Map();
   const counts = {};
   for (const part of parts) {
@@ -91,31 +97,34 @@ async function inheritedChipsInPlay(tournament, sessionId) {
   return { session_id: sessionId, inherited: true, ...result };
 }
 
-/** Fichas em jogo (teórico) a partir das entradas registradas. */
-async function chipsInPlay(tournamentId, { sessionId } = {}) {
-  const tournament = await Tournament.findById(tournamentId).lean();
-  if (!tournament) throw new HttpError(404, 'Torneio não encontrado.');
-  if (sessionId) {
-    const own = await TournamentSession.findOne({ _id: sessionId, tournament_id: tournament._id }).select('type').lean();
-    if (own?.type === 'FINAL') return inheritedChipsInPlay(tournament, sessionId);
-  }
-  // sem sessionId: o torneio inteiro (soma das sessões); com sessionId: só as ações daquela sessão
-  const filter = { tournament_id: tournament._id, ...(sessionId ? { session_id: sessionId } : {}) };
-  const entries = await TournamentEntry.find(filter).select('type action stack_model_id').lean();
+/** Fichas (antes de Chip Race/descartes) das entradas dadas: ações × modelo de stack. */
+async function entriesBase(tournament, entries) {
   const groups = groupEntries(entries);
-
   const models = await loadModels([
     tournament.stack_model_id, ...(tournament.stack_models || []).map((m) => m.stack_model_id), ...groups.map((g) => g.legacy_model_id),
   ]);
   const chips = await loadChips(models);
-
   const counts = {};
   const usages = groups.map((g) => {
     counts[g.action] = (counts[g.action] || 0) + g.count;
     const model = g.legacy_model_id ? models.get(g.legacy_model_id) : calc.modelForAction(tournament, g.action, models);
     return { action: g.action, count: g.count, model };
   });
-  const result = await applyConversions(tournament._id, shape({ tournament, usages, models, chips, counts }), sessionId);
+  return shape({ tournament, usages, models, chips, counts });
+}
+
+/** Fichas em jogo (teórico) a partir das entradas registradas. */
+async function chipsInPlay(tournamentId, { sessionId } = {}) {
+  const tournament = await Tournament.findById(tournamentId).lean();
+  if (!tournament) throw new HttpError(404, 'Torneio não encontrado.');
+  if (sessionId) {
+    const own = await TournamentSession.findOne({ _id: sessionId, tournament_id: tournament._id }).select('type').lean();
+    if (own && own.type !== 'QUALIFIER') return inheritedChipsInPlay(tournament, sessionId);
+  }
+  // sem sessionId: o torneio inteiro (soma das sessões); com sessionId: só as ações daquela sessão
+  const filter = { tournament_id: tournament._id, ...(sessionId ? { session_id: sessionId } : {}) };
+  const entries = await TournamentEntry.find(filter).select('type action stack_model_id').lean();
+  const result = await applyConversions(tournament._id, await entriesBase(tournament, entries), sessionId);
   return { session_id: sessionId || null, ...result };
 }
 

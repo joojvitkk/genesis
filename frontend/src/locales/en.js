@@ -3,7 +3,7 @@ export default {
   'nav.group.operation': 'Operations',
   'nav.group.stock': 'Stock & settings',
   'nav.group.control': 'Management & control',
-  'nav.tracking': 'Tracking Sheet',
+  'nav.tracking': 'Blind Structures',
   'nav.chipRaceShort': 'Chip Race',
   'nav.dashboard': 'Dashboard',
   'nav.salao': 'Floor',

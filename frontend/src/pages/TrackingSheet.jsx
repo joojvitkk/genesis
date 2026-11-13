@@ -69,8 +69,8 @@ export default function TrackingSheet() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-fg"><ListOrdered className="text-brand-fg" size={24} aria-hidden="true" /> Tracking Sheet</h1>
-          <p className="text-sm text-fg-muted">Estruturas de blinds definidas pela direção. Ao escolher uma no torneio, ela é copiada — o cadastro original não muda.</p>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-fg"><ListOrdered className="text-brand-fg" size={24} aria-hidden="true" /> Estruturas de Blinds</h1>
+          <p className="text-sm text-fg-muted">Estruturas de blinds (Tracking Sheet) definidas pela direção. Ao escolher uma no torneio ou na sessão, ela é copiada — o cadastro original não muda.</p>
         </div>
         {canManage && <button type="button" className="btn btn-primary" onClick={() => { setDraft({ ...EMPTY }); setDirty(true); }}><Plus size={16} /> Nova estrutura</button>}
       </header>

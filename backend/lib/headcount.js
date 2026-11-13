@@ -11,22 +11,40 @@ const { Tournament, TournamentSession, TournamentEntry, Elimination } = require(
 const { HttpError } = require('./catalog');
 const sessionsLib = require('./sessions');
 
+/** Entradas próprias (buy-in, reentrada, add-on) e eliminações de um escopo. */
+async function ownCounts(scope) {
+  const [initial, reentries, addons, eliminated] = await Promise.all([
+    TournamentEntry.countDocuments({ ...scope, type: 'buy-in' }),
+    TournamentEntry.countDocuments({ ...scope, type: 're-entry' }),
+    TournamentEntry.countDocuments({ ...scope, type: 'add-on' }),
+    Elimination.countDocuments({ ...scope, position: { $gt: 1 } }),
+  ]);
+  return { entries_initial: initial, entries_reentries: reentries, entries_total: initial + reentries, addons, eliminated };
+}
+
 /** Contagens de UMA sessão (`session` = documento) ou, sem sessões, do torneio. `active` nunca fica negativo. */
 async function countsFor(tournamentId, session) {
   const scope = session ? { tournament_id: tournamentId, session_id: session._id } : { tournament_id: tournamentId };
   const offset = (session ? session.active_offset : (await Tournament.findById(tournamentId).select('active_offset').lean())?.active_offset) || 0;
 
-  if (session?.type === 'FINAL') {
-    const starting = await sessionsLib.qualifiedTotal(tournamentId);
-    const eliminated = await Elimination.countDocuments({ ...scope, position: { $gt: 1 } });
-    const derived = Math.max(0, starting - eliminated);
-    // Histórico HERDADO (Simulação 3.0 §1): somatório válido dos classificatórios, só para consulta — a fase não lança entradas.
-    const quals = await TournamentSession.find({ tournament_id: tournamentId, type: 'QUALIFIER', status: 'finished' }).select('_id').lean();
-    const hist = await Promise.all(quals.map((q) => countsFor(tournamentId, { _id: q._id, type: 'QUALIFIER', active_offset: 0 })));
-    const inherited = { entries_initial: hist.reduce((a, c) => a + c.entries_initial, 0), entries_reentries: hist.reduce((a, c) => a + c.entries_reentries, 0) };
+  if (session && session.type !== 'QUALIFIER') {
+    // Fases de continuação (Dia 2, 3…, Final): iniciam com os classificados da fase anterior; se a sessão permitir, novas
+    // inscrições SOMAM-se a eles (sem duplicar os classificados).
+    const starting = await sessionsLib.qualifiedTotal(tournamentId, session);
+    const own = await ownCounts(scope);
+    const eliminated = own.eliminated;
+    const derived = Math.max(0, starting + own.entries_total - eliminated);
+    // Histórico HERDADO (Simulação 3.0 §1): somatório válido da(s) fase(s) anterior(es), só para consulta.
+    const sources = sessionsLib.sourceSessions(await sessionsLib.listSessions(tournamentId), session).filter((x) => x.status === 'finished');
+    const hist = await Promise.all(sources.map((q) => countsFor(tournamentId, q)));
+    const inherited = {
+      entries_initial: hist.reduce((a, c) => a + c.entries_initial + (c.inherited?.entries_initial || 0), 0),
+      entries_reentries: hist.reduce((a, c) => a + c.entries_reentries + (c.inherited?.entries_reentries || 0), 0),
+    };
     inherited.entries_total = inherited.entries_initial + inherited.entries_reentries;
     return {
-      session_id: String(session._id), session_type: 'FINAL', entries_initial: 0, entries_reentries: 0, entries_total: 0, addons: 0,
+      session_id: String(session._id), session_type: session.type, entries_initial: own.entries_initial, entries_reentries: own.entries_reentries,
+      entries_total: own.entries_total, addons: own.addons,
       inherited, starting_players: starting, eliminated, derived, offset, active: Math.max(0, derived + offset),
     };
   }
@@ -74,7 +92,9 @@ async function refreshPlayers(tournamentId, io, sessionId = null) {
   for (const s of sessions) {
     const c = await countsFor(tournamentId, s);
     // Dia Final: o cache de entradas guarda o histórico herdado dos classificatórios (só leitura no relógio e nos cards)
-    const shown = c.inherited || c;
+    const shown = c.inherited
+      ? { entries_initial: c.inherited.entries_initial + c.entries_initial, entries_reentries: c.inherited.entries_reentries + c.entries_reentries }
+      : c;
     await TournamentSession.updateOne({ _id: s._id }, { $set: { actual_players: c.active, entries_initial: shown.entries_initial, entries_reentries: shown.entries_reentries } });
   }
   const total = await playerCounts(tournamentId);

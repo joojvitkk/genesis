@@ -35,3 +35,11 @@ describe('blinds helpers', () => {
     expect(totalMinutes([L(1, 2, 0, 20), breakRow(15), { row_type: 'end_day' }])).toBe(35);
   });
 });
+
+describe('numeração oficial', () => {
+  it('estrutura que começa no Nível 9: o índice interno não é o número do nível; break não conta', () => {
+    const rows = [{ row_type: 'level', level: 9 }, { row_type: 'level' }, { row_type: 'break' }, { row_type: 'level' }];
+    expect([0, 1, 2, 3].map((i) => levelNumberAt(rows, i))).toEqual([9, 10, null, 11]);
+    expect(nextLevelRow(rows).level).toBe(12);
+  });
+});
