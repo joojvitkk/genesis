@@ -38,7 +38,7 @@ test('logout-all revoga o token anterior', async () => {
   // encerra todas as sessões
   await request(app).post('/api/me/logout-all').set('Authorization', `Bearer ${token}`);
 
-  // aguarda o cache de session_version expirar não é necessário: bumpSessionVersion limpa
+  // sem cache de sessão: a revogação vale na hora
   const after = await request(app).get('/api/me').set('Authorization', `Bearer ${token}`);
   assert.equal(after.status, 401);
 });

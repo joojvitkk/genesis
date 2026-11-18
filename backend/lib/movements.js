@@ -13,7 +13,7 @@
 // set (MongoDB standalone, só para desenvolvimento) cai num mutex em memória — seguro para UM
 // processo; produção deve usar replica set (ver README).
 const mongoose = require('mongoose');
-const { Movement, BalanceLock, Chip, Binder, Tournament } = require('../models');
+const { Movement, BalanceLock, Chip, Binder, Tournament, TournamentSession } = require('../models');
 const { MOVEMENT_TYPES } = require('../models/Movement');
 const { HttpError } = require('./catalog');
 const logger = require('./logger');
@@ -82,6 +82,18 @@ async function sumSide(side, loc, chipId, session) {
     { $group: { _id: null, q: { $sum: '$quantity' } } },
   ]).session(session || null);
   return row?.q || 0;
+}
+
+/** Saldo em jogo de um torneio/ficha DENTRO de uma sessão (Σ recebido − Σ devolvido com aquele session_id). */
+async function sessionPlayBalance(tournamentId, chipId, sessionId, session) {
+  const agg = async (side) => {
+    const [row] = await Movement.aggregate([
+      { $match: { chip_id: oid(chipId), session_id: oid(sessionId), [`${side}.kind`]: 'play', [`${side}.id`]: oid(tournamentId) } },
+      { $group: { _id: null, q: { $sum: '$quantity' } } },
+    ]).session(session || null);
+    return row?.q || 0;
+  };
+  return (await agg('to')) - (await agg('from'));
 }
 
 /** Saldo de UMA localização/ficha. Sequencial de propósito (uma sessão não aceita operações paralelas). */
@@ -229,10 +241,12 @@ function notify(payload) {
 /**
  * Grava movimentos em lote (tudo ou nada). Nunca deixa o saldo de uma origem ficar negativo.
  * @param {Array<{type, chip_id, quantity, from:{kind,id}, to:{kind,id}, reason?, reverses?, meta?}>} specs
- * @param {{ user?: object, batch_id?: ObjectId }} opts
+ * @param {{ user?: object, batch_id?: ObjectId, guards?: Array<{ loc, chip_id, quantity, session_id? }> }} opts
+ *   `guards` (conferência): o saldo da localização/ficha precisa ser EXATAMENTE `quantity` quando o lote é gravado — se outra
+ *   operação mexeu nele desde a leitura, o lançamento é recusado (409) em vez de aplicar a diferença em cima de um saldo velho.
  * @returns {Promise<Array>} movimentos criados
  */
-async function postBatch(specs, { user, batch_id } = {}) {
+async function postBatch(specs, { user, batch_id, guards } = {}) {
   if (!Array.isArray(specs) || !specs.length) throw new HttpError(400, 'Nenhuma movimentação informada.');
   const items = specs.map(normalize);
   const { chipById, binderById, tournamentById } = await loadRefs(items);
@@ -247,10 +261,29 @@ async function postBatch(specs, { user, batch_id } = {}) {
     debits.set(k, cur);
   }
 
+  // Débitos em jogo COM sessão: cada sessão (Dia 1A, 1B…) só devolve/converte o que ela mesma recebeu.
+  const sessionDebits = new Map();
+  for (const i of items) {
+    if (i.from.kind !== 'play' || !i.session_id || !mongoose.isValidObjectId(i.session_id)) continue;
+    const k = `${i.from.id}:${i.chip_id}:${i.session_id}`;
+    const cur = sessionDebits.get(k) || { tournament_id: i.from.id, chip_id: i.chip_id, session_id: i.session_id, requested: 0 };
+    cur.requested += i.quantity;
+    sessionDebits.set(k, cur);
+  }
+
   const batch = batch_id || new mongoose.Types.ObjectId();
   let docs;
   try {
-    docs = await execute([...debits.keys()], async (session) => {
+    const guardList = (guards || []).map((g) => ({ ...g, loc: location(g.loc, 'conferência'), chip_id: oid(g.chip_id) }));
+    docs = await execute([...debits.keys(), ...guardList.map((g) => locKey(g.loc, g.chip_id))], async (session) => {
+      for (const g of guardList) {
+        const now = g.session_id && g.loc.kind === 'play'
+          ? await sessionPlayBalance(g.loc.id, g.chip_id, g.session_id, session)
+          : await balanceAt(g.loc, g.chip_id, session);
+        if (now !== g.quantity) {
+          throw new HttpError(409, `O saldo mudou durante a conferência (esperado ${g.quantity}, agora ${now}): refaça a contagem com o saldo atualizado.`);
+        }
+      }
       const short = [];
       for (const d of debits.values()) {
         const available = await balanceAt(d.loc, d.chip_id, session);
@@ -268,6 +301,17 @@ async function postBatch(specs, { user, batch_id } = {}) {
         throw new HttpError(409, msg, short.map((x) => ({
           chip_id: x.chip_id, location: { kind: x.loc.kind, id: x.loc.id }, available: x.available, requested: x.requested,
         })));
+      }
+      for (const d of sessionDebits.values()) {
+        const available = await sessionPlayBalance(d.tournament_id, d.chip_id, d.session_id, session);
+        if (available < d.requested) {
+          const chip = chipById.get(String(d.chip_id));
+          const t = tournamentById.get(String(d.tournament_id));
+          const sess = await TournamentSession.findById(d.session_id).select('name').lean();
+          throw new HttpError(409, `Saldo insuficiente na sessão "${sess?.name || d.session_id}" do torneio "${t?.name}": ${chip?.name} tem ${available} em jogo nesta sessão, mas o lançamento pede ${d.requested}.`, [{
+            chip_id: d.chip_id, location: { kind: 'play', id: d.tournament_id, session_id: d.session_id }, available, requested: d.requested,
+          }]);
+        }
       }
       return Movement.insertMany(items.map((i) => ({
         ...i, batch_id: batch, user_id: user?.id || user?._id || null, user_name: user?.name || user?.email || 'Sistema',

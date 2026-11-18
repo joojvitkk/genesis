@@ -10,7 +10,7 @@ const CHANNELS = ['general', 'material', 'salao'];
 const { User, ChatMessage, Tournament, TournamentSession, Event } = require('./models');
 const sessionsLib = require('./lib/sessions');
 const { publicMessage } = require('./lib/chat');
-const { decodeToken } = require('./middlewares/authMiddleware');
+const { authenticate, allowedTournaments } = require('./middlewares/authMiddleware');
 const logActivity = require('./services/activityLogger');
 const { autoAdvance, clockPayload, levelNumber } = require('./lib/tournamentClock');
 
@@ -34,13 +34,26 @@ app.set('io', io);
 require('./lib/movements').setNotifier((payload) => io.emit('movementsPosted', payload));
 
 // ─── WebSockets ──────────────────────────────────────────────────────────────
-io.use((socket, next) => {
-  const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
-  const user = decodeToken(token);
-  if (!user) return next(new Error('unauthorized'));
-  socket.user = user;
-  next();
+const socketToken = (socket) => socket.handshake.auth?.token || socket.handshake.headers?.authorization;
+// Valida contra o banco (sessão não revogada, papel e escopo atuais). Rotas que revogam sessões chamam
+// `io.in('user:<id>').disconnectSockets(true)`; os eventos sensíveis abaixo revalidam mesmo assim.
+io.use(async (socket, next) => {
+  try {
+    const user = await authenticate(socketToken(socket));
+    if (!user) return next(new Error('unauthorized'));
+    socket.user = user;
+    next();
+  } catch {
+    next(new Error('unauthorized'));
+  }
 });
+/** Revalida o usuário do socket antes de uma ação sensível; derruba a conexão se a sessão caiu. */
+async function freshUser(socket) {
+  const user = await authenticate(socketToken(socket)).catch(() => null);
+  if (!user) { socket.disconnect(true); return null; }
+  socket.user = user;
+  return user;
+}
 
 const onlineUsers = new Map(); // socket.id -> userId
 
@@ -49,6 +62,7 @@ function broadcastOnlineCount() {
 }
 
 io.on('connection', (socket) => {
+  socket.join(`user:${socket.user.id}`);
   onlineUsers.set(socket.id, socket.user.id || socket.id);
   broadcastOnlineCount();
 
@@ -71,8 +85,12 @@ io.on('connection', (socket) => {
   // Relógio do torneio: cliente entra na sala e recebe o estado atual na hora
   socket.on('joinTournament', async (id) => {
     if (!mongoose.isValidObjectId(id)) return;
-    socket.join(`tournament:${id}`);
     try {
+      const user = await freshUser(socket);
+      if (!user) return;
+      const allowed = await allowedTournaments(user);
+      if (allowed && !allowed.includes(String(id))) return; // operador restrito não escuta o relógio de outro torneio
+      socket.join(`tournament:${id}`);
       const t = await Tournament.findById(id);
       if (!t) return;
       // um relógio por sessão: quem entra recebe o estado atual de cada uma (parados/pausados não recebem pulso)
@@ -87,6 +105,7 @@ io.on('connection', (socket) => {
 
   socket.on('sendMessage', async (data = {}) => {
     try {
+      if (!(await freshUser(socket))) return;
       if (overMessageLimit()) {
         socket.emit('chatError', 'Muitas mensagens. Aguarde um momento.');
         return;

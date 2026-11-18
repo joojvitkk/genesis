@@ -11,6 +11,8 @@ const EliminationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 EliminationSchema.index({ tournament_id: 1, position: 1 });
+// uma entrada só é eliminada UMA vez (cancelar a eliminação libera de novo) — rede de segurança contra requisições simultâneas
+EliminationSchema.index({ entry_id: 1 }, { unique: true, partialFilterExpression: { status: 'active' }, name: 'elimination_entry_active_once' });
 
 EliminationSchema.plugin(cancellable);
 

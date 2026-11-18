@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret_genesis_key';
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'secret_genesis_key' || process.env.JWT_SECRET.length < 32)) {
+  throw new Error('JWT_SECRET ausente, padrão ou curto demais (mín. 32 caracteres): defina um segredo forte em produção.');
+}
 
 // ─── Matriz de permissões: ÁREA × NÍVEL (spec §13, §18.10) ──────────────────────
 // Mantida em sincronia com frontend/src/config.js (test/permissions.test.js compara os dois).
@@ -34,45 +37,53 @@ function decodeToken(rawHeader) {
 }
 
 // ─── Revogação de sessão (P5) e escopo por torneio (G11) ─────────────────────
-// O token carrega `sv` (session_version). Se não bater com o do usuário no banco, o token está revogado.
-// O mesmo registro traz `allowed_tournament_ids` (escopo). Cache curto para não bater no banco a cada request.
-const authCache = new Map(); // userId -> { sv, allowed, at }
-const SV_TTL = 30_000;
+// O token só PROVA quem é o usuário (`id`) e em qual geração de sessão (`sv`) ele nasceu. Papel, nome, e-mail e escopo
+// de torneios vêm SEMPRE do banco, a cada requisição — sem cache: rebaixar/excluir/restringir um usuário vale na hora,
+// inclusive com mais de um processo. Toda mudança de papel/escopo/senha incrementa `session_version` (token antigo morre).
 
-async function loadUserAuth(userId) {
-  const hit = authCache.get(userId);
-  if (hit && Date.now() - hit.at < SV_TTL) return hit;
+/** Valida o token contra o banco e devolve o usuário ATUAL (id, name, email, role, allowed) ou null. */
+async function authenticate(rawHeader) {
+  const decoded = decodeToken(rawHeader);
+  if (!decoded?.id || decoded.sv === undefined) return null; // token sem `sv` (anterior ao P5) não vale mais
   const { User } = require('../models');
-  const u = await User.findById(userId).select('session_version allowed_tournament_ids');
-  const entry = { sv: u ? (u.session_version || 1) : null, allowed: (u?.allowed_tournament_ids || []).map(String), at: Date.now() };
-  authCache.set(userId, entry);
-  return entry;
-}
-const currentSessionVersion = async (userId) => (await loadUserAuth(userId)).sv;
-
-function bumpSessionVersion(userId) {
-  authCache.delete(String(userId));
+  const u = await User.findById(decoded.id).select('name email role session_version allowed_tournament_ids');
+  if (!u || (u.session_version || 1) !== decoded.sv) return null;
+  return {
+    id: String(u._id), name: u.name, email: u.email, role: u.role,
+    allowed: (u.allowed_tournament_ids || []).map(String),
+  };
 }
 
 /**
  * Torneios que o usuário pode acessar: `null` = todos. Admin sempre acessa todos; para os demais, lista vazia = sem
  * restrição (compatível com quem já existia) e lista preenchida = SOMENTE esses torneios.
+ * Aceita o `req.user` já autenticado (traz `allowed`).
  */
 async function allowedTournaments(user) {
   if (!user?.id || user.role === 'admin') return null;
-  const { allowed } = await loadUserAuth(String(user.id));
-  return allowed.length ? allowed : null;
+  if (Array.isArray(user.allowed)) return user.allowed.length ? user.allowed : null;
+  const { User } = require('../models');
+  const u = await User.findById(user.id).select('allowed_tournament_ids');
+  const ids = (u?.allowed_tournament_ids || []).map(String);
+  return ids.length ? ids : null;
 }
 
-/**
- * Restringe `/tournaments/:tid/**` aos torneios permitidos. Roda ANTES da rota (decodifica o token por conta própria;
- * sem token válido deixa passar e o verifyToken da rota responde 401).
- */
+/** O usuário pode agir sobre este torneio? (rotas que não passam por /tournaments/:tid). Lança 403. */
+async function assertTournamentAllowed(user, tournamentId) {
+  const allowed = await allowedTournaments(user);
+  if (!allowed) return;
+  if (!tournamentId || !allowed.includes(String(tournamentId))) {
+    const { HttpError } = require('../lib/catalog');
+    throw new HttpError(403, 'Você não tem acesso a este torneio.');
+  }
+}
+
+/** Restringe `/tournaments/:tid/**` aos torneios permitidos. Sem token válido deixa passar: o verifyToken da rota responde 401. */
 const requireTournamentAccess = async (req, res, next) => {
   try {
-    const decoded = decodeToken(req.headers['authorization']);
-    if (!decoded) return next();
-    const allowed = await allowedTournaments(decoded);
+    const user = await authenticate(req.headers['authorization']);
+    if (!user) return next();
+    const allowed = await allowedTournaments(user);
     if (!allowed || allowed.includes(String(req.params.tid))) return next();
     return res.status(403).json({ error: 'Você não tem acesso a este torneio.' });
   } catch {
@@ -83,23 +94,14 @@ const requireTournamentAccess = async (req, res, next) => {
 const verifyToken = async (req, res, next) => {
   const header = req.headers['authorization'];
   if (!header) return res.status(401).json({ error: 'Nenhum token fornecido.' });
-
-  const decoded = decodeToken(header);
-  if (!decoded) return res.status(401).json({ error: 'Falha ao autenticar token.' });
-
-  // token sem `sv` (emitido antes do P5) é aceito; com `sv` precisa bater
-  if (decoded.sv !== undefined && decoded.id) {
-    try {
-      const sv = await currentSessionVersion(String(decoded.id));
-      if (sv === null || sv !== decoded.sv) {
-        return res.status(401).json({ error: 'Sessão revogada. Faça login novamente.' });
-      }
-    } catch {
-      return res.status(500).json({ error: 'Falha ao validar a sessão.' });
-    }
+  let user;
+  try {
+    user = await authenticate(header);
+  } catch {
+    return res.status(500).json({ error: 'Falha ao validar a sessão.' });
   }
-
-  req.user = decoded;
+  if (!user) return res.status(401).json({ error: 'Sessão inválida ou revogada. Faça login novamente.' });
+  req.user = user;
   next();
 };
 
@@ -125,7 +127,8 @@ const adminOnly = requireRole('admin');
 // ─── Rate limiter do /login (só conta falhas) ───────────────────────────────
 const loginFailures = new Map();
 const WINDOW_MS = 10 * 60 * 1000;
-const MAX_FAILURES = 20;
+const MAX_FAILURES = 8;
+const IP_MAX_FAILURES = 40; // mesmo IP testando vários e-mails (password spraying)
 
 const keyFor = (req) => {
   const ip = req.ip || req.connection?.remoteAddress || 'unknown';
@@ -133,23 +136,34 @@ const keyFor = (req) => {
   return `${ip}|${email}`;
 };
 
+const ipKey = (req) => `ip|${req.ip || req.connection?.remoteAddress || 'unknown'}`;
+const blocked = (key, max) => {
+  const e = loginFailures.get(key);
+  return !!e && Date.now() - e.first <= WINDOW_MS && e.count >= max;
+};
+const hit = (key) => {
+  const now = Date.now();
+  const e = loginFailures.get(key);
+  if (!e || now - e.first > WINDOW_MS) loginFailures.set(key, { count: 1, first: now });
+  else e.count += 1;
+};
+
 const loginRateLimiter = (req, res, next) => {
-  const entry = loginFailures.get(keyFor(req));
-  if (entry && Date.now() - entry.first <= WINDOW_MS && entry.count >= MAX_FAILURES) {
+  if (blocked(keyFor(req), MAX_FAILURES) || blocked(ipKey(req), IP_MAX_FAILURES)) {
     return res.status(429).json({ error: 'Muitas tentativas de login. Tente novamente em alguns minutos.' });
   }
   next();
 };
 
-const registerFailedLogin = (req) => {
-  const key = keyFor(req);
-  const now = Date.now();
-  const entry = loginFailures.get(key);
-  if (!entry || now - entry.first > WINDOW_MS) loginFailures.set(key, { count: 1, first: now });
-  else entry.count += 1;
-};
+const registerFailedLogin = (req) => { hit(keyFor(req)); hit(ipKey(req)); };
 
 const clearLoginAttempts = (req) => loginFailures.delete(keyFor(req));
+
+// limpeza periódica: sem isto o mapa cresceria com cada e-mail tentado
+setInterval(() => {
+  const cutoff = Date.now() - WINDOW_MS;
+  for (const [k, e] of loginFailures) if (e.first < cutoff) loginFailures.delete(k);
+}, WINDOW_MS).unref?.();
 
 module.exports = {
   verifyToken,
@@ -161,10 +175,11 @@ module.exports = {
   LEVELS,
   hasLevel,
   allowedTournaments,
+  assertTournamentAllowed,
+  authenticate,
   requireTournamentAccess,
   loginRateLimiter,
   registerFailedLogin,
   clearLoginAttempts,
-  bumpSessionVersion,
   JWT_SECRET,
 };
