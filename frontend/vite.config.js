@@ -12,19 +12,10 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'favicon.ico', 'favicon-16x16.png', 'favicon-32x32.png', 'apple-touch-icon.png', 'masked-icon.svg', 'og-image.png', 'brand/*.svg'],
       workbox: {
         navigateFallbackDenylist: [/^\/api/, /^\/socket\.io/],
-        runtimeCaching: [
-          {
-            // GET da API: rede primeiro, cai no cache quando offline (app abre sem rede)
-            urlPattern: ({ url, request }) => request.method === 'GET' && url.pathname.startsWith('/api/'),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'genesis-api',
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-        ],
+        // App SÓ online: o service worker guarda apenas os arquivos do próprio app (instalável como PWA).
+        // Nenhuma resposta da API é cacheada — dados de um usuário nunca ficam disponíveis para outro nem após o logout.
+        runtimeCaching: [],
+        cleanupOutdatedCaches: true,
       },
       manifest: {
         id: '/',

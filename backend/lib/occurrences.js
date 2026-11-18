@@ -93,7 +93,11 @@ async function openFromDiffs(diffs, where, { reason, user, source = 'count' }) {
     tournament_id: where.tournament?._id || null, session_id: where.session?._id || null,
     reason: `${label}: esperado ${r.expected ?? '—'}, contado ${r.counted ?? '—'}.${reason ? ` ${reason}` : ''}`,
     meta: { occurrence_id: r.occurrence_id, count: { expected: r.expected, counted: r.counted } },
-  })), { user });
+  })), {
+    user,
+    // a diferença foi calculada sobre `expected`: se o saldo mudou até aqui (conferência simultânea, envio…), recusa
+    guards: rows.filter((r) => r.expected != null).map((r) => ({ loc: here, chip_id: r.chip._id, quantity: r.expected, session_id: where.session?._id })),
+  });
 
   const occurrences = await Occurrence.insertMany(rows.map((r) => ({
     _id: r.occurrence_id, kind: r.kind, scope: where.scope, chip_id: r.chip._id,

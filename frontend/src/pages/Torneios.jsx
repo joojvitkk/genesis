@@ -21,7 +21,6 @@ import { getStoredUser } from '../lib/auth';
 import BlindTemplatesModal from '../components/BlindTemplatesModal';
 import BlindRowsTable from '../components/BlindRowsTable';
 import { nextLevelRow, cloneRows } from '../lib/blinds';
-import { enqueue } from '../lib/offlineQueue';
 import { tournamentWhen } from '../lib/format';
 import { modalMotion, scrimMotion, SPRING_SHEET, EXIT } from '../lib/motion';
 
@@ -261,13 +260,8 @@ export default function Torneios() {
       fetchTournaments();
       fetchTournamentCounts(selectedTournament._id, selectedSessionId);
     } catch (e) {
-      if (e.status === 0) {
-        enqueue(path, body);
-        setForm(f => ({ ...f, entry_quantity: 1 }));
-        showAlert('Sem conexão — entrada salva offline. Sincroniza quando a rede voltar.', 'info');
-      } else if (e.status !== 401) {
-        showAlert(e.message || 'Erro ao registrar entrada', 'error');
-      }
+      // sem conexão (status 0) a entrada NÃO é registrada: o operador vê o erro e repete quando a rede voltar
+      if (e.status !== 401) showAlert(e.status === 0 ? 'Sem conexão: a entrada NÃO foi registrada. Tente de novo quando a internet voltar.' : (e.message || 'Erro ao registrar entrada'), 'error');
     }
   };
 
@@ -1120,14 +1114,13 @@ export default function Torneios() {
                 {isAdmin && blindTemplates.length > 0 && (
                   <div>
                     <label htmlFor="tpl-pick" className="label">Estrutura de blinds (Tracking Sheet)</label>
-                    <select id="tpl-pick" value={tplPick} className="input" onChange={(e) => {
-                      const tpl = blindTemplates.find((x) => x._id === e.target.value);
-                      setTplPick(e.target.value);
-                      setCopyExtra((cur) => { const { blind_structure: _drop, ...rest } = cur; return tpl ? { ...rest, blind_structure: cloneRows(tpl.rows) } : rest; });
-                    }}>
-                      <option value="">{editing ? 'Manter a estrutura atual' : 'Nenhuma (definir depois na Logística)'}</option>
-                      {blindTemplates.map((x) => <option key={x._id} value={x._id}>{x.name}</option>)}
-                    </select>
+                    <CustomSelect id="tpl-pick" value={tplPick}
+                      options={[{ value: '', label: editing ? 'Manter a estrutura atual' : 'Nenhuma (definir depois na Logística)' }, ...blindTemplates.map((x) => ({ value: x._id, label: x.name }))]}
+                      onChange={(v) => {
+                        const tpl = blindTemplates.find((x) => x._id === v);
+                        setTplPick(v);
+                        setCopyExtra((cur) => { const { blind_structure: _drop, ...rest } = cur; return tpl ? { ...rest, blind_structure: cloneRows(tpl.rows) } : rest; });
+                      }} />
                     <p className="mt-1 text-xs text-fg-subtle">A estrutura é <b>copiada</b> para o torneio: editar aqui não altera o cadastro nem outros torneios.</p>
                   </div>
                 )}

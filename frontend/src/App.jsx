@@ -31,7 +31,6 @@ import Telao from './pages/Telao';
 import Landing from './pages/Landing';
 import ChangePassword from './pages/ChangePassword';
 import Conta from './pages/Conta';
-import { flushOfflineQueue } from './lib/offlineQueue';
 import { occurrenceAlertText } from './lib/occurrenceAlert';
 
 // Re-exports para compatibilidade com imports antigos
@@ -187,11 +186,14 @@ function App() {
 function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, handleLogout, onPasswordChanged, onAvatarChanged }) {
   const { showAlert } = useAlert();
 
+  // O app só funciona com internet: nada é guardado para enviar depois. Avisa quando a conexão cai e quando volta.
   useEffect(() => {
-    flushOfflineQueue();
-    const onOnline = () => flushOfflineQueue().then((n) => { if (n) showAlert(`${n} ação(ões) offline sincronizada(s).`, 'success'); });
+    const onOffline = () => showAlert('Sem conexão com a internet. Nada será registrado até a conexão voltar.', 'error');
+    const onOnline = () => showAlert('Conexão restabelecida.', 'success');
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) onOffline();
+    window.addEventListener('offline', onOffline);
     window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
+    return () => { window.removeEventListener('offline', onOffline); window.removeEventListener('online', onOnline); };
   }, [showAlert]);
 
   return (

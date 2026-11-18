@@ -30,7 +30,7 @@ async function disconnect() {
 
 function tokenFor(user) {
   return jwt.sign(
-    { id: user._id, name: user.name, email: user.email, role: user.role },
+    { id: user._id, name: user.name, email: user.email, role: user.role, sv: user.session_version || 1 },
     process.env.JWT_SECRET,
     { expiresIn: '1h' }
   );

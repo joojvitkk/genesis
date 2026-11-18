@@ -84,7 +84,7 @@ test('sem token → 401 (não 403); token inválido → 401', async () => {
   assert.equal((await request(app).get(`/api/tournaments/${A._id}`).set({ Authorization: 'Bearer lixo' })).status, 401);
 });
 
-test('o admin define o escopo ao criar/editar o usuário e ele vale IMEDIATAMENTE (cache limpo)', async () => {
+test('o admin define o escopo ao criar/editar o usuário; mudar o escopo derruba a sessão e o novo login já vem correto', async () => {
   const { admin, A, B } = await scene();
   const created = await post(H(admin), '/api/users', { name: 'Op', email: 'op@x.com', password: 'secret123', role: 'material', allowed_tournament_ids: [A._id] });
   assert.equal(created.status, 201, JSON.stringify(created.body));
@@ -98,11 +98,18 @@ test('o admin define o escopo ao criar/editar o usuário e ele vale IMEDIATAMENT
 
   const upd = await put(H(admin), `/api/users/${user._id}`, { allowed_tournament_ids: [B._id] });
   assert.equal(upd.status, 200, JSON.stringify(upd.body));
-  assert.equal((await get(h, `/api/tournaments/${B._id}`)).status, 200, 'o novo escopo já vale');
-  assert.equal((await get(h, `/api/tournaments/${A._id}`)).status, 403);
+  assert.equal(upd.body.sessions_revoked, true);
+  assert.equal((await get(h, `/api/tournaments/${B._id}`)).status, 401, 'o token antigo morreu junto com o escopo antigo');
+
+  const fresh = async () => {
+    const u = await User.findById(user._id);
+    return { Authorization: `Bearer ${jwt.sign({ id: u._id, name: u.name, email: u.email, role: u.role, sv: u.session_version }, process.env.JWT_SECRET, { expiresIn: '1h' })}` };
+  };
+  assert.equal((await get(await fresh(), `/api/tournaments/${B._id}`)).status, 200, 'o novo escopo vale no novo login');
+  assert.equal((await get(await fresh(), `/api/tournaments/${A._id}`)).status, 403);
 
   await put(H(admin), `/api/users/${user._id}`, { allowed_tournament_ids: [] });
-  assert.equal((await get(h, `/api/tournaments/${A._id}`)).status, 200, 'esvaziar = liberar');
+  assert.equal((await get(await fresh(), `/api/tournaments/${A._id}`)).status, 200, 'esvaziar = liberar');
 });
 
 test('escopo inválido é recusado (lista, ids, torneio inexistente); só o admin mexe nele', async () => {

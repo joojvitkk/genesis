@@ -31,9 +31,9 @@ test('login não vaza o hash da senha', async () => {
   assert.equal(res.body.user.password, undefined);
 });
 
-test('rate limit bloqueia após 20 falhas do mesmo ip+email', async () => {
+test('rate limit bloqueia após 8 falhas do mesmo ip+email', async () => {
   await User.create({ name: 'A', email: 'rl@test.com', password: 'admin123', role: 'admin' });
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 8; i++) {
     const r = await request(app).post('/api/login').send({ email: 'rl@test.com', password: 'x' });
     assert.equal(r.status, 401);
   }

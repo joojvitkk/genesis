@@ -12,9 +12,10 @@ const {
   loginRateLimiter,
   registerFailedLogin,
   clearLoginAttempts,
-  bumpSessionVersion,
+  assertTournamentAllowed,
   JWT_SECRET,
 } = require('../middlewares/authMiddleware');
+const rateLimit = require('../lib/rateLimit');
 const logActivity = require('../services/activityLogger');
 const { diffFields } = require('../services/activityLogger');
 const { escapeRegex, toInt, pick } = require('../utils/sanitize');
@@ -56,6 +57,37 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const MIN_PASSWORD_LENGTH = 6;
+
+// ─── Limites de requisição ───────────────────────────────────────────────────
+// Escritas: por usuário (token) — cobre qualquer POST/PUT/DELETE de operação (movimentos, conferências, entradas…).
+// Sensíveis (senha, usuários, revogação): bem mais estritos, por usuário + IP.
+const tokenKey = (req) => `${req.ip}|${req.headers.authorization || ''}`;
+const writeLimiter = rateLimit({ windowMs: 60_000, max: 120, key: tokenKey, message: 'Muitas operações em pouco tempo. Aguarde um momento.' });
+const sensitiveLimiter = rateLimit({ windowMs: 10 * 60_000, max: 30, key: tokenKey, message: 'Muitas tentativas. Aguarde alguns minutos.' });
+router.use((req, res, next) => (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/login' ? next() : writeLimiter(req, res, next)));
+
+/** Filtro de escopo para coleções que referenciam torneio: restrito → só os permitidos (e, se `orNull`, registros sem torneio). */
+async function scopeClause(user, field = 'tournament_id', { orNull = false } = {}) {
+  const allowed = await allowedTournaments(user);
+  if (!allowed) return null;
+  const inScope = { [field]: { $in: allowed.map((id) => new mongoose.Types.ObjectId(id)) } };
+  return orNull ? { $or: [inScope, { [field]: null }] } : inScope;
+}
+/** Aplica o escopo a `filter` (e recusa um `tournament_id` explícito fora dele). */
+async function applyScope(user, filter, opts) {
+  const allowed = await allowedTournaments(user);
+  if (!allowed) return filter;
+  if (filter.tournament_id !== undefined) { await assertTournamentAllowed(user, filter.tournament_id); return filter; }
+  const clause = await scopeClause(user, 'tournament_id', opts);
+  return { $and: [filter, clause] };
+}
+
+/** Derruba na hora toda sessão do usuário: invalida os tokens (session_version) e fecha os sockets abertos. */
+async function revokeSessions(req, user) {
+  user.session_version = (user.session_version || 1) + 1;
+  await user.save();
+  req.app.get('io')?.in?.(`user:${user._id}`)?.disconnectSockets?.(true);
+}
 
 function signToken(user) {
   return jwt.sign(
@@ -147,7 +179,7 @@ router.delete('/me/avatar', verifyToken, async (req, res) => {
 });
 
 // Troca de senha do próprio usuário (também usada no fluxo "senha temporária")
-router.post('/me/password', verifyToken, async (req, res) => {
+router.post('/me/password', sensitiveLimiter, verifyToken, async (req, res) => {
   try {
     const { current_password, new_password } = req.body || {};
     if (!new_password || String(new_password).length < MIN_PASSWORD_LENGTH) {
@@ -160,9 +192,7 @@ router.post('/me/password', verifyToken, async (req, res) => {
     }
     user.password = new_password;
     user.must_change_password = false;
-    user.session_version = (user.session_version || 1) + 1; // derruba as outras sessões
-    await user.save();
-    bumpSessionVersion(user._id);
+    await revokeSessions(req, user); // derruba TODAS as sessões (inclusive esta); o token novo vale daqui em diante
     await logActivity('Senha Alterada', 'system', user.email, req.user);
     res.json({ message: 'Senha alterada', token: signToken(user) });
   } catch (err) {
@@ -175,9 +205,7 @@ router.post('/me/logout-all', verifyToken, adminOnly, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    user.session_version = (user.session_version || 1) + 1;
-    await user.save();
-    bumpSessionVersion(user._id);
+    await revokeSessions(req, user);
     await logActivity('Sessões Encerradas', 'system', user.email, req.user);
     res.json({ message: 'Todas as sessões foram encerradas.' });
   } catch (err) {
@@ -205,7 +233,7 @@ router.get('/users', verifyToken, requirePageAccess('usuarios'), async (req, res
   }
 });
 
-router.post('/users', verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
+router.post('/users', sensitiveLimiter, verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
   try {
     const { name, email, password, role } = req.body || {};
     const scope = await normalizeScope(req.body?.allowed_tournament_ids);
@@ -228,10 +256,11 @@ router.post('/users', verifyToken, requirePageAccess('usuarios', 'manage'), asyn
   }
 });
 
-router.put('/users/:id', verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
+router.put('/users/:id', sensitiveLimiter, verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
   try {
     const { name, email, role, password } = req.body || {};
     const scope = await normalizeScope(req.body?.allowed_tournament_ids);
+    if (role !== undefined && !['admin', 'material', 'salao'].includes(role)) return res.status(400).json({ error: 'Papel inválido.' });
     const target = await User.findById(req.params.id);
     if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
@@ -242,30 +271,34 @@ router.put('/users/:id', verifyToken, requirePageAccess('usuarios', 'manage'), a
     }
 
     const before = { name: target.name, email: target.email, role: target.role };
+    // Qualquer mudança que altere O QUE o usuário pode fazer derruba as sessões dele: no próximo login tudo vem correto.
+    let revoke = false;
     if (name) target.name = name;
-    if (email) target.email = email;
-    if (role && ['admin', 'material', 'salao'].includes(role)) target.role = role;
+    if (email && String(email).trim().toLowerCase() !== target.email) { target.email = email; revoke = true; }
+    if (role && role !== target.role) { target.role = role; revoke = true; }
     if (password) {
       if (String(password).length < MIN_PASSWORD_LENGTH) {
         return res.status(400).json({ error: `A senha deve ter ao menos ${MIN_PASSWORD_LENGTH} caracteres.` });
       }
       target.password = password; // hasheada pelo hook pre('save')
-      target.session_version = (target.session_version || 1) + 1;
-      bumpSessionVersion(target._id);
+      revoke = true;
     }
-    if (scope !== undefined) { target.allowed_tournament_ids = scope; bumpSessionVersion(target._id); } // o escopo vale já (limpa o cache)
-    await target.save();
+    if (scope !== undefined) {
+      const same = scope.length === target.allowed_tournament_ids.length && scope.every((id) => target.allowed_tournament_ids.some((x) => String(x) === id));
+      if (!same) { target.allowed_tournament_ids = scope; revoke = true; }
+    }
+    if (revoke) await revokeSessions(req, target); else await target.save();
 
     const changes = diffFields(before, { name: target.name, email: target.email, role: target.role }, ['name', 'email', 'role']);
-    await logActivity('Usuário Atualizado', 'system', `Email: ${target.email}`, req.user, changes);
-    res.json({ message: 'Usuário atualizado', user: { name: target.name, email: target.email, role: target.role } });
+    await logActivity('Usuário Atualizado', 'system', `Email: ${target.email}${revoke ? ' | sessões encerradas' : ''}`, req.user, changes);
+    res.json({ message: 'Usuário atualizado', sessions_revoked: revoke, user: { name: target.name, email: target.email, role: target.role } });
   } catch (err) {
     if (err.code === 11000) return res.status(400).json({ error: 'Já existe um usuário com este e-mail.' });
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 
-router.delete('/users/:id', verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
+router.delete('/users/:id', sensitiveLimiter, verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
   try {
     if (req.user?.id === req.params.id) {
       return res.status(400).json({ error: 'Você não pode excluir seu próprio usuário.' });
@@ -278,7 +311,8 @@ router.delete('/users/:id', verifyToken, requirePageAccess('usuarios', 'manage')
       if (adminCount <= 1) return res.status(400).json({ error: 'Não é possível excluir o único administrador.' });
     }
 
-    await target.deleteOne();
+    await target.deleteOne(); // o token dele deixa de valer na hora: o usuário não existe mais
+    req.app.get('io')?.in?.(`user:${target._id}`)?.disconnectSockets?.(true);
     await logActivity('Usuário Removido', 'system', `ID: ${req.params.id} | Email: ${target.email}`, req.user);
     res.json({ message: 'Usuário removido' });
   } catch (err) {
@@ -287,16 +321,14 @@ router.delete('/users/:id', verifyToken, requirePageAccess('usuarios', 'manage')
 });
 
 // Admin gera uma senha temporária (mostrada uma vez); usuário troca no próximo login
-router.post('/users/:id/reset-password', verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
+router.post('/users/:id/reset-password', sensitiveLimiter, verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
   try {
     const target = await User.findById(req.params.id);
     if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
     const temp = randomPassword(10);
     target.password = temp;
     target.must_change_password = true;
-    target.session_version = (target.session_version || 1) + 1;
-    await target.save();
-    bumpSessionVersion(target._id);
+    await revokeSessions(req, target);
     await logActivity('Senha Redefinida pelo Admin', 'system', target.email, req.user);
     res.json({ message: 'Senha temporária gerada', temporary_password: temp });
   } catch (err) {
@@ -305,13 +337,11 @@ router.post('/users/:id/reset-password', verifyToken, requirePageAccess('usuario
 });
 
 // Admin encerra todas as sessões de um usuário
-router.post('/users/:id/revoke-sessions', verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
+router.post('/users/:id/revoke-sessions', sensitiveLimiter, verifyToken, requirePageAccess('usuarios', 'manage'), async (req, res) => {
   try {
     const target = await User.findById(req.params.id);
     if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    target.session_version = (target.session_version || 1) + 1;
-    await target.save();
-    bumpSessionVersion(target._id);
+    await revokeSessions(req, target);
     await logActivity('Sessões Revogadas pelo Admin', 'system', target.email, req.user);
     res.json({ message: 'Sessões revogadas.' });
   } catch (err) {
@@ -746,7 +776,7 @@ router.get('/movements', verifyToken, requirePageAccess('estoque'), async (req, 
       if (q.from) filter.createdAt.$gte = new Date(q.from);
       if (q.to) filter.createdAt.$lte = new Date(q.to);
     }
-    await paginate(res, Movement, filter, {
+    await paginate(res, Movement, await applyScope(req.user, filter, { orNull: true }), {
       populate: [{ path: 'chip_id', select: 'name value color' }, { path: 'binder_id', select: 'name code' }, { path: 'tournament_id', select: 'name' }],
       sort: { createdAt: -1, _id: -1 },
       query: q,
@@ -1749,7 +1779,8 @@ router.get('/events/:id', verifyToken, requirePageAccess('torneios'), async (req
   try {
     const event = await Event.findById(req.params.id).lean();
     if (!event) throw new HttpError(404, 'Evento não encontrado.');
-    const tournaments = await Tournament.find({ event_id: event._id }).sort({ number: 1, date: 1 }).lean();
+    const evScope = await allowedTournaments(req.user);
+    const tournaments = await Tournament.find({ event_id: event._id, ...(evScope ? { _id: { $in: evScope } } : {}) }).sort({ number: 1, date: 1 }).lean();
     const sessions = await TournamentSession.find({ tournament_id: { $in: tournaments.map((t) => t._id) } }).sort({ order: 1 }).lean();
     res.json({
       ...event,
@@ -2009,7 +2040,7 @@ router.get('/allocations', verifyToken, async (req, res) => {
     for (const f of ['tournament_id', 'binder_id']) if (req.query[f]) filter[f] = req.query[f];
     if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
     else if (req.query.open !== 'all') filter.open = req.query.open === 'false' ? false : true; // padrão: só os vínculos abertos
-    res.json(await Allocation.find(filter).sort({ createdAt: -1 }).populate(ALLOCATION_POPULATE).lean());
+    res.json(await Allocation.find(await applyScope(req.user, filter)).sort({ createdAt: -1 }).populate(ALLOCATION_POPULATE).lean());
   } catch (err) {
     sendError(res, err);
   }
@@ -2037,6 +2068,7 @@ router.delete('/allocations/:id', verifyToken, requirePageAccess('torneios'), ad
   try {
     const alloc = await Allocation.findById(req.params.id);
     if (!alloc) throw new HttpError(404, 'Vínculo não encontrado.');
+    await assertTournamentAllowed(req.user, alloc.tournament_id);
     await allocationLib.release(alloc, req.user);
     await logActivity('Fichário Desvinculado', 'chip_case', `ID: ${alloc._id}`, req.user);
     req.app.get('io')?.emit('allocationsChanged', { tournament_id: alloc.tournament_id, binder_id: alloc.binder_id });
@@ -2144,21 +2176,24 @@ router.get('/tournaments/:id/finance', verifyToken, async (req, res) => {
 router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
   try {
     const { entry_id } = req.body || {};
-    const t = await Tournament.findById(req.params.id);
-    if (!t) return res.status(404).json({ error: 'Torneio não encontrado.' });
-    if (t.status === 'finalized') return res.status(400).json({ error: 'Torneio já finalizado.' });
     if (!mongoose.isValidObjectId(entry_id)) return res.status(400).json({ error: 'Entrada inválida.' });
+    // Serializa as eliminações do torneio: duas requisições simultâneas para a mesma entrada (ou duas que disputam a
+    // mesma colocação) não passam juntas pela checagem — a segunda espera, enxerga a primeira e é recusada.
+    await require('../lib/movements').execute([`eliminations:${req.params.id}`], async () => {
+    const t = await Tournament.findById(req.params.id);
+    if (!t) throw new HttpError(404, 'Torneio não encontrado.');
+    if (t.status === 'finalized') throw new HttpError(400, 'Torneio já finalizado.');
 
     // A eliminação vale DENTRO da sessão da entrada: colocação e "campeã" nunca misturam sessões (Simulação 2.1 §4)
     const target = await TournamentEntry.findOne({ _id: entry_id, tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] } });
-    if (!target) return res.status(400).json({ error: 'Entrada não encontrada neste torneio.' });
+    if (!target) throw new HttpError(400, 'Entrada não encontrada neste torneio.');
     const sid = target.session_id || null;
     const [entries, elims] = await Promise.all([
       TournamentEntry.find({ tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] }, ...(sid ? { session_id: sid } : {}) }),
       Elimination.find({ tournament_id: t._id }),
     ]);
     const eliminatedIds = new Set(elims.map((e) => String(e.entry_id)));
-    if (eliminatedIds.has(String(entry_id))) return res.status(400).json({ error: 'Esta entrada já foi eliminada.' });
+    if (eliminatedIds.has(String(entry_id))) throw new HttpError(400, 'Esta entrada já foi eliminada.');
 
     const alive = entries.filter((e) => !eliminatedIds.has(String(e._id)));
     const remaining = alive.length;
@@ -2199,9 +2234,11 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
       await logActivity('Eliminação Registrada', 'tournament', `${t.name} | ${entryLabel(alive.find((e) => String(e._id) === String(entry_id)))} | posição ${position} | ativos agora ${after.active} (inscrições ${after.entries_total} inalteradas)`, req.user);
     }
 
-    res.status(201).json(await buildFinance(t._id));
+    });
+    res.status(201).json(await buildFinance(req.params.id));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    if (err?.code === 11000) return res.status(409).json({ error: 'Esta entrada já foi eliminada.' });
+    sendError(res, err);
   }
 });
 
@@ -2391,7 +2428,7 @@ router.get('/occurrences', verifyToken, requirePageAccess('estoque'), async (req
     else if (q.status && q.status !== 'all') filter.status = q.status;
     for (const f of ['severity', 'kind', 'scope']) if (q[f] && q[f] !== 'all') filter[f] = q[f];
     for (const f of ['binder_id', 'tournament_id', 'chip_id', 'session_id']) if (q[f]) filter[f] = q[f];
-    await paginate(res, Occurrence, filter, { sort: { createdAt: -1 }, populate: OCC_POPULATE, query: q, transform: (rows) => rows.map(occurrences.shape) });
+    await paginate(res, Occurrence, await applyScope(req.user, filter, { orNull: true }), { sort: { createdAt: -1 }, populate: OCC_POPULATE, query: q, transform: (rows) => rows.map(occurrences.shape) });
   } catch (err) {
     sendError(res, err);
   }
@@ -2400,6 +2437,7 @@ router.get('/occurrences', verifyToken, requirePageAccess('estoque'), async (req
 router.get('/occurrences/:id', verifyToken, requirePageAccess('estoque'), async (req, res) => {
   try {
     const o = await occurrences.load(req.params.id);
+    if (o.tournament_id) await assertTournamentAllowed(req.user, o.tournament_id);
     res.json(occurrences.shape(await o.populate(OCC_POPULATE)));
   } catch (err) {
     sendError(res, err);
@@ -2411,6 +2449,9 @@ const occurrenceAction = (activity, fn, { admin = false, balances: touches = fal
   verifyToken, requirePageAccess('estoque', admin ? 'manage' : 'operate'),
   async (req, res) => {
     try {
+      // operador restrito ao torneio A não age sobre ocorrência do torneio B (nem a justifica, recupera ou encerra)
+      const current = await occurrences.load(req.params.id);
+      if (current.tournament_id) await assertTournamentAllowed(req.user, current.tournament_id);
       const o = await fn(req.params.id, req.body || {}, req.user);
       await logActivity(activity, 'inventory', `Ocorrência ${o._id} | ${o.status}`, req.user);
       const io = req.app.get('io');
@@ -2553,7 +2594,7 @@ router.get('/conversions', verifyToken, async (req, res) => {
     const filter = {};
     if (req.query.tournament_id) filter.tournament_id = req.query.tournament_id;
     if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
-    await paginate(res, Conversion, filter, { populate: CONVERSION_POPULATE, sort: { createdAt: -1 }, query: req.query });
+    await paginate(res, Conversion, await applyScope(req.user, filter), { populate: CONVERSION_POPULATE, sort: { createdAt: -1 }, query: req.query });
   } catch (err) {
     sendError(res, err);
   }
@@ -2563,6 +2604,7 @@ router.get('/conversions/:id', verifyToken, async (req, res) => {
   try {
     const c = await Conversion.findById(req.params.id).populate(CONVERSION_POPULATE);
     if (!c) throw new HttpError(404, 'Conversão não encontrada.');
+    await assertTournamentAllowed(req.user, c.tournament_id);
     res.json(c);
   } catch (err) {
     sendError(res, err);
@@ -2642,6 +2684,7 @@ router.post('/conversions/:id/reverse', verifyToken, requirePageAccess('chip_rac
   try {
     const c = await Conversion.findById(req.params.id);
     if (!c) throw new HttpError(404, 'Conversão não encontrada.');
+    await assertTournamentAllowed(req.user, c.tournament_id);
     await material.reverseConversion(c, { reason: req.body?.reason, user: req.user });
     await tournamentChips.refreshTournamentChips(c.tournament_id, req.app.get('io'));
     await logActivity('Conversão Estornada', 'chip_race', `ID: ${c._id} | ${req.body.reason}`, req.user);
@@ -2724,8 +2767,9 @@ router.get('/reports/data', verifyToken, requirePageAccess('relatorios'), async 
     // fichas: TUDO derivado dos movimentos (G10) — distribuição, valor, perdas e recuperações
     const [inventory, flows, occ] = await Promise.all([dashboardLib.byChip(), dashboardLib.flows(), dashboardLib.occurrenceStats()]);
 
+    const repScope = await allowedTournaments(req.user);
     const racesByTournament = await Conversion.aggregate([
-      { $match: { status: 'active' } },
+      { $match: { status: 'active', ...(repScope ? { tournament_id: { $in: repScope.map((id) => new mongoose.Types.ObjectId(id)) } } : {}) } },
       { $group: { _id: '$tournament_id', count: { $sum: 1 } } },
       { $lookup: { from: 'tournaments', localField: '_id', foreignField: '_id', as: 'tournament' } },
       { $unwind: '$tournament' },

@@ -8,6 +8,9 @@ const rateLimit = require('./lib/rateLimit');
 const apiRoutes = require('./routes');
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+if (process.env.NODE_ENV === 'production' && CORS_ORIGIN === '*') {
+  throw new Error('CORS_ORIGIN não definido: em produção informe a origem do frontend (ex.: https://genesis.seudominio.com).');
+}
 
 const app = express();
 app.set('trust proxy', 1); // atrás do nginx — para req.ip correto
@@ -36,7 +39,8 @@ app.set('io', noopEmitter);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 
-app.use('/api', apiRoutes);
+// respostas da API nunca são guardadas por navegador, proxy ou service worker (dados são por usuário)
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); }, apiRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
