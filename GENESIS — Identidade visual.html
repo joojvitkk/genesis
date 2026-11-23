@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GENESIS — Sistema de identidade</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --site-primary: #d10a0a;
+  --site-on-primary: #ffffff;
+  --site-secondary: #12151a;
+  --site-on-secondary: #f1f5f9;
+  --site-background: #f5f6f8;
+  --site-on-background: #0f172a;
+  --site-font-body: "Fira Sans", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --site-font-heading: "Fira Sans", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --site-heading-scale: 1;
+  --site-spacing-scale: 1;
+  --site-radius-scale: 1;
+  --site-decoration-opacity: 1;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; background: var(--site-background); }
+body { margin: 0; font-family: var(--site-font-body); background: var(--site-background); color: var(--site-on-background); font-size: 14px; line-height: 1.45; }
+button, a { font: inherit; }
+button { cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+#app { min-height: 100vh; width: 100%; background: var(--site-background); color: var(--site-on-background); border-radius: 0; }
+[data-theme="light"] { --canvas: #f5f6f8; --surface: #ffffff; --surface-2: #eef1f5; --line: #d8dde5; --fg: #0f172a; --muted: #475569; --brand: #d10a0a; --brand-hover: #a80707; --brand-fg: #d10a0a; --brand-soft: #fdecec; --status-ok: #166534; --status-attention: #92400e; --status-danger: #b42318; --status-info: #1d4ed8; }
+[data-theme="dark"] { --canvas: #0b0d10; --surface: #12151a; --surface-2: #191e25; --line: #2a3039; --fg: #f1f5f9; --muted: #a6b0bf; --brand: #d10a0a; --brand-hover: #a80707; --brand-fg: #ff7878; --brand-soft: #2a1214; --status-ok: #5fd68a; --status-attention: #f2b84b; --status-danger: #ff8a80; --status-info: #8fb0ff; }
+#app { background: var(--canvas); color: var(--fg); }
+.site-header { position: sticky; z-index: 20; top: 0; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--canvas) 94%, transparent); backdrop-filter: blur(12px); }
+.header-inner { max-width: 1440px; margin: 0 auto; padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.mini-brand { display:flex; align-items:center; gap:10px; font-size: 12px; font-weight: 700; letter-spacing:.16em; text-transform: uppercase; white-space: nowrap; }
+.mini-brand .brand-copy { display:flex; flex-direction:column; gap:1px; }
+.mini-brand small { color: var(--muted); font-size: 10px; letter-spacing:.12em; font-weight:500; }
+.nav { display:flex; gap:5px; flex-wrap:wrap; align-items:center; justify-content:center; }
+.nav a { color: var(--muted); padding: 8px 10px; border-radius: 7px; font-size:12px; font-weight:600; }
+.nav a:hover, .nav a:focus-visible { background:var(--surface-2); color:var(--fg); outline:none; }
+.header-actions { display:flex; gap:8px; align-items:center; }
+.btn { display:inline-flex; justify-content:center; align-items:center; gap:8px; border:1px solid var(--line); background:var(--surface); color:var(--fg); border-radius:8px; padding:9px 12px; font-size:12px; font-weight:600; transition:background 180ms ease-out, color 180ms ease-out, border-color 180ms ease-out, transform 180ms ease-out; }
+.btn:hover { transform: translateY(-1px); border-color:var(--muted); }
+.btn-primary { background:var(--brand); color:#fff; border-color:var(--brand); }
+.btn-primary:hover { background:var(--brand-hover); border-color:var(--brand-hover); }
+.btn-quiet { border-color:transparent; background:transparent; }
+main { max-width: 1440px; margin:0 auto; padding: 0 28px 72px; }
+.hero { display:grid; grid-template-columns: minmax(0,1.1fr) minmax(320px,.9fr); gap:28px; padding: 64px 0 54px; align-items:stretch; }
+.eyebrow { display:flex; gap:10px; align-items:center; font-size:11px; line-height:1.2; color:var(--muted); text-transform:uppercase; letter-spacing:.15em; font-weight:700; }
+.eyebrow:before { content:""; width:7px; height:7px; background:var(--brand); border-radius:2px; display:block; }
+h1,h2,h3,p { margin:0; }
+h1 { font-size:clamp(42px,5vw,70px); line-height:.98; letter-spacing:-.055em; margin:20px 0 20px; font-weight:700; }
+.hero h1 span { color:var(--brand); }
+.lede { max-width:610px; color:var(--muted); font-size:16px; line-height:1.65; }
+.hero-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:28px; }
+.hero-note { color:var(--muted); font-size:12px; margin-top:17px; }
+.hero-panel { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:24px; display:flex; flex-direction:column; justify-content:space-between; min-height:300px; }
+.panel-top { display:flex; justify-content:space-between; gap:10px; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.12em; font-weight:700; }
+.status-dot { display:inline-block; width:7px; height:7px; background:#166534; border-radius:50%; margin-right:7px; }
+.hero-logo-stage { min-height:170px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:22px; }
+.logo-lockup { display:inline-flex; align-items:center; gap:13px; color:var(--fg); }
+.wordmark { font-family:"Fira Sans", Inter, sans-serif; font-size:clamp(19px,2vw,27px); font-weight:700; letter-spacing:.18em; line-height:1; white-space:nowrap; }
+.hero-symbol { width:48px; height:48px; flex-shrink:0; }
+.stage-caption { color:var(--muted); font-size:11px; text-align:center; max-width:270px; }
+.metric-strip { display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--line); padding-top:16px; gap:12px; }
+.metric strong { display:block; font-size:17px; font-weight:700; letter-spacing:-.03em; }
+.metric span { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+.section { padding:54px 0 8px; scroll-margin-top:82px; }
+.section-heading { display:flex; justify-content:space-between; gap:28px; align-items:flex-end; margin-bottom:23px; }
+.section-heading .left { max-width:760px; }
+.section-kicker { color:var(--brand); font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; margin-bottom:10px; }
+h2 { font-size:clamp(25px,3vw,36px); line-height:1.05; letter-spacing:-.04em; font-weight:700; }
+.section-desc { color:var(--muted); font-size:14px; max-width:620px; line-height:1.65; margin-top:10px; }
+.note-tag { align-self:flex-end; border:1px solid var(--line); border-radius:6px; padding:7px 9px; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
+.rule { height:1px; background:var(--line); }
+.concept-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
+.concept-card { border:1px solid var(--line); background:var(--surface); padding:16px; border-radius:12px; min-width:0; text-align:left; display:flex; flex-direction:column; align-items:stretch; gap:12px; color:var(--fg); transition:border-color 180ms ease-out, transform 180ms ease-out, background 180ms ease-out; }
+.concept-card:hover { transform:translateY(-2px); border-color:var(--muted); }
+.concept-card[aria-pressed="true"] { border:2px solid var(--brand); padding:15px; background:var(--brand-soft); }
+.concept-art { min-height:128px; display:flex; justify-content:center; align-items:center; background:var(--canvas); border-radius:8px; }
+.concept-art svg { width:72px; height:72px; }
+.concept-meta { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.concept-no { color:var(--muted); font-family:"Fira Code",ui-monospace,monospace; font-size:11px; }
+.concept-check { color:var(--brand); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; }
+.concept-card h3 { font-size:14px; font-weight:700; line-height:1.25; }
+.concept-card p { color:var(--muted); font-size:12px; line-height:1.5; }
+.concept-foot { color:var(--muted); font-size:11px; border-top:1px solid var(--line); padding-top:10px; margin-top:auto; }
+.recommendation { display:grid; grid-template-columns:1fr auto; gap:20px; align-items:center; border:1px solid var(--line); border-radius:12px; padding:20px 22px; background:var(--surface); margin-top:14px; }
+.recommendation h3 { font-size:16px; margin-bottom:5px; }
+.recommendation p { font-size:13px; color:var(--muted); max-width:790px; }
+.recommendation .rationale { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:15px; }
+.rationale div { border-left:2px solid var(--brand); padding-left:10px; font-size:12px; color:var(--muted); }
+.rationale strong { display:block; color:var(--fg); margin-bottom:3px; }
+.var-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.var-card { background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.var-card .showcase { height:132px; display:flex; align-items:center; justify-content:center; padding:20px; gap:10px; }
+.var-card .labelrow { display:flex; justify-content:space-between; align-items:center; gap:10px; border-top:1px solid var(--line); padding:12px 14px; color:var(--muted); font-size:11px; }
+.var-card .labelrow strong { color:var(--fg); font-size:12px; }
+.var-card .showcase .wordmark { font-size:20px; }
+.dark-swatch { background:#0b0d10; color:#f1f5f9; }
+.light-swatch { background:#ffffff; color:#0f172a; }
+.neutral-swatch { background:#f5f6f8; color:#0f172a; }
+.danger-swatch { background:#d10a0a; color:#ffffff; }
+.mono-black { color:#0b0d10; }
+.mono-white { color:#ffffff; }
+.mono-red { color:#d10a0a; }
+.variation-symbol { width:38px; height:38px; flex-shrink:0; }
+.wordmark-only { font-family:"Fira Sans",Inter,sans-serif; letter-spacing:.18em; font-weight:700; font-size:21px; }
+.clearspace { grid-column:span 3; display:grid; grid-template-columns:1fr 1fr; gap:20px; border:1px solid var(--line); border-radius:12px; padding:22px; background:var(--surface); }
+.clearspace h3 { font-size:15px; margin-bottom:8px; }
+.clearspace p { color:var(--muted); font-size:12px; line-height:1.55; }
+.measure-demo { display:flex; align-items:center; justify-content:center; padding:15px; background:var(--canvas); border:1px dashed var(--muted); min-height:120px; }
+.measure-frame { border:1px dashed var(--brand); padding:22px; display:flex; align-items:center; justify-content:center; position:relative; }
+.measure-frame:before { content:"X"; position:absolute; top:3px; left:5px; color:var(--brand); font-size:10px; font-family:"Fira Code",monospace; }
+.measure-note { font:11px "Fira Code",monospace; color:var(--muted); margin-top:9px; }
+.bad-examples { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:14px; }
+.bad-card { border:1px solid var(--line); background:var(--surface); border-radius:12px; overflow:hidden; }
+.bad-art { min-height:112px; padding:15px; display:flex; align-items:center; justify-content:center; background:var(--canvas); position:relative; }
+.bad-art:after { content:"×"; position:absolute; right:10px; top:6px; color:#b42318; font-size:19px; font-weight:700; }
+.bad-label { padding:12px; border-top:1px solid var(--line); }
+.bad-label strong { font-size:12px; display:block; margin-bottom:4px; }
+.bad-label p { color:var(--muted); font-size:11px; line-height:1.45; }
+.palette-layout { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.palette-panel { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px; }
+.palette-title { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; }
+.palette-title h3 { font-size:15px; }
+.palette-title span { color:var(--muted); text-transform:uppercase; letter-spacing:.1em; font-size:10px; font-weight:700; }
+.swatch-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.swatch { border:1px solid var(--line); border-radius:8px; overflow:hidden; min-width:0; }
+.swatch-color { height:54px; display:flex; align-items:center; justify-content:center; font-size:11px; font-family:"Fira Code",monospace; font-weight:600; }
+.swatch-info { padding:9px; }
+.swatch-info strong { display:block; font-size:11px; }
+.swatch-info code { font-size:10px; color:var(--muted); }
+.contrast-table { margin-top:16px; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--surface); }
+.table-head,.contrast-row { display:grid; grid-template-columns:1.1fr 1fr 1fr .85fr; gap:12px; align-items:center; padding:12px 14px; }
+.table-head { background:var(--surface-2); color:var(--muted); text-transform:uppercase; letter-spacing:.1em; font-size:10px; font-weight:700; }
+.contrast-row { border-top:1px solid var(--line); font-size:12px; }
+.contrast-row .name { font-weight:700; }
+.pair-chip { display:inline-flex; align-items:center; gap:7px; min-width:0; }
+.pair-chip i { display:inline-block; width:13px; height:13px; border-radius:3px; flex-shrink:0; border:1px solid #0002; }
+.ratio { font-family:"Fira Code",monospace; font-size:11px; font-weight:700; }
+.pass { color:#166534; }
+[data-theme="dark"] .pass { color:#5fd68a; }
+.small-note { color:var(--muted); font-size:11px; line-height:1.5; margin-top:10px; }
+.type-grid { display:grid; grid-template-columns:1.15fr .85fr; gap:14px; }
+.type-samples { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:22px; }
+.type-row { padding:17px 0; border-bottom:1px solid var(--line); }
+.type-row:last-child { border-bottom:0; }
+.type-meta { display:flex; justify-content:space-between; gap:14px; color:var(--muted); font:10px "Fira Code",monospace; margin-bottom:9px; }
+.sample-page { font-size:24px; line-height:1.1; font-weight:700; letter-spacing:-.025em; }
+.sample-cardtitle { font-size:16px; font-weight:600; }
+.sample-label { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.1em; }
+.sample-number { font:700 30px/1.1 "Fira Code",ui-monospace,monospace; font-variant-numeric:tabular-nums; letter-spacing:-.045em; }
+.type-spec { display:flex; flex-direction:column; gap:12px; }
+.spec-card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:17px; }
+.spec-card h3 { font-size:13px; margin-bottom:12px; }
+.spec-card p { color:var(--muted); font-size:12px; line-height:1.6; }
+.weight-list { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+.weight-sample { border:1px solid var(--line); border-radius:7px; padding:10px 7px; text-align:center; }
+.weight-sample strong { display:block; font-size:15px; margin-bottom:4px; }
+.weight-sample span { color:var(--muted); font-size:10px; }
+.spec-big-num { font:600 28px/1 "Fira Code",monospace; font-variant-numeric:tabular-nums; letter-spacing:-.05em; margin:12px 0 7px; }
+.apps-grid { display:grid; grid-template-columns: .8fr 1.1fr 1.35fr; gap:12px; align-items:stretch; }
+.app-demo { overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.app-demo-head { display:flex; justify-content:space-between; gap:10px; align-items:center; border-bottom:1px solid var(--line); padding:12px 14px; font-size:11px; font-weight:700; }
+.demo-kicker { font-size:10px; text-transform:uppercase; color:var(--muted); letter-spacing:.12em; }
+.sidebar-demo { min-height:330px; display:grid; grid-template-columns:46px 1fr; background:#12151a; color:#f1f5f9; }
+.sidebar-rail { border-right:1px solid #2a3039; display:flex; flex-direction:column; align-items:center; padding:14px 0; gap:18px; }
+.rail-icon { width:17px; height:17px; border:1.5px solid #7b8493; border-radius:4px; opacity:.8; }
+.rail-icon.active { background:#d10a0a; border-color:#d10a0a; }
+.sidebar-content { padding:16px 12px; }
+.sidebar-lockup { display:flex; align-items:center; gap:7px; font-size:11px; letter-spacing:.12em; font-weight:700; margin-bottom:28px; }
+.sidebar-lockup svg { width:24px; height:24px; }
+.sidebar-section-label { color:#8993a3; font-size:9px; letter-spacing:.12em; font-weight:700; margin:20px 0 8px; }
+.sidebar-link { padding:8px; font-size:11px; color:#b8c0cc; border-radius:5px; margin:3px 0; }
+.sidebar-link.active { background:#2a1214; color:#ff7878; border-left:2px solid #d10a0a; padding-left:6px; }
+.login-demo { background:#0b0d10; min-height:330px; color:#f1f5f9; display:flex; justify-content:center; align-items:center; padding:22px; }
+.login-box { width:100%; max-width:280px; }
+.login-logo { display:flex; align-items:center; gap:9px; font-size:17px; font-weight:700; letter-spacing:.18em; margin-bottom:29px; }
+.login-logo svg { width:34px; height:34px; }
+.login-box h3 { font-size:21px; margin-bottom:7px; letter-spacing:-.03em; }
+.login-box > p { color:#a6b0bf; font-size:11px; margin-bottom:22px; }
+.form-label { display:block; font-size:10px; font-weight:600; color:#c7ced8; margin:12px 0 6px; }
+.fake-input { border:1px solid #2a3039; background:#12151a; border-radius:7px; padding:10px; font-size:11px; color:#7e8997; }
+.login-submit { background:#d10a0a; color:#fff; font-weight:700; font-size:11px; text-align:center; padding:11px; border-radius:7px; margin-top:16px; }
+.tv-demo { grid-column:1/-1; border-color:#2a3039; background:#0b0d10; color:#f1f5f9; }
+.tv-screen { background:#0b0d10; padding:23px 25px 21px; position:relative; overflow:hidden; min-height:270px; }
+.tv-top { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #2a3039; padding-bottom:14px; gap:15px; }
+.tv-brand { display:flex; align-items:center; gap:9px; letter-spacing:.16em; font-size:12px; font-weight:700; }
+.tv-brand svg { width:27px;height:27px; }
+.tv-state { color:#ff7878; border:1px solid #602124; background:#2a1214; font-size:10px; padding:5px 8px; letter-spacing:.1em; text-transform:uppercase; border-radius:5px; }
+.tv-content { display:grid; grid-template-columns:.8fr 1.4fr .8fr; align-items:center; gap:18px; padding:24px 0 19px; }
+.tv-info span { color:#8f9aaa; display:block; font-size:10px; text-transform:uppercase; letter-spacing:.12em; font-weight:600; margin-bottom:8px; }
+.tv-info strong { font:600 24px/1.1 "Fira Code",monospace; display:block; font-variant-numeric:tabular-nums; }
+.tv-clock { text-align:center; }
+.tv-level { color:#a6b0bf; text-transform:uppercase; font-size:11px; letter-spacing:.16em; font-weight:600; }
+.tv-time { font:600 clamp(45px,6vw,82px)/1 "Fira Code",monospace; letter-spacing:-.075em; font-variant-numeric:tabular-nums; margin:7px 0 9px; color:#fff; }
+.tv-progress { height:3px; background:#2a3039; width:100%; max-width:360px; margin:0 auto; }
+.tv-progress span { height:100%; width:68%; display:block; background:#d10a0a; }
+.tv-footer { border-top:1px solid #2a3039; padding-top:12px; color:#7f8998; display:flex; justify-content:space-between; font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
+.dashboard-demo { background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.dashboard-layout { display:grid; grid-template-columns:155px 1fr; min-height:330px; }
+.dash-side { border-right:1px solid var(--line); padding:15px 10px; }
+.dash-logo { display:flex; gap:6px; align-items:center; font-size:10px; font-weight:700; letter-spacing:.1em; margin-bottom:20px; }
+.dash-logo svg { width:24px;height:24px; }
+.dash-link { font-size:10px; color:var(--muted); padding:8px; border-radius:6px; margin:3px 0; }
+.dash-link.active { background:var(--brand-soft); color:var(--brand-fg); border-left:2px solid var(--brand); }
+.dash-main { padding:17px; min-width:0; }
+.dash-topline { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:18px; }
+.dash-topline h3 { font-size:16px; font-weight:700; }
+.pill { padding:5px 7px; border:1px solid var(--line); border-radius:5px; color:var(--muted); font-size:9px; font-weight:600; }
+.dash-cards { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+.dash-card { border:1px solid var(--line); border-radius:8px; padding:11px; min-width:0; }
+.dash-card span { display:block; color:var(--muted); font-size:9px; text-transform:uppercase; font-weight:600; letter-spacing:.07em; }
+.dash-card strong { display:block; margin-top:8px; font:700 25px/1 "Fira Code",monospace; font-variant-numeric:tabular-nums; }
+.dash-card em { display:block; color:var(--muted); font-size:9px; font-style:normal; margin-top:7px; }
+.dash-table { margin-top:12px; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.dash-table-head,.dash-row { display:grid; grid-template-columns:1.3fr .7fr .7fr; gap:6px; padding:9px; font-size:9px; }
+.dash-table-head { background:var(--surface-2); color:var(--muted); text-transform:uppercase; letter-spacing:.06em; font-weight:700; }
+.dash-row { border-top:1px solid var(--line); }
+.dash-row span:last-child { color:var(--status-ok); }
+.icon-motion-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.icon-card,.motion-card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:20px; }
+.icon-card h3,.motion-card h3 { font-size:15px; margin-bottom:14px; }
+.icon-demos { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+.icon-demo { background:var(--canvas); border:1px solid var(--line); border-radius:8px; min-height:60px; display:flex; align-items:center; justify-content:center; }
+.icon-demo svg { width:24px; height:24px; color:var(--fg); fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.icon-card p,.motion-card p { color:var(--muted); font-size:12px; line-height:1.6; margin-top:13px; }
+.motion-rule { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; margin-top:16px; font-family:"Fira Code",monospace; font-size:11px; }
+.motion-line { height:4px; background:var(--surface-2); border-radius:99px; overflow:hidden; }
+.motion-line span { display:block; height:100%; width:72%; background:var(--brand); }
+.tokens { background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.tokens-top { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); }
+.tokens-top p { color:var(--muted); font-size:11px; }
+.token-code { padding:18px; background:var(--canvas); overflow:auto; color:var(--fg); font:12px/1.75 "Fira Code",ui-monospace,monospace; white-space:pre; }
+.token-code .comment { color:var(--muted); }
+.export-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.export-card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:15px; display:flex; align-items:center; gap:13px; }
+.export-preview { width:48px; height:48px; display:flex; align-items:center; justify-content:center; background:var(--canvas); border:1px solid var(--line); border-radius:8px; flex-shrink:0; }
+.export-preview svg { max-width:100%; max-height:100%; }
+.export-info { min-width:0; }
+.export-info strong { display:block; font-size:12px; }
+.export-info small { color:var(--muted); font-size:10px; display:block; margin:3px 0 8px; }
+.export-info button { font-size:10px; padding:5px 8px; }
+.footer { border-top:1px solid var(--line); margin-top:58px; padding-top:20px; display:flex; justify-content:space-between; gap:16px; color:var(--muted); font-size:11px; }
+.footer strong { color:var(--fg); letter-spacing:.14em; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media (max-width:1100px) { .nav { display:none; } .concept-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .apps-grid { grid-template-columns:1fr 1fr; } .dashboard-demo { grid-column:1/-1; } .export-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:760px) { .header-inner { padding:12px 16px; } main { padding:0 16px 50px; } .hero { grid-template-columns:1fr; padding:42px 0 35px; } .hero-panel { min-height:280px; } .section { padding-top:40px; } .section-heading { align-items:flex-start; flex-direction:column; gap:12px; } .concept-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .var-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .clearspace { grid-column:span 2; grid-template-columns:1fr; } .bad-examples { grid-template-columns:repeat(2,minmax(0,1fr)); } .palette-layout,.type-grid,.icon-motion-grid { grid-template-columns:1fr; } .table-head,.contrast-row { grid-template-columns:.9fr 1fr 1fr .6fr; gap:6px; padding:10px 8px; font-size:10px; } .pair-chip { gap:4px; } .pair-chip i { display:none; } .apps-grid { grid-template-columns:1fr; } .tv-demo,.dashboard-demo { grid-column:auto; } .tv-content { grid-template-columns:1fr 1.6fr; gap:15px; } .tv-info:last-child { display:none; } .tv-time { font-size:52px; } .dashboard-layout { grid-template-columns:110px 1fr; } .dash-main { padding:11px; } .dash-card strong { font-size:21px; } .recommendation { grid-template-columns:1fr; } .recommendation .rationale { grid-template-columns:1fr; gap:10px; } .export-grid { grid-template-columns:1fr 1fr; } }
+@media (max-width:440px) { .mini-brand { letter-spacing:.08em; } .mini-brand small { display:none; } .header-actions .btn { padding:8px; } .header-actions .btn span { display:none; } .concept-grid,.var-grid,.export-grid { grid-template-columns:1fr; } .clearspace { grid-column:span 1; } .bad-examples { grid-template-columns:1fr 1fr; } .swatch-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .contrast-row { grid-template-columns:.8fr 1fr 1fr .55fr; } .table-head { grid-template-columns:.8fr 1fr 1fr .55fr; } .contrast-row .name { font-size:10px; } .ratio { font-size:10px; } .tv-top { align-items:flex-start; } .tv-state { display:none; } .tv-screen { padding:17px; } .tv-time { font-size:40px; } .tv-info strong { font-size:18px; } }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition-duration:0.01ms !important; animation-duration:0.01ms !important; } }
+</style>
+</head>
+<body>
+<div id="app">
+<header class="site-header">
+  <div class="header-inner">
+    <a href="#top" class="mini-brand" aria-label="GENESIS — início">
+      <svg width="25" height="25" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg>
+      <span class="brand-copy">GENESIS <small>Sistema de identidade · 01.0</small></span>
+    </a>
+    <nav class="nav" aria-label="Navegação da prancha">
+      <a href="#logos">Logos</a><a href="#paleta">Paleta</a><a href="#tipo">Tipografia</a><a href="#aplicacoes">Aplicações</a><a href="#tokens">Tokens</a>
+    </nav>
+    <div class="header-actions">
+      <button class="btn" id="themeToggle" type="button" aria-label="Alternar tema"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg><span id="themeLabel">Tema escuro</span></button>
+      <button class="btn btn-primary" type="button" onclick="document.querySelector('#exportacao').scrollIntoView({behavior:'smooth'})">Exportar SVG</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+  <section class="hero" aria-labelledby="hero-title">
+    <div>
+      <div class="eyebrow">Identidade visual · Plataforma operacional</div>
+      <h1 id="hero-title">Precisão em cada<br><span>segundo.</span></h1>
+      <p class="lede">Uma marca feita para a sala de controle: clara sob pressão, rigorosa no dado e reconhecível de relance — do painel da equipe à tela de projeção.</p>
+      <div class="hero-actions"><a class="btn btn-primary" href="#logos">Explorar conceitos <span aria-hidden="true">↘</span></a><a class="btn" href="#aplicacoes">Ver em uso</a></div>
+      <p class="hero-note">Direção recomendada: <strong>02 / G modular</strong> · Evolução do quadrado vermelho existente.</p>
+    </div>
+    <div class="hero-panel">
+      <div class="panel-top"><span>Marca principal · Conceito 02</span><span><i class="status-dot"></i>Pronta para operação</span></div>
+      <div class="hero-logo-stage">
+        <div class="logo-lockup" id="heroLockup">
+          <svg class="hero-symbol" viewBox="0 0 32 32" aria-label="Símbolo GENESIS"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg>
+          <span class="wordmark">GENESIS</span>
+        </div>
+        <p class="stage-caption">Símbolo compacto + wordmark com tracking controlado. O vermelho aparece como sinal operacional, nunca como textura.</p>
+      </div>
+      <div class="metric-strip"><div class="metric"><strong>01</strong><span>Origem</span></div><div class="metric"><strong>08</strong><span>Marcas do aro</span></div><div class="metric"><strong>AA</strong><span>Contraste</span></div></div>
+    </div>
+  </section>
+  <div class="rule"></div>
+
+  <section class="section" id="logos">
+    <div class="section-heading"><div class="left"><div class="section-kicker">01 — Exploração de símbolo</div><h2>Cinco direções.<br>Um sistema reconhecível.</h2><p class="section-desc">Selecione uma direção para experimentar o símbolo no palco principal. A recomendação mantém o bloco vermelho original e transforma a forma em um G proprietário.</p></div><span class="note-tag">Selecione para explorar</span></div>
+    <div class="concept-grid" role="group" aria-label="Conceitos de logo">
+      <button class="concept-card" type="button" data-concept="1" aria-pressed="false">
+        <div class="concept-art"><svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="24" fill="none" stroke="#d10a0a" stroke-width="5"/><circle cx="40" cy="40" r="14" fill="none" stroke="var(--fg)" stroke-width="2.5"/><g stroke="#d10a0a" stroke-width="4" stroke-linecap="round"><path d="M40 7v5M63.3 16.7l-3.5 3.5M73 40h-5M63.3 63.3l-3.5-3.5M40 73v-5M16.7 63.3l3.5-3.5M7 40h5M16.7 16.7l3.5 3.5"/></g><path d="M40 40h15v8H43" fill="none" stroke="var(--fg)" stroke-width="4" stroke-linecap="square"/></svg></div>
+        <div class="concept-meta"><span class="concept-no">01 / 05</span><span class="concept-check">Explorar</span></div><h3>Aro de controle</h3><p>Oito marcas remetem à instrumentação de uma ficha, com o G como leitura central.</p><div class="concept-foot">Mais técnico · Detalhe alto em 16 px</div>
+      </button>
+      <button class="concept-card" type="button" data-concept="2" aria-pressed="true">
+        <div class="concept-art"><svg viewBox="0 0 80 80" aria-hidden="true"><rect x="10" y="10" width="60" height="60" rx="12" fill="#d10a0a"/><circle cx="40" cy="40" r="17" fill="none" stroke="#fff" stroke-width="6"/><rect x="48" y="32" width="18" height="16" fill="#d10a0a"/><path d="M40 40h17" stroke="#fff" stroke-width="6" stroke-linecap="square"/></svg></div>
+        <div class="concept-meta"><span class="concept-no">02 / 05</span><span class="concept-check">Recomendado</span></div><h3>G modular</h3><p>O quadrado atual passa a ser o contêiner do símbolo; o G surge por contraste e corte geométrico.</p><div class="concept-foot">Melhor equilíbrio · Favicon e PWA</div>
+      </button>
+      <button class="concept-card" type="button" data-concept="3" aria-pressed="false">
+        <div class="concept-art"><svg viewBox="0 0 80 80" aria-hidden="true"><path d="M60 31A23 23 0 1 0 62 44H42" fill="none" stroke="var(--fg)" stroke-width="6" stroke-linecap="square"/><path d="M40 16v24l15 9" fill="none" stroke="#d10a0a" stroke-width="5" stroke-linecap="square" stroke-linejoin="round"/><circle cx="40" cy="40" r="3.5" fill="#d10a0a"/></svg></div>
+        <div class="concept-meta"><span class="concept-no">03 / 05</span><span class="concept-check">Explorar</span></div><h3>Arco de tempo</h3><p>Um arco que avança como o nível de blind, com ponteiro curto e leitura dinâmica.</p><div class="concept-foot">Mais cronometragem · Menos proprietário</div>
+      </button>
+      <button class="concept-card" type="button" data-concept="4" aria-pressed="false">
+        <div class="concept-art"><svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="28" fill="none" stroke="var(--fg)" stroke-width="2"/><circle cx="40" cy="40" r="20" fill="none" stroke="var(--fg)" stroke-width="4"/><circle cx="40" cy="40" r="11" fill="none" stroke="#d10a0a" stroke-width="5"/><circle cx="40" cy="40" r="4" fill="#d10a0a"/></svg></div>
+        <div class="concept-meta"><span class="concept-no">04 / 05</span><span class="concept-check">Explorar</span></div><h3>Ponto de origem</h3><p>Anéis concêntricos sugerem empilhamento e começo, com um único ponto de foco.</p><div class="concept-foot">Conceitual · Menos ligado à operação</div>
+      </button>
+      <button class="concept-card" type="button" data-concept="5" aria-pressed="false">
+        <div class="concept-art"><svg viewBox="0 0 80 80" aria-hidden="true"><path d="M18 28V18H32M48 18H62V32M62 48V62H48M32 62H18V48" fill="none" stroke="#d10a0a" stroke-width="5" stroke-linecap="square"/><path d="M52 29A15 15 0 1 0 53 47H41" fill="none" stroke="var(--fg)" stroke-width="5" stroke-linecap="square"/></svg></div>
+        <div class="concept-meta"><span class="concept-no">05 / 05</span><span class="concept-check">Explorar</span></div><h3>Quadro de operação</h3><p>Colchetes de enquadramento criam uma assinatura de painel e leitura sistêmica.</p><div class="concept-foot">Estruturado · Maior complexidade</div>
+      </button>
+    </div>
+    <div class="recommendation" aria-live="polite">
+      <div><h3 id="selectedTitle">02 — G modular <span style="color:var(--brand);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-left:8px">Direção recomendada</span></h3><p id="selectedDescription">Mantém o ativo mais reconhecível do produto e o converte em um símbolo com significado. A geometria sobrevive em tamanhos pequenos, não depende de textura e funciona em monocromia.</p><div class="rationale"><div><strong>Continuidade</strong>Preserva o quadrado vermelho já conhecido.</div><div><strong>Escala</strong>Contorno simples e abertura legível em 16 px.</div><div><strong>Operação</strong>O vermelho sinaliza ação; o resto é estrutura.</div></div></div>
+      <button class="btn btn-primary" id="useRecommended" type="button">Voltar à recomendada</button>
+    </div>
+  </section>
+
+  <section class="section" id="variacoes">
+    <div class="section-heading"><div class="left"><div class="section-kicker">02 — Sistema de assinatura</div><h2>Uma marca. Vários contextos.</h2><p class="section-desc">A assinatura prioritária é horizontal. O símbolo isolado assume avatares e favicons; o wordmark isolado fica reservado a situações onde a marca já é reconhecida.</p></div><span class="note-tag">Base: conceito 02</span></div>
+    <div class="var-grid">
+      <div class="var-card"><div class="showcase light-swatch"><div class="logo-lockup"><svg class="variation-symbol" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg><span class="wordmark" style="color:#0f172a">GENESIS</span></div></div><div class="labelrow"><strong>Logo horizontal</strong><button class="btn" data-download="horizontal">Baixar SVG</button></div></div>
+      <div class="var-card"><div class="showcase neutral-swatch"><svg class="variation-symbol" viewBox="0 0 32 32" aria-label="Símbolo isolado"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg></div><div class="labelrow"><strong>Símbolo isolado</strong><button class="btn" data-download="symbol">Baixar SVG</button></div></div>
+      <div class="var-card"><div class="showcase light-swatch"><span class="wordmark-only" style="color:#0f172a">GENESIS</span></div><div class="labelrow"><strong>Wordmark isolado</strong><button class="btn" data-download="wordmark">Baixar SVG</button></div></div>
+      <div class="var-card"><div class="showcase light-swatch"><div class="logo-lockup mono-black"><svg class="variation-symbol" viewBox="0 0 32 32"><defs><mask id="mono-black-cut"><rect width="32" height="32" fill="#fff"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#000" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#000"/><path d="M16 16H24.6" stroke="#000" stroke-width="3.3" stroke-linecap="square"/></mask></defs><rect width="32" height="32" rx="6" fill="#0b0d10" mask="url(#mono-black-cut)"/></svg><span class="wordmark">GENESIS</span></div></div><div class="labelrow"><strong>Monocromática preta</strong><button class="btn" data-download="black">Baixar SVG</button></div></div>
+      <div class="var-card"><div class="showcase dark-swatch"><div class="logo-lockup mono-white"><svg class="variation-symbol" viewBox="0 0 32 32"><defs><mask id="mono-white-cut"><rect width="32" height="32" fill="#fff"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#000" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#000"/><path d="M16 16H24.6" stroke="#000" stroke-width="3.3" stroke-linecap="square"/></mask></defs><rect width="32" height="32" rx="6" fill="#ffffff" mask="url(#mono-white-cut)"/></svg><span class="wordmark">GENESIS</span></div></div><div class="labelrow"><strong>Monocromática branca</strong><button class="btn" data-download="white">Baixar SVG</button></div></div>
+      <div class="var-card"><div class="showcase light-swatch"><div class="logo-lockup mono-red"><svg class="variation-symbol" viewBox="0 0 32 32"><defs><mask id="mono-red-cut"><rect width="32" height="32" fill="#fff"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#000" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#000"/><path d="M16 16H24.6" stroke="#000" stroke-width="3.3" stroke-linecap="square"/></mask></defs><rect width="32" height="32" rx="6" fill="#d10a0a" mask="url(#mono-red-cut)"/></svg><span class="wordmark">GENESIS</span></div></div><div class="labelrow"><strong>Versão vermelha</strong><button class="btn" data-download="red">Baixar SVG</button></div></div>
+      <div class="clearspace"><div><h3>Área de respeito</h3><p>Use <strong>X = ¼ da altura do símbolo</strong> como unidade mínima ao redor de toda a assinatura. Nada deve invadir essa zona — nem textos, bordas, fotografias ou outros ícones.</p><p class="measure-note">X = 8 px para símbolo de 32 px</p></div><div><div class="measure-demo"><div class="measure-frame"><div class="logo-lockup"><svg class="variation-symbol" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg><span class="wordmark" style="font-size:15px">GENESIS</span></div></div></div><p class="measure-note">Tamanho mínimo recomendado: símbolo 16 px · assinatura horizontal 124 px</p></div></div>
+    </div>
+    <div class="bad-examples">
+      <div class="bad-card"><div class="bad-art"><div class="logo-lockup" style="transform:scaleX(1.25)"><svg class="variation-symbol" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg><span class="wordmark" style="font-size:14px">GENESIS</span></div></div><div class="bad-label"><strong>Não distorcer</strong><p>Não comprimir, esticar ou alterar a proporção dos elementos.</p></div></div>
+      <div class="bad-card"><div class="bad-art" style="background:linear-gradient(135deg,#d10a0a,#f2b84b)"><div class="logo-lockup" style="color:#fff;text-shadow:0 1px 4px #000"><svg class="variation-symbol" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#fff"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#d10a0a" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#fff"/><path d="M16 16H24.6" stroke="#d10a0a" stroke-width="3.3" stroke-linecap="square"/></svg><span class="wordmark" style="font-size:14px">GENESIS</span></div></div><div class="bad-label"><strong>Não aplicar efeitos</strong><p>Sem gradientes, sombras, brilhos ou texturas decorativas.</p></div></div>
+      <div class="bad-card"><div class="bad-art"><div class="logo-lockup"><svg class="variation-symbol" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg><span class="wordmark" style="font-size:14px;letter-spacing:.02em">GENESIS</span></div></div><div class="bad-label"><strong>Não mudar o tracking</strong><p>Preservar o espaçamento de letras de 0,18 em no wordmark.</p></div></div>
+      <div class="bad-card"><div class="bad-art" style="background:#0b0d10"><div class="logo-lockup"><svg class="variation-symbol" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg><span class="wordmark" style="font-size:14px;color:#d10a0a">GENESIS</span></div></div><div class="bad-label"><strong>Não perder contraste</strong><p>Em fundo escuro, usar brand-fg (#ff7878) no wordmark vermelho.</p></div></div>
+    </div>
+  </section>
+
+  <section class="section" id="icones-app">
+    <div class="section-heading"><div class="left"><div class="section-kicker">03 — Ativos de produto</div><h2>Legível de 16 a 512 px.</h2><p class="section-desc">Ícones construídos em SVG limpo, sem dependências, sombra ou gradiente. O quadrado mantém a assinatura; a letra G é o único detalhe interno.</p></div><span class="note-tag">SVG · ViewBox 32×32</span></div>
+    <div class="export-grid">
+      <div class="export-card"><div class="export-preview"><svg viewBox="0 0 32 32" width="16" height="16"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg></div><div class="export-info"><strong>Favicon · 16 px</strong><small>Uso mínimo / aba</small><button class="btn" data-download="favicon16">Baixar SVG</button></div></div>
+      <div class="export-card"><div class="export-preview"><svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg></div><div class="export-info"><strong>Favicon · 32 px</strong><small>Uso padrão / navegador</small><button class="btn" data-download="favicon32">Baixar SVG</button></div></div>
+      <div class="export-card"><div class="export-preview" style="width:48px;height:48px;background:#d10a0a;border:none"><svg viewBox="0 0 32 32" width="34" height="34"><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg></div><div class="export-info"><strong>Ícone PWA · 192 px</strong><small>Quadrado arredondado</small><button class="btn" data-download="app192">Baixar SVG</button></div></div>
+      <div class="export-card"><div class="export-preview" style="width:48px;height:48px;background:#d10a0a;border:none"><svg viewBox="0 0 32 32" width="42" height="42"><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg></div><div class="export-info"><strong>Ícone PWA · 512 px</strong><small>Master de alta resolução</small><button class="btn" data-download="app512">Baixar SVG</button></div></div>
+    </div>
+    <p class="small-note">Nota técnica: os masters são vetoriais e escaláveis. Para distribuição do app, gere PNGs a partir dos SVGs no pipeline de build caso o manifesto ou a loja exija raster.</p>
+  </section>
+
+  <section class="section" id="paleta">
+    <div class="section-heading"><div class="left"><div class="section-kicker">04 — Cores & acessibilidade</div><h2>O vermelho é sinal, não decoração.</h2><p class="section-desc">A base neutra protege a hierarquia. O vermelho identifica foco, ação primária e estado ativo; no tema escuro, o texto vermelho usa a variante clara para manter legibilidade.</p></div><span class="note-tag">WCAG 2.2 · AA para texto</span></div>
+    <div class="palette-layout">
+      <div class="palette-panel"><div class="palette-title"><h3>Tema claro</h3><span>Superfícies claras</span></div><div class="swatch-grid">
+        <div class="swatch"><div class="swatch-color" style="background:#d10a0a;color:#fff">Abc 123</div><div class="swatch-info"><strong>brand</strong><code>#d10a0a</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#a80707;color:#fff">Hover</div><div class="swatch-info"><strong>brand-hover</strong><code>#a80707</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#fdecec;color:#d10a0a">Ativo</div><div class="swatch-info"><strong>brand-soft</strong><code>#fdecec</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#f5f6f8;color:#0f172a">Aa 123</div><div class="swatch-info"><strong>canvas</strong><code>#f5f6f8</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#fff;color:#0f172a;border-bottom:1px solid #d8dde5">Aa 123</div><div class="swatch-info"><strong>surface</strong><code>#ffffff</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#0f172a;color:#fff">Aa 123</div><div class="swatch-info"><strong>fg</strong><code>#0f172a</code></div></div>
+      </div></div>
+      <div class="palette-panel"><div class="palette-title"><h3>Tema escuro</h3><span>TV + operação</span></div><div class="swatch-grid">
+        <div class="swatch"><div class="swatch-color" style="background:#0b0d10;color:#f1f5f9">Aa 123</div><div class="swatch-info"><strong>canvas</strong><code>#0b0d10</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#12151a;color:#f1f5f9">Aa 123</div><div class="swatch-info"><strong>surface</strong><code>#12151a</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#2a3039;color:#f1f5f9">Aa 123</div><div class="swatch-info"><strong>line</strong><code>#2a3039</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#f1f5f9;color:#0b0d10">Aa 123</div><div class="swatch-info"><strong>fg</strong><code>#f1f5f9</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#ff7878;color:#0b0d10">Aa 123</div><div class="swatch-info"><strong>brand-fg</strong><code>#ff7878</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#2a1214;color:#ff7878">Ativo</div><div class="swatch-info"><strong>brand-soft</strong><code>#2a1214</code></div></div>
+      </div></div>
+    </div>
+    <div class="contrast-table" role="table" aria-label="Razões de contraste">
+      <div class="table-head" role="row"><div>Token / estado</div><div>Texto claro / fundo claro</div><div>Texto escuro / fundo escuro</div><div>Resultado</div></div>
+      <div class="contrast-row" role="row"><div class="name">Marca</div><div class="pair-chip"><i style="background:#d10a0a"></i><code>#d10a0a / #f5f6f8</code></div><div class="pair-chip"><i style="background:#ff7878"></i><code>#ff7878 / #0b0d10</code></div><div class="ratio pass">5,17:1 / 7,61:1</div></div>
+      <div class="contrast-row" role="row"><div class="name">OK</div><div class="pair-chip"><i style="background:#166534"></i><code>#166534 / #ffffff</code></div><div class="pair-chip"><i style="background:#5fd68a"></i><code>#5fd68a / #0b0d10</code></div><div class="ratio pass">7,13:1 / 10,63:1</div></div>
+      <div class="contrast-row" role="row"><div class="name">Atenção</div><div class="pair-chip"><i style="background:#92400e"></i><code>#92400e / #ffffff</code></div><div class="pair-chip"><i style="background:#f2b84b"></i><code>#f2b84b / #0b0d10</code></div><div class="ratio pass">7,09:1 / 10,87:1</div></div>
+      <div class="contrast-row" role="row"><div class="name">Perigo</div><div class="pair-chip"><i style="background:#b42318"></i><code>#b42318 / #ffffff</code></div><div class="pair-chip"><i style="background:#ff8a80"></i><code>#ff8a80 / #0b0d10</code></div><div class="ratio pass">6,57:1 / 8,52:1</div></div>
+      <div class="contrast-row" role="row"><div class="name">Informação</div><div class="pair-chip"><i style="background:#1d4ed8"></i><code>#1d4ed8 / #ffffff</code></div><div class="pair-chip"><i style="background:#8fb0ff"></i><code>#8fb0ff / #0b0d10</code></div><div class="ratio pass">6,70:1 / 9,10:1</div></div>
+    </div>
+    <p class="small-note">Razões calculadas pela fórmula WCAG de luminância relativa. Os valores da tabela são para texto normal sobre os fundos indicados; não representam toda combinação arbitrária entre tokens. O vermelho #d10a0a não atinge 4,5:1 contra #0b0d10, então não deve ser usado como texto normal nesse fundo: use #ff7878.</p>
+  </section>
+
+  <section class="section" id="tipo">
+    <div class="section-heading"><div class="left"><div class="section-kicker">05 — Tipografia</div><h2>Hierarquia antes de decoração.</h2><p class="section-desc">Fira Sans estrutura a interface. Fira Code reserva-se a tempo, contagens e códigos operacionais. Os algarismos são tabulares: colunas e relógios não podem “dançar” conforme os dígitos mudam.</p></div><span class="note-tag">Mínimo 12 px</span></div>
+    <div class="type-grid">
+      <div class="type-samples">
+        <div class="type-row"><div class="type-meta"><span>TÍTULO DE PÁGINA</span><span>24 / 700</span></div><div class="sample-page">Visão geral da operação</div></div>
+        <div class="type-row"><div class="type-meta"><span>TÍTULO DE CARTÃO</span><span>16 / 600</span></div><div class="sample-cardtitle">Estado das mesas</div></div>
+        <div class="type-row"><div class="type-meta"><span>RÓTULO</span><span>12 / 600 · CAIXA ALTA</span></div><div class="sample-label">Tempo restante</div></div>
+        <div class="type-row"><div class="type-meta"><span>NÚMERO DE DESTAQUE</span><span>30 / 700 · TABULAR</span></div><div class="sample-number">00:12:45</div></div>
+      </div>
+      <div class="type-spec">
+        <div class="spec-card"><h3>Fira Sans · Interface</h3><div class="weight-list"><div class="weight-sample"><strong style="font-weight:400">Ag 123</strong><span>400 Regular</span></div><div class="weight-sample"><strong style="font-weight:500">Ag 123</strong><span>500 Medium</span></div><div class="weight-sample"><strong style="font-weight:600">Ag 123</strong><span>600 Semi</span></div><div class="weight-sample"><strong style="font-weight:700">Ag 123</strong><span>700 Bold</span></div></div><p style="margin-top:13px">Sem pesos black ou extrabold. Tracking de 0,18 em no wordmark oficial; não repetir esse valor automaticamente em todo texto da interface.</p></div>
+        <div class="spec-card"><h3>Fira Code · Dados operacionais</h3><div class="spec-big-num">01:42:08</div><p>Relógio, blinds, códigos, contagens e identificadores. Use <code>font-variant-numeric: tabular-nums</code> e mantenha os números alinhados.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="aplicacoes">
+    <div class="section-heading"><div class="left"><div class="section-kicker">06 — Aplicações reais</div><h2>Do salão à tela de projeção.</h2><p class="section-desc">Interfaces esquemáticas para testar a identidade em condições de uso real: sidebar, autenticação, dashboard e o relógio da mesa final. A TV permanece sempre escura.</p></div><span class="note-tag">Superfícies planas · Bordas 1 px</span></div>
+    <div class="apps-grid">
+      <div class="app-demo"><div class="app-demo-head"><span>Sidebar</span><span class="demo-kicker">Tema escuro</span></div><div class="sidebar-demo"><div class="sidebar-rail"><svg width="24" height="24" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg><div class="rail-icon active"></div><div class="rail-icon"></div><div class="rail-icon"></div><div class="rail-icon"></div></div><div class="sidebar-content"><div class="sidebar-lockup"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg>GENESIS</div><div class="sidebar-section-label">TORNEIO</div><div class="sidebar-link active">Visão geral</div><div class="sidebar-link">Relógio de blinds</div><div class="sidebar-link">Mesas e jogadores</div><div class="sidebar-section-label">OPERAÇÃO</div><div class="sidebar-link">Fichas e maletas</div><div class="sidebar-link">Ocorrências</div><div class="sidebar-link">Auditoria</div></div></div></div>
+      <div class="app-demo"><div class="app-demo-head"><span>Login</span><span class="demo-kicker">Foco no acesso</span></div><div class="login-demo"><div class="login-box"><div class="login-logo"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg>GENESIS</div><h3>Entrar na operação</h3><p>Use suas credenciais de equipe para continuar.</p><label class="form-label">USUÁRIO</label><div class="fake-input">operador@torneio</div><label class="form-label">SENHA</label><div class="fake-input">••••••••••</div><div class="login-submit">Acessar painel</div><p style="margin:13px 0 0;font-size:10px;text-align:center">Acesso registrado para auditoria.</p></div></div></div>
+      <div class="app-demo tv-demo"><div class="app-demo-head" style="border-bottom:1px solid #2a3039;background:#12151a;color:#f1f5f9"><span>Relógio de blinds · Projeção</span><span class="demo-kicker">Sempre escuro</span></div><div class="tv-screen"><div class="tv-top"><div class="tv-brand"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg>GENESIS</div><span class="tv-state">Nível em andamento</span></div><div class="tv-content"><div class="tv-info"><span>Blinds · SB / BB</span><strong>1.000 / 2.000</strong><span style="margin-top:15px">Ante</span><strong>2.000</strong></div><div class="tv-clock"><div class="tv-level">Nível 12</div><div class="tv-time" id="tvClock">12:45</div><div class="tv-progress"><span></span></div></div><div class="tv-info"><span>Próximo nível</span><strong>1.500 / 3.000</strong><span style="margin-top:15px">Mesas ativas</span><strong>08</strong></div></div><div class="tv-footer"><span>Evento principal · Dia 1</span><span>Atualização em tempo real</span></div></div></div>
+      <div class="dashboard-demo" style="grid-column:1/-1"><div class="app-demo-head"><span>Dashboard operacional</span><span class="demo-kicker">Cartões planos · Borda 1 px</span></div><div class="dashboard-layout"><aside class="dash-side"><div class="dash-logo"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg>GENESIS</div><div class="dash-link active">Visão geral</div><div class="dash-link">Relógio</div><div class="dash-link">Jogadores</div><div class="dash-link">Fichas</div><div class="dash-link">Ocorrências</div></aside><div class="dash-main"><div class="dash-topline"><h3>Visão geral</h3><span class="pill">TORNEIO ATIVO</span></div><div class="dash-cards"><div class="dash-card"><span>Mesas ativas</span><strong>08</strong><em>Em operação</em></div><div class="dash-card"><span>Jogadores</span><strong>124</strong><em>Assentos ocupados</em></div><div class="dash-card"><span>Maletas em uso</span><strong>12</strong><em>3 em conferência</em></div><div class="dash-card"><span>Ocorrências</span><strong>02</strong><em>1 aguardando ação</em></div></div><div class="dash-table"><div class="dash-table-head"><span>Estação</span><span>Estado</span><span>Atualização</span></div><div class="dash-row"><span>Chip Race</span><span>Concluído</span><span>14:08</span></div><div class="dash-row"><span>Color Up · Mesa 4</span><span>Em curso</span><span>14:12</span></div><div class="dash-row"><span>Conferência · Mesa 7</span><span>Pendente</span><span>14:14</span></div></div></div></div></div>
+    </div>
+  </section>
+
+  <section class="section" id="iconografia">
+    <div class="section-heading"><div class="left"><div class="section-kicker">07 — Iconografia & movimento</div><h2>Menos ruído. Mais sinal.</h2><p class="section-desc">A iconografia acompanha o padrão do produto em vez de disputar atenção com o relógio e os números de operação.</p></div><span class="note-tag">Lucide React</span></div>
+    <div class="icon-motion-grid">
+      <div class="icon-card"><h3>Ícones de interface</h3><div class="icon-demos">
+        <div class="icon-demo"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <div class="icon-demo"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 5v14"/></svg></div>
+        <div class="icon-demo"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5.5a3 3 0 0 1 0 5.8M18 14a5 5 0 0 1 3 4.5V20"/></svg></div>
+        <div class="icon-demo"><svg viewBox="0 0 24 24"><path d="M12 3 20 7v5c0 4.5-3.1 7.5-8 9-4.9-1.5-8-4.5-8-9V7z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg></div>
+        <div class="icon-demo"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="8"/></svg></div>
+      </div><p>Use <strong>lucide-react</strong>, stroke entre 1,5 e 2 px, cantos arredondados e tamanho coerente. Ícones devem vir com rótulo em ações críticas; não depender de símbolo sozinho para alertas.</p></div>
+      <div class="motion-card"><h3>Princípios de movimento</h3><p>Transições breves para confirmar estado, não para entreter. Prefira mudanças de opacidade e deslocamento mínimo. Nada de pulso contínuo, giro decorativo ou animações que compitam com o countdown.</p><div class="motion-rule"><span>150 ms</span><div class="motion-line"><span></span></div><span>220 ms</span></div><p><strong>Curva:</strong> ease-out · <strong>Propriedades:</strong> opacity, transform · <strong>Acessibilidade:</strong> respeitar prefers-reduced-motion.</p></div>
+    </div>
+  </section>
+
+  <section class="section" id="tokens">
+    <div class="section-heading"><div class="left"><div class="section-kicker">08 — Tokens do sistema</div><h2>Tokens semânticos consistentes.</h2><p class="section-desc">Os nomes atuais ficam preservados. O único ajuste operacional importante é consumir <code>brand-fg</code> em texto de destaque sobre o canvas escuro, mantendo o vermelho original para blocos e ações.</p></div><span class="note-tag">CSS variables</span></div>
+    <div class="tokens"><div class="tokens-top"><div><strong>tokens.css</strong><p>Copie o bloco para o tema claro ou escuro do produto.</p></div><button class="btn" id="copyTokens">Copiar tokens</button></div><pre class="token-code" id="tokenCode"><span class="comment">/* Tema claro */</span>
+:root[data-theme="light"] {
+  --brand: #d10a0a;
+  --brand-hover: #a80707;
+  --brand-fg: #d10a0a;
+  --brand-soft: #fdecec;
+  --canvas: #f5f6f8;
+  --surface: #ffffff;
+  --line: #d8dde5;
+  --fg: #0f172a;
+}
+
+<span class="comment">/* Tema escuro */</span>
+:root[data-theme="dark"] {
+  --brand: #d10a0a;
+  --brand-hover: #a80707;
+  --brand-fg: #ff7878;
+  --brand-soft: #2a1214;
+  --canvas: #0b0d10;
+  --surface: #12151a;
+  --line: #2a3039;
+  --fg: #f1f5f9;
+}</pre></div>
+  </section>
+
+  <section class="section" id="exportacao">
+    <div class="section-heading"><div class="left"><div class="section-kicker">09 — Exportação vetorial</div><h2>Arquivos prontos para levar ao produto.</h2><p class="section-desc">Faça o download dos SVGs diretamente pela prancha. As versões monocromáticas são distintas e explícitas para não depender da cor do tema.</p></div><span class="note-tag">Sem dependências externas</span></div>
+    <div class="export-grid">
+      <div class="export-card"><div class="export-preview" style="width:56px"><svg width="52" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg></div><div class="export-info"><strong>Logo horizontal</strong><small>Wordmark + símbolo</small><button class="btn" data-download="horizontal">Baixar SVG</button></div></div>
+      <div class="export-card"><div class="export-preview"><svg width="34" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg></div><div class="export-info"><strong>Símbolo</strong><small>Master 32 × 32</small><button class="btn" data-download="symbol">Baixar SVG</button></div></div>
+      <div class="export-card"><div class="export-preview"><span class="wordmark-only" style="font-size:8px;letter-spacing:.18em">GENESIS</span></div><div class="export-info"><strong>Wordmark</strong><small>Texto vetorial SVG</small><button class="btn" data-download="wordmark">Baixar SVG</button></div></div>
+      <div class="export-card"><div class="export-preview" style="background:#0b0d10"><svg width="34" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d10a0a"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></svg></div><div class="export-info"><strong>TV · Fundo escuro</strong><small>Assinatura otimizada</small><button class="btn" data-download="tv">Baixar SVG</button></div></div>
+    </div>
+    <p class="small-note">O arquivo SVG usa texto vivo no wordmark. Para produção final, mantenha Fira Sans Bold disponível no produto ou converta o wordmark em contornos no processo de entrega gráfica. O preview não publica um site nem altera seu repositório.</p>
+  </section>
+  <footer class="footer"><span><strong>GENESIS</strong> · Sistema de identidade 01.0</span><span>Precisão operacional · PT-BR · Uso em desktop, tablet, celular e TV</span></footer>
+</main>
+</div>
+<script>
+(function(){
+  const root = document.documentElement;
+  const toggle = document.getElementById('themeToggle');
+  const label = document.getElementById('themeLabel');
+  toggle.addEventListener('click', () => {
+    const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', next);
+    label.textContent = next === 'light' ? 'Tema escuro' : 'Tema claro';
+  });
+
+  const details = {
+    1: {title:'01 — Aro de controle', desc:'Reforça o universo de instrumentação e traz o G para o centro. É expressivo em tamanhos médios, mas as marcas periféricas perdem força em 16 px; melhor para uso editorial ou secundário.'},
+    2: {title:'02 — G modular', desc:'Mantém o ativo mais reconhecível do produto e o converte em um símbolo com significado. A geometria sobrevive em tamanhos pequenos, não depende de textura e funciona em monocromia.'},
+    3: {title:'03 — Arco de tempo', desc:'Conecta visualmente a marca à cronometragem esportiva, mas pode ser confundido com um ícone genérico de timer. Funciona melhor como ícone de função do que como assinatura proprietária.'},
+    4: {title:'04 — Ponto de origem', desc:'A origem concêntrica é simples e fala de começo, mas pode parecer um alvo ou indicador de localização. É memorável, porém menos ligado ao G e ao ativo visual atual.'},
+    5: {title:'05 — Quadro de operação', desc:'O enquadramento sugere painel e rigor, mas o símbolo tem mais peças e exige mais espaço para leitura. É uma boa rota para linguagem de interface, não a primeira escolha para favicon.'}
+  };
+  const conceptCards = Array.from(document.querySelectorAll('.concept-card'));
+  function selectConcept(id) {
+    conceptCards.forEach(card => {
+      const active = card.dataset.concept === String(id);
+      card.setAttribute('aria-pressed', active ? 'true' : 'false');
+      const badge = card.querySelector('.concept-check');
+      badge.textContent = active ? (id === '2' ? 'Recomendado' : 'Em exploração') : (card.dataset.concept === '2' ? 'Recomendado' : 'Explorar');
+    });
+    document.getElementById('selectedTitle').innerHTML = details[id].title + (id === '2' ? ' <span style="color:var(--brand);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-left:8px">Direção recomendada</span>' : ' <span style="color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-left:8px">Exploração</span>');
+    document.getElementById('selectedDescription').textContent = details[id].desc;
+    const art = conceptCards.find(c => c.dataset.concept === String(id)).querySelector('.concept-art svg');
+    const heroSvg = document.querySelector('#heroLockup .hero-symbol');
+    heroSvg.replaceChildren(...Array.from(art.cloneNode(true).childNodes));
+    heroSvg.setAttribute('viewBox', '0 0 80 80');
+    heroSvg.style.width = id === '2' ? '48px' : '48px';
+    heroSvg.style.height = '48px';
+    heroSvg.setAttribute('aria-label', details[id].title);
+    document.querySelector('.hero-panel .panel-top span:first-child').textContent = 'Marca em exploração · Conceito ' + String(id).padStart(2,'0');
+  }
+  conceptCards.forEach(card => card.addEventListener('click', () => selectConcept(card.dataset.concept)));
+  document.getElementById('useRecommended').addEventListener('click', () => selectConcept('2'));
+
+  const iconSvg = `<rect width="32" height="32" rx="6" fill="{tile}"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="{cut}" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="{tile}"/><path d="M16 16H24.6" stroke="{cut}" stroke-width="3.3" stroke-linecap="square"/>`;
+  function baseSymbol(tile='#d10a0a', cut='#ffffff', size=32, bg=null) {
+    let inside = iconSvg.replaceAll('{tile}',tile).replaceAll('{cut}',cut);
+    if (bg) inside = `<rect width="32" height="32" fill="${bg}"/>` + inside;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 32 32">${inside}</svg>`;
+  }
+  function monoSymbol(color='#0b0d10', size=32) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 32 32"><defs><mask id="negative-g" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse"><rect width="32" height="32" fill="#fff"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#000" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#000"/><path d="M16 16H24.6" stroke="#000" stroke-width="3.3" stroke-linecap="square"/></mask></defs><rect width="32" height="32" rx="6" fill="${color}" mask="url(#negative-g)"/></svg>`;
+  }
+  function horizontal(tile='#d10a0a', fg='#0f172a', cut='#fff') {
+    const icon = (cut === '#mono') ? monoSymbol(tile, 32).replace(/<svg[^>]*>/,'<g transform="translate(0 8)">').replace('</svg>','</g>') : `<g transform="translate(0 8)">${iconSvg.replaceAll('{tile}',tile).replaceAll('{cut}',cut)}</g>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="48" viewBox="0 0 240 48">${icon}<text x="45" y="31" fill="${fg}" font-family="Fira Sans,Arial,sans-serif" font-size="21" font-weight="700" letter-spacing="3.78">GENESIS</text></svg>`;
+  }
+  function horizontalMono(color) {
+    const symbol = monoSymbol(color, 32).replace(/<svg[^>]*>/,'<g transform="translate(0 8)">').replace('</svg>','</g>');
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="48" viewBox="0 0 240 48">${symbol}<text x="45" y="31" fill="${color}" font-family="Fira Sans,Arial,sans-serif" font-size="21" font-weight="700" letter-spacing="3.78">GENESIS</text></svg>`;
+  }
+  function wordmark(fg='#0f172a') { return `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="40" viewBox="0 0 200 40"><text x="0" y="29" fill="${fg}" font-family="Fira Sans,Arial,sans-serif" font-size="23" font-weight="700" letter-spacing="4.14">GENESIS</text></svg>`; }
+  function exportSvg(type) {
+    const base = baseSymbol('#d10a0a','#ffffff',32);
+    switch(type) {
+      case 'horizontal': return {name:'genesis-logo-horizontal.svg',data:horizontal()};
+      case 'symbol': return {name:'genesis-simbolo.svg',data:base};
+      case 'wordmark': return {name:'genesis-wordmark.svg',data:wordmark()};
+      case 'black': return {name:'genesis-mono-preta.svg',data:horizontalMono('#0b0d10')};
+      case 'white': return {name:'genesis-mono-branca.svg',data:horizontalMono('#ffffff')};
+      case 'red': return {name:'genesis-mono-vermelha.svg',data:horizontalMono('#d10a0a')};
+      case 'favicon16': return {name:'genesis-favicon-16.svg',data:baseSymbol('#d10a0a','#ffffff',16)};
+      case 'favicon32': return {name:'genesis-favicon-32.svg',data:baseSymbol('#d10a0a','#ffffff',32)};
+      case 'app192': return {name:'genesis-app-192.svg',data:`<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><rect width="192" height="192" rx="38" fill="#d10a0a"/><g transform="translate(32 32) scale(4)"><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></g></svg>`};
+      case 'app512': return {name:'genesis-app-512.svg',data:`<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="102" fill="#d10a0a"/><g transform="translate(96 96) scale(10)"><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="3.3"/><rect x="20.1" y="11.9" width="9" height="8.2" fill="#d10a0a"/><path d="M16 16H24.6" stroke="#fff" stroke-width="3.3" stroke-linecap="square"/></g></svg>`};
+      case 'tv': return {name:'genesis-tv-horizontal.svg',data:horizontal('#d10a0a','#f1f5f9','#fff')};
+      default: return {name:'genesis-simbolo.svg',data:base};
+    }
+  }
+  document.querySelectorAll('[data-download]').forEach(btn => btn.addEventListener('click', () => {
+    const asset = exportSvg(btn.dataset.download);
+    const blob = new Blob([asset.data], {type:'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = asset.name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }));
+  document.getElementById('copyTokens').addEventListener('click', async () => {
+    const text = `:root[data-theme="light"] {\n  --brand: #d10a0a;\n  --brand-hover: #a80707;\n  --brand-fg: #d10a0a;\n  --brand-soft: #fdecec;\n  --canvas: #f5f6f8;\n  --surface: #ffffff;\n  --line: #d8dde5;\n  --fg: #0f172a;\n}\n\n:root[data-theme="dark"] {\n  --brand: #d10a0a;\n  --brand-hover: #a80707;\n  --brand-fg: #ff7878;\n  --brand-soft: #2a1214;\n  --canvas: #0b0d10;\n  --surface: #12151a;\n  --line: #2a3039;\n  --fg: #f1f5f9;\n}`;
+    const button = document.getElementById('copyTokens');
+    try { await navigator.clipboard.writeText(text); button.textContent = 'Copiado'; } catch(e) { const t=document.createElement('textarea');t.value=text;document.body.appendChild(t);t.select();const ok=document.execCommand('copy');t.remove();button.textContent=ok?'Copiado':'Selecione o bloco'; }
+    window.setTimeout(() => button.textContent='Copiar tokens', 1800);
+  });
+
+  // An illustrative, local clock: no user data or remote synchronization.
+  let secs = 12*60+45;
+  const clock = document.getElementById('tvClock');
+  function tick() { const m=String(Math.floor(secs/60)).padStart(2,'0'); const s=String(secs%60).padStart(2,'0'); clock.textContent=m+':'+s; secs=secs>0?secs-1:12*60+45; }
+  tick(); window.setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

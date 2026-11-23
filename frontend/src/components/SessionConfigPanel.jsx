@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { Save, ListOrdered } from 'lucide-react';
 import { apiPut } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
+import CustomSelect from './CustomSelect';
 
 const TYPES = [['QUALIFIER', 'Classificatória'], ['CONTINUATION', 'Continuação (Dia 2, 3…)'], ['FINAL', 'Dia Final']];
+const YES_NO = [{ value: 'true', label: 'Sim' }, { value: 'false', label: 'Não' }];
 const MODES = [['next', 'Próximo nível (depois do último jogado)'], ['resume', 'Retomar o nível anterior (com o tempo restante)'], ['manual', 'Primeiro nível da estrutura da sessão']];
 
 /**
@@ -52,6 +54,7 @@ export default function SessionConfigPanel({ tournamentId, session, templates = 
     start_mode: inheriting ? f.start_mode : undefined,
   }), 'Estrutura da sessão aplicada.');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  const pick = (k) => (v) => setF({ ...f, [k]: v });
   const own = session.blind_structure || [];
   const levels = own.filter((r) => !r.row_type || r.row_type === 'level');
 
@@ -65,18 +68,18 @@ export default function SessionConfigPanel({ tournamentId, session, templates = 
       </div>
       <div className="grid gap-3 md:grid-cols-4">
         <div><label htmlFor="sc-type" className="label">Tipo da fase</label>
-          <select id="sc-type" className="input" value={f.type || ''} onChange={set('type')}>{TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+          <CustomSelect id="sc-type" value={f.type || ''} onChange={pick('type')} options={TYPES.map(([value, label]) => ({ value, label }))} /></div>
         <div><label htmlFor="sc-buy" className="label">Permitir buy-ins</label>
-          <select id="sc-buy" className="input" value={f.allow_buyins || ''} onChange={set('allow_buyins')}><option value="true">Sim</option><option value="false">Não</option></select></div>
+          <CustomSelect id="sc-buy" value={f.allow_buyins || ''} onChange={pick('allow_buyins')} options={YES_NO} /></div>
         <div><label htmlFor="sc-re" className="label">Permitir reentradas</label>
-          <select id="sc-re" className="input" value={f.allow_reentries || ''} onChange={set('allow_reentries')}><option value="true">Sim</option><option value="false">Não</option></select></div>
+          <CustomSelect id="sc-re" value={f.allow_reentries || ''} onChange={pick('allow_reentries')} options={YES_NO} /></div>
         <div><label htmlFor="sc-close" className="label">Registro fecha após o nível</label>
           <input id="sc-close" type="number" min="1" className="input" placeholder="Sem limite" value={f.close_level ?? ''} onChange={set('close_level')} /></div>
       </div>
       <label className="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={!!f.close_marker} onChange={set('close_marker')} /> Também encerrar ao passar o evento “Fim do Registro” da estrutura</label>
       {inheriting && (
         <div><label htmlFor="sc-mode" className="label">Início da fase</label>
-          <select id="sc-mode" className="input" value={f.start_mode || 'next'} onChange={set('start_mode')}>{MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+          <CustomSelect id="sc-mode" value={f.start_mode || 'next'} onChange={pick('start_mode')} options={MODES.map(([value, label]) => ({ value, label }))} /></div>
       )}
       <div className="flex justify-end"><button type="submit" disabled={busy} className="btn btn-primary btn-sm"><Save size={14} /> Salvar configuração</button></div>
 
@@ -84,10 +87,7 @@ export default function SessionConfigPanel({ tournamentId, session, templates = 
         <legend className="label">Estrutura de blinds desta sessão</legend>
         <div className="grid gap-3 md:grid-cols-4">
           <div className="md:col-span-2"><label htmlFor="sc-src" className="label">Copiar de</label>
-            <select id="sc-src" className="input" value={f.source || ''} onChange={set('source')}>
-              <option value="">Estrutura do torneio</option>
-              {templates.map((x) => <option key={x._id} value={x._id}>{x.name}</option>)}
-            </select></div>
+            <CustomSelect id="sc-src" value={f.source || ''} onChange={pick('source')} options={[{ value: '', label: 'Estrutura do torneio' }, ...templates.map((x) => ({ value: x._id, label: x.name }))]} /></div>
           <div><label htmlFor="sc-from" className="label">Do nível</label>
             <input id="sc-from" type="number" min="1" className="input" placeholder="1º" value={f.level_from ?? ''} onChange={set('level_from')} /></div>
           <div><label htmlFor="sc-to" className="label">Até o nível</label>

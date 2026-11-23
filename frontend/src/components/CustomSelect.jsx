@@ -10,9 +10,9 @@ const GAP = 4;
  * O menu é desenhado num PORTAL (document.body) com posição fixa: nunca é cortado nem empurra a rolagem
  * de um modal/popup. Abre para baixo e vira para cima quando não há espaço. Teclado: ↑ ↓ Enter Esc Home End.
  *
- * props: options [{ value, label }], value, onChange(value), placeholder, disabled, id, 'aria-label'
+ * props: options [{ value, label }], value, onChange(value), placeholder, disabled, id, size ('md' | 'sm' — 'sm' para tabelas), 'aria-label'
  */
-export default function CustomSelect({ options = [], value, onChange, placeholder = 'Selecione...', disabled = false, id, 'aria-label': ariaLabel }) {
+export default function CustomSelect({ options = [], value, onChange, placeholder = 'Selecione...', disabled = false, id, size = 'md', 'aria-label': ariaLabel }) {
   const [isOpen, setIsOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [pos, setPos] = useState(null); // { left, width, top?, bottom?, maxHeight }
@@ -97,7 +97,7 @@ export default function CustomSelect({ options = [], value, onChange, placeholde
         aria-expanded={isOpen}
         aria-controls={isOpen ? listId : undefined}
         aria-label={ariaLabel}
-        className="input flex items-center justify-between gap-2 text-left"
+        className={`input flex items-center justify-between gap-2 text-left ${size === 'sm' ? '!min-h-8 px-2 py-1 text-sm' : ''}`}
       >
         <span className={`truncate ${selectedOption ? '' : 'text-fg-subtle'}`}>{selectedOption ? selectedOption.label : placeholder}</span>
         <ChevronDown size={16} aria-hidden="true" className={`shrink-0 text-fg-subtle transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`} />

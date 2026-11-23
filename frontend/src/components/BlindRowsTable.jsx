@@ -1,5 +1,6 @@
 import { Coffee, Trash2 } from 'lucide-react';
-import { levelNumberAt } from '../lib/blinds';
+import CustomSelect from './CustomSelect';
+import { levelNumberAt, isLevelRow } from '../lib/blinds';
 
 const BREAK_DURATIONS = [10, 15, 20, 30, 45, 60, 90];
 
@@ -42,9 +43,8 @@ export default function BlindRowsTable({ rows = [], onCell, onRemove, readOnly =
                   <td colSpan={3} className="px-2 py-2 text-fg-subtle">—</td>
                   <td className="px-2 py-2">
                     {readOnly ? <span>{row.duration} min</span> : (
-                      <select aria-label="Duração do intervalo" value={row.duration} onChange={(e) => onCell(idx, 'duration', e.target.value)} className="input !min-h-8 w-24 px-2 py-1 text-sm">
-                        {[...new Set([...BREAK_DURATIONS, Number(row.duration)])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d} min</option>)}
-                      </select>
+                      <div className="w-28"><CustomSelect size="sm" aria-label="Duração do intervalo" value={Number(row.duration)} onChange={(v) => onCell(idx, 'duration', v)}
+                        options={[...new Set([...BREAK_DURATIONS, Number(row.duration)])].sort((x, y) => x - y).map((d) => ({ value: d, label: `${d} min` }))} /></div>
                     )}
                   </td>
                   {!readOnly && <td className="py-2 pl-4 text-right">{trash(idx)}</td>}
@@ -52,12 +52,21 @@ export default function BlindRowsTable({ rows = [], onCell, onRemove, readOnly =
               );
             }
             const num = levelNumberAt(rows, idx);
+            // Editar o número de um nível renumera a estrutura: o backend parte do `level` da 1ª linha de nível.
+            const firstIdx = rows.findIndex(isLevelRow);
+            const before = rows.slice(0, idx).filter(isLevelRow).length;
+            const onNumber = (e) => {
+              const n = parseInt(e.target.value, 10);
+              if (Number.isInteger(n) && n >= before + 1) onCell(firstIdx, 'level', n - before);
+            };
             const field = (name, w) => (readOnly
               ? <span>{row[name]}</span>
               : <input type="number" min="0" aria-label={`${name} nível ${num}`} value={row[name] ?? ''} onChange={(e) => onCell(idx, name, e.target.value)} className={`${cell} ${w || ''}`} />);
             return (
               <tr key={idx} className="border-b border-line-soft hover:bg-sunken/50">
-                <td className="py-2 pr-4 font-semibold text-fg-muted">{num}</td>
+                <td className="py-2 pr-4 font-semibold text-fg-muted">
+                  {readOnly ? num : <input type="number" min={before + 1} aria-label={`Número do nível ${num}`} value={num} onChange={onNumber} className={`${cell} w-16`} />}
+                </td>
                 <td className="px-2 py-2">{field('small_blind')}</td>
                 <td className="px-2 py-2">{field('big_blind')}</td>
                 <td className="px-2 py-2">{field('ante')}</td>

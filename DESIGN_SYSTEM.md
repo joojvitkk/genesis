@@ -149,7 +149,7 @@ Estados obrigatórios: **pressionado** (`:active`, escala .97, 60 ms — instant
 <p className="field-help">Quantidade real de mesas abertas agora.</p>
 <p className="field-error" role="alert">Informe um inteiro ≥ 1.</p>
 ```
-`.input` serve para `input`, `select` e `textarea`; `.input-error` marca inválido. **Rótulo sempre visível** (placeholder não é rótulo). Erro aparece junto ao campo, em texto + borda `danger`. Selects customizados usam `components/CustomSelect.jsx` (mesma aparência do seletor de torneio). O menu é desenhado num **portal fixo no `body`**: nunca é cortado por modal/popup com rolagem, abre para cima quando falta espaço e tem teclado (↑ ↓ Enter Esc Home End). **Não usar `<select>` nativo.**
+`.input` serve para `input`, `select` e `textarea`; `.input-error` marca inválido. **Rótulo sempre visível** (placeholder não é rótulo). Erro aparece junto ao campo, em texto + borda `danger`. Selects customizados usam `components/CustomSelect.jsx` (mesma aparência do seletor de torneio). O menu é desenhado num **portal fixo no `body`**: nunca é cortado por modal/popup com rolagem, abre para cima quando falta espaço e tem teclado (↑ ↓ Enter Esc Home End). Em tabelas use `size="sm"` (altura 32 px, mesma família visual). **Não usar `<select>` nativo.**
 
 **Fuso horário:** sempre via `lib/timezones.js` (`timezoneOptions`), rótulo `(UTC−03:00) Brasília, São Paulo e Rio de Janeiro`, ordenado do oeste ao leste.
 
