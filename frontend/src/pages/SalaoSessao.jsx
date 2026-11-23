@@ -10,6 +10,7 @@ import { useConnection } from '../hooks/useConnection';
 import ConnectionStatus from '../components/ConnectionStatus';
 import DiscardModal from '../components/DiscardModal';
 import { sessionBadge } from '../lib/trackingFormat';
+import { socket } from '../lib/socket';
 
 const UNDO_MS = 8000;
 const CHOSEN_KEY = 'genesis:salao:chosen';
@@ -48,6 +49,19 @@ export default function SalaoSessao() {
     }).catch(() => {});
     return () => { alive = false; };
   }, [tid, sid]);
+
+  // regra de duração dos blinds atingida (item 6): o Salão é avisado e confirma a aplicação
+  const [pendingRule, setPendingRule] = useState(null);
+  useEffect(() => {
+    const on = (p) => { if (String(p.session_id) === String(sid)) setPendingRule(p); };
+    socket.on('blindRulePending', on);
+    return () => socket.off('blindRulePending', on);
+  }, [sid]);
+  const applyRule = () => run(`rule:${pendingRule.rule_id}`, async (key) => {
+    await apiPost(`/tournaments/${tid}/sessions/${sid}/blind-rules/${pendingRule.rule_id}/apply`, {}, { idempotencyKey: key });
+    setToast(`Regra "${pendingRule.rule}" aplicada: níveis seguintes com ${pendingRule.minutes} min · ${meta?.session?.name || ''}`);
+    setPendingRule(null);
+  });
 
   useEffect(() => { // relógio do "desfazer"
     const id = setInterval(() => setTick(Date.now()), 1000);
@@ -160,6 +174,12 @@ export default function SalaoSessao() {
             ? <button type="button" onClick={() => cancelLast(true)} disabled={disabled} className="btn btn-secondary min-h-[44px]"><Undo2 size={14} /> Desfazer ({Math.ceil(undoLeft / 1000)} s)</button>
             : <button type="button" onClick={() => cancelLast(false)} disabled={disabled} className="btn btn-secondary min-h-[44px]"><Undo2 size={14} /> Cancelar com motivo</button>}
           <span className="text-fg-muted">{last.label}</span>
+        </div>
+      )}
+      {pendingRule && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-700 dark:bg-amber-500/10" data-testid="rule-pending">
+          Regra "{pendingRule.rule}" atingida: níveis seguintes passam a {pendingRule.minutes} min.
+          <button type="button" onClick={applyRule} disabled={disabled} className="btn btn-primary min-h-[44px]">Aplicar</button>
         </div>
       )}
       {closed && <p className="rounded-xl bg-raised p-3 text-sm font-bold text-fg-muted">Sessão encerrada: lançamentos bloqueados.</p>}

@@ -1258,6 +1258,62 @@ router.put('/tournaments/:tid/sessions/:sid/level-log/:lid', verifyToken, requir
   }
 });
 
+// Regras de duração dos blinds (item 6): cadastro editável por torneio, exceção por sessão. Cadastro: direção (torneios.manage);
+// confirmar a aplicação: quem opera o Salão; acrescentar níveis no fim: direção. Toda aplicação fica em BlindChange.
+const { BlindRule, BlindChange } = require('../models');
+const blindRules = require('../lib/blindRules');
+router.get('/tournaments/:id/blind-rules', verifyToken, async (req, res) => {
+  try {
+    res.json({ rules: await BlindRule.find({ tournament_id: req.params.id }).sort({ createdAt: 1 }), changes: await BlindChange.find({ tournament_id: req.params.id }).sort({ at: -1 }).limit(100) });
+  } catch (err) { sendError(res, err); }
+});
+const ruleFields = (b) => {
+  const { CONDITIONS } = BlindRule;
+  if (!String(b.name || '').trim()) throw new HttpError(400, 'Dê um nome à regra.');
+  if (!CONDITIONS.includes(b.condition)) throw new HttpError(400, `Condição inválida. Use: ${CONDITIONS.join(', ')}.`);
+  const value = Number(b.value); const minutes = Number(b.minutes);
+  if (!Number.isInteger(value) || value < 0) throw new HttpError(400, 'O valor da condição deve ser um inteiro ≥ 0.');
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 600) throw new HttpError(400, 'A duração deve ser de 1 a 600 minutos.');
+  if (b.mode !== undefined && !['auto', 'confirm'].includes(b.mode)) throw new HttpError(400, 'Modo inválido (auto ou confirm).');
+  return { name: String(b.name).trim(), condition: b.condition, value, minutes, mode: b.mode || 'confirm', active: b.active !== false };
+};
+router.post('/tournaments/:id/blind-rules', verifyToken, requirePageAccess('torneios', 'manage'), async (req, res) => {
+  try {
+    if (!(await Tournament.exists({ _id: req.params.id }))) throw new HttpError(404, 'Torneio não encontrado.');
+    const session_id = req.body?.session_id || null;
+    if (session_id && !(await TournamentSession.exists({ _id: session_id, tournament_id: req.params.id }))) throw new HttpError(404, 'Sessão não encontrada.');
+    res.status(201).json(await BlindRule.create({ ...ruleFields(req.body || {}), tournament_id: req.params.id, session_id, created_by: req.user.name || req.user.email }));
+  } catch (err) { sendError(res, err); }
+});
+router.put('/tournaments/:id/blind-rules/:rid', verifyToken, requirePageAccess('torneios', 'manage'), async (req, res) => {
+  try {
+    const rule = await BlindRule.findOneAndUpdate({ _id: req.params.rid, tournament_id: req.params.id }, ruleFields(req.body || {}), { returnDocument: 'after' });
+    if (!rule) throw new HttpError(404, 'Regra não encontrada.');
+    res.json(rule);
+  } catch (err) { sendError(res, err); }
+});
+router.delete('/tournaments/:id/blind-rules/:rid', verifyToken, requirePageAccess('torneios', 'manage'), async (req, res) => {
+  try {
+    const rule = await BlindRule.findOneAndUpdate({ _id: req.params.rid, tournament_id: req.params.id }, { active: false }, { returnDocument: 'after' }); // histórico preservado: só desativa
+    if (!rule) throw new HttpError(404, 'Regra não encontrada.');
+    res.json(rule);
+  } catch (err) { sendError(res, err); }
+});
+router.post('/tournaments/:tid/sessions/:sid/blind-rules/:rid/apply', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
+  try {
+    const change = await blindRules.confirm(req.params.rid, req.params.sid, req.user, req.app.get('io'));
+    await logActivity('Regra de Blinds Aplicada', 'tournament', `${change.rule_name} → ${change.minutes} min | nível ${change.level_number}`, req.user);
+    res.status(201).json(change);
+  } catch (err) { sendError(res, err); }
+});
+router.post('/tournaments/:tid/sessions/:sid/blinds/append', verifyToken, requirePageAccess('torneios', 'manage'), idempotent, async (req, res) => {
+  try {
+    const { change } = await blindRules.appendLevels(req.params.sid, req.body?.rows, req.user, req.app.get('io'));
+    await logActivity('Níveis Adicionais', 'tournament', `${req.params.sid} | +${change.rows_affected} nível(is) | nível atual ${change.level_number}`, req.user);
+    res.status(201).json(change);
+  } catch (err) { sendError(res, err); }
+});
+
 // Tracking da sessão (folha digital: horário real nos níveis jogados, previsto nos próximos) e painel "Salão agora".
 router.get('/tournaments/:tid/sessions/:sid/tracking', verifyToken, async (req, res) => {
   try {

@@ -809,3 +809,24 @@ test('Livro do torneio: ações, esperado, contado e diferença por sessão e de
   assert.equal(s.totals.diff, 40 * 100);
   assert.equal(res.body.chips.map((x) => x.value).join(), '100,500,1000,5000');
 });
+
+test('fim de dia: a QUEBRA das trocas explica a diferença em valor e NUNCA vira ocorrência', async () => {
+  const { bagsOk, c, count, mat, tournament, binder } = await eodScene();
+  const r = await post(mat, '/api/conversions', {
+    tournament_id: tournament._id, type: 'CHIP_RACE', binder_id: binder._id,
+    outs: [{ chip_id: c[100]._id, quantity: 30 }], ins: [{ chip_id: c[500]._id, quantity: 7 }], // 3.000 saem, 3.500 entram → quebra 500
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.math_breakage, 500);
+  const bags = bagsOk.map((b) => {
+    if (String(b.chip_id) === String(c[100]._id)) return { ...b, counted: b.counted - 30 };
+    if (String(b.chip_id) === String(c[500]._id)) return { ...b, counted: b.counted + 7 };
+    return b;
+  });
+  const res = await count({ players: bags });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.diffs.length, 0, 'sem diferença física');
+  assert.equal(res.body.occurrences.length, 0);
+  assert.equal(res.body.math_breakage, 500, 'a quebra aparece como explicação em valor');
+  assert.equal(await Movement.countDocuments({ type: { $in: ['LOSS', 'FOUND'] } }), 0);
+});

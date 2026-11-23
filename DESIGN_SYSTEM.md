@@ -212,6 +212,15 @@ Seção "Torneios ativos": um cartão por **sessão** rodando/pausada (nome do t
 ### 3.11 Indicador de conexão — `components/ConnectionStatus.jsx`
 `.badge` sempre visível nas telas do Salão: `badge-ok` Online · `badge-warn` Reconectando… · `badge-danger` Sem conexão — lançamentos bloqueados (o app é só online, sem fila offline). Usa `role="status"` e `aria-live="polite"`.
 
+### 3.12 Conferência de fim de dia — `components/CountPanel.jsx` (modo "Fim de dia (sessão)")
+Duas partes lado a lado em blocos com `h4` em caixa alta: **1 · Sacos dos jogadores (Chip Count)** e **2 · Sobra no salão (ilha)**, cada ficha com o esperado entre parênteses e o campo "contado". O resultado mostra um `.badge badge-neutral` com a parte da diferença (nos sacos / na ilha / sacos e ilha); a quebra das trocas aparece só como explicação em valor.
+
+### 3.13 Telas do Salão por sessão
+- **Salão agora** (`components/SalaoAgora.jsx`): cartões `.card` por sessão aberta, com `.badge` colorido por sessão (`sessionBadge`), `badge-warn` para TURBO/HYPER, relógio, nível, inscritos e jogando. Toque abre a tela de um toque já na sessão.
+- **Salão de um toque** (`pages/SalaoSessao.jsx`): torneio e sessão em destaque no topo; ações principais (`.btn .btn-lg`, `min-h-[56px]`) em barra fixa inferior no celular; demais controles com `min-h-[44px]`; confirmação em faixa `role="status"`; "Desfazer (n s)" por 8 s e depois "Cancelar com motivo". Sem stack inicial: o Salão mostra o **Chip Count total** (todos os dias até o final).
+- **Tracking da sessão** (`pages/TrackingSessao.jsx`): somente leitura. Tablet/desktop: grade completa no formato da folha (`.table-dense`); celular: lista compacta com o nível atual fixo (`sticky`) e cabeçalho recolhível. Horário previsto marcado com `*`. Impressão A4 retrato (`@page tracking`) com colunas de anotação em branco (`.print-only`).
+- **Regras de duração dos blinds** (`components/BlindRulesPanel.jsx`): campos `.input`, `CustomSelect` e lista de aplicações registradas.
+
 ## 4. Layout de página
 
 ```

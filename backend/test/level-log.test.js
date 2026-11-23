@@ -319,3 +319,66 @@ test('10: eliminação de um toque (só session_id) elimina a entrada ativa mais
   assert.equal((await post(admin, `/api/tournaments/${t._id}/eliminations`, { session_id: s['Dia 1B']._id })).status >= 400, true, 'sem ativos não elimina');
   assert.equal(empty.status, 201);
 });
+
+// ─── item 6: regras de duração dos blinds e níveis adicionais ────────────────
+const { BlindRule, BlindChange } = require('../models');
+const sessionStructure = async (id) => (await TournamentSession.findById(id)).blind_structure.map((r) => r.duration);
+
+test('6: regra "jogadores ≤ N" (automática) passa a duração dos níveis futuros e registra autor/nível; só uma vez por sessão', async () => {
+  const { admin, t, s, clockCmd } = await scene();
+  const A = s['Dia 1A'];
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 6, session_id: A._id });
+  await clockCmd(A, 'start');
+  const created = await post(admin, `/api/tournaments/${t._id}/blind-rules`, { name: 'Reta final', condition: 'players_lte', value: 3, minutes: 30, mode: 'auto' });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  for (let i = 0; i < 3; i++) await post(admin, `/api/tournaments/${t._id}/eliminations`, { session_id: A._id }); // 6 → 3
+  const changes = (await get(admin, `/api/tournaments/${t._id}/blind-rules`)).body.changes;
+  assert.equal(changes.length, 1);
+  assert.deepEqual([changes[0].kind, changes[0].minutes, changes[0].auto, changes[0].rows_affected], ['rule_applied', 30, true, 5]);
+  assert.deepEqual(await sessionStructure(A._id), [20, 30, 30, 30, 30, 30], 'o nível em andamento não muda; os futuros sim');
+  await post(admin, `/api/tournaments/${t._id}/eliminations`, { session_id: A._id });
+  assert.equal((await get(admin, `/api/tournaments/${t._id}/blind-rules`)).body.changes.length, 1, 'não reaplica');
+  assert.equal((await TournamentSession.findById(s['Dia 1B']._id)).blind_structure.length, 0, 'a outra sessão não foi tocada');
+});
+
+test('6: regra com confirmação avisa o Salão e só aplica quando o operador confirma; exceção por sessão vence a regra do torneio', async () => {
+  const { admin, t, s, clockCmd } = await scene();
+  const A = s['Dia 1A'];
+  await clockCmd(A, 'start');
+  const rule = (await post(admin, `/api/tournaments/${t._id}/blind-rules`, { name: 'Níveis rápidos', condition: 'level_gte', value: 2, minutes: 15, mode: 'confirm' })).body;
+  await post(admin, `/api/tournaments/${t._id}/blind-rules`, { name: 'Níveis rápidos', condition: 'level_gte', value: 2, minutes: 10, mode: 'confirm', session_id: A._id }); // exceção do 1A
+  await clockCmd(A, 'next');
+  await new Promise((r) => setTimeout(r, 100));
+  const pend = (await BlindRule.find({ tournament_id: t._id })).filter((r) => r.pending_sessions.length);
+  assert.equal(pend.length, 1);
+  assert.equal(pend[0].minutes, 10, 'a exceção da sessão vence a regra do torneio');
+  assert.deepEqual(await sessionStructure(A._id), [], 'nada muda sem confirmação');
+  const salao = await hdr('salao');
+  const ok = await post(salao, `${sp(t, A)}/blind-rules/${pend[0]._id}/apply`, {});
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  assert.equal(ok.body.level_number, 2);
+  assert.equal(ok.body.auto, false);
+  assert.ok(ok.body.user_name);
+  assert.equal((await sessionStructure(A._id)).slice(2).every((m) => m === 10), true);
+  assert.equal((await post(salao, `${sp(t, A)}/blind-rules/${pend[0]._id}/apply`, {})).status, 409, 'já aplicada');
+  assert.ok(rule._id);
+});
+
+test('6: cadastro é da direção; níveis adicionais no fim da estrutura só pela direção, com registro', async () => {
+  const { admin, t, s } = await scene();
+  const salao = await hdr('salao');
+  assert.equal((await post(salao, `/api/tournaments/${t._id}/blind-rules`, { name: 'x', condition: 'level_gte', value: 1, minutes: 5 })).status, 403);
+  assert.equal((await post(admin, `/api/tournaments/${t._id}/blind-rules`, { name: 'x', condition: 'nada', value: 1, minutes: 5 })).status, 400);
+  const A = s['Dia 1A'];
+  assert.equal((await post(salao, `${sp(t, A)}/blinds/append`, { rows: [{ small_blind: 700, big_blind: 1400, duration: 20 }] })).status, 403);
+  const bad = await post(admin, `${sp(t, A)}/blinds/append`, { rows: [{ small_blind: 800, big_blind: 400, duration: 20 }] });
+  assert.equal(bad.status, 400);
+  const ok = await post(admin, `${sp(t, A)}/blinds/append`, { rows: [{ small_blind: 700, big_blind: 1400, ante: 1400, duration: 20 }, { small_blind: 800, big_blind: 1600, duration: 20 }] });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  const sess = await TournamentSession.findById(A._id);
+  assert.equal(sess.blind_structure.length, 8);
+  assert.equal(sess.blind_structure.at(-1).big_blind, 1600);
+  assert.equal((await TournamentSession.findById(s['Dia 1B']._id)).blind_structure.length, 0, 'a outra sessão não muda');
+  assert.deepEqual([ok.body.kind, ok.body.rows_affected], ['levels_added', 2]);
+  assert.ok(await BlindChange.exists({ session_id: A._id, kind: 'levels_added' }));
+});

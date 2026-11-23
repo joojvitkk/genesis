@@ -24,6 +24,8 @@ module.exports = {
   SessionCount: require('./SessionCount'),
   IdempotencyKey: require('./IdempotencyKey'),
   SessionLevelLog: require('./SessionLevelLog'),
+  BlindRule: require('./BlindRule'),
+  BlindChange: require('./BlindChange'),
   KoChip: require('./KoChip'),
   KoMovement: require('./KoMovement'),
 };

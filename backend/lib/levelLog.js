@@ -75,6 +75,7 @@ async function sync(sessionId, { reason = 'next', now = new Date(), io } = {}) {
       ...(session.clock_status === 'paused' ? { paused_since: now } : {}),
     });
     io?.emit('sessionLevelLog', { tournament_id: String(session.tournament_id), session_id: String(session._id) });
+    require('./blindRules').evaluate(session._id, io); // regras de duração: nível ≥ X (não bloqueia o relógio)
     return doc;
   } catch (e) {
     if (e.code === 11000) return SessionLevelLog.findOne({ session_id: session._id, status: 'open' }).lean(); // outro executor chegou primeiro

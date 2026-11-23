@@ -101,6 +101,7 @@ async function refreshPlayers(tournamentId, io, sessionId = null) {
   await Tournament.updateOne({ _id: tournamentId }, { $set: { actual_players: total.active, entries_initial: total.entries_initial, entries_reentries: total.entries_reentries } });
   const out = sessionId ? await playerCounts(tournamentId, sessionId) : total;
   io?.emit('playersChanged', { tournament_id: tournamentId, session_id: sessionId || null, ...out });
+  if (sessionId) require('./blindRules').evaluate(sessionId, io); // regras: jogadores ≤ N / ações ≥ Y
   return out;
 }
 

@@ -16,6 +16,7 @@ import AllocationModal from '../components/AllocationModal';
 import MaterialPanel from '../components/MaterialPanel';
 import TournamentBook from '../components/TournamentBook';
 import ConnectionStatus from '../components/ConnectionStatus';
+import BlindRulesPanel from '../components/BlindRulesPanel';
 import PhaseBlindsEditor from '../components/PhaseBlindsEditor';
 import SessionConfigPanel from '../components/SessionConfigPanel';
 import { can } from '../config';
@@ -173,6 +174,7 @@ export default function Torneios() {
   };
 
   const handleSetActive = async () => {
+    if (needsSession()) return showAlert('Escolha a sessão antes de lançar: há mais de uma sessão aberta neste torneio.', 'error');
     try {
       const c = await apiPut(`/tournaments/${selectedTournament._id}/active-players`, { active_players: Number(activeInput), session_id: selectedSessionId || undefined });
       setCounts(c);
@@ -246,7 +248,10 @@ export default function Torneios() {
   // O stack NÃO é escolhido por entrada: vem da AÇÃO (buy_in, optional_buy_in, re_entry, add_on…) e do
   // modelo mapeado no torneio. `quantity` > 1 registra várias ações de uma vez. Não há cadastro de jogadores:
   // cada entrada é numerada ("Entrada #n") e é ela que ocupa a mesa.
+  // Salão: com mais de uma sessão aberta o lançamento só acontece com a sessão ESCOLHIDA (nunca por adivinhação do servidor)
+  const needsSession = () => sessions.filter((x) => x.status !== 'finished').length > 1 && !selectedSessionId;
   const handleRegisterEntry = async (type, action) => {
+    if (needsSession()) return showAlert('Escolha a sessão antes de lançar: há mais de uma sessão aberta neste torneio.', 'error');
     const quantity = Math.max(1, parseInt(form.entry_quantity, 10) || 1);
     const path = `/tournaments/${selectedTournament._id}/entries`;
     const body = {
@@ -736,7 +741,8 @@ export default function Torneios() {
 
                   <div className="space-y-8">
                     {/* "Fichas necessárias" vive na aba Material (demanda × saldo físico REAL dos fichários) — Simulação 3.0 §6 */}
-                    <div className="card p-6">
+                    {canManage && <BlindRulesPanel tournamentId={selectedTournament._id} sessions={sessions} sessionId={selectedSessionId} />}
+                  <div className="card p-6">
                       <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Settings className="text-emerald-500" size={20} /> Stack do torneio</h3>
                       <p className="text-xs text-fg-muted mb-2">
                         O cálculo de <b>fichas necessárias</b> (ações × modelo de stack) × saldo físico dos fichários fica na aba <button type="button" onClick={() => setActiveTab('material')} className="font-bold text-brand-fg hover:underline">Material</button>.

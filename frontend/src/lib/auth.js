@@ -24,7 +24,7 @@ export function saveSession(token, user) {
 // Chaves de dados do usuário que não podem sobreviver ao logout (a próxima conta no mesmo aparelho não herda nada).
 // Preferências visuais (tema, idioma) ficam: não são dados de ninguém.
 const USER_DATA_KEYS = ['genesis_offline_queue']; // fila offline removida: limpa o que versões antigas deixaram
-const USER_DATA_PREFIXES = ['genesis_report_presets'];
+const USER_DATA_PREFIXES = ['genesis_report_presets', 'genesis:tracking:']; // a folha digital em cache também sai no logout
 
 export function clearSession() {
   try {
