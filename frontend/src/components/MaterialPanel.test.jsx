@@ -32,6 +32,8 @@ const data = {
 let root; let container;
 const flush = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 const buttons = () => [...container.querySelectorAll('button')];
+// o botão de ação da visão principal também se chama "Enviar": o de envio do formulário é o último
+const submitSend = () => [...container.querySelectorAll('button')].filter((b) => b.textContent.trim() === 'Enviar').pop();
 const button = (label) => [...container.querySelectorAll('button')].find((b) => b.textContent.includes(label));
 const option = (label) => [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes(label));
 const setValue = (el, v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
@@ -83,7 +85,7 @@ describe('MaterialPanel', () => {
     expect(container.textContent).toContain('100 × 1.000');  // ficha 100 × 1.000 (cálculo do servidor)
     expect(container.textContent).toContain('valor 300.000');
 
-    await act(async () => { button('Enviar').click(); });
+    await act(async () => { submitSend().click(); });
     await flush();
     await act(async () => { button('Confirmar').click(); });
     await flush();
@@ -101,7 +103,7 @@ describe('MaterialPanel', () => {
     await act(async () => { option('Reentrada').click(); });
     await act(async () => { setValue(container.querySelector('input[placeholder="Qtd"]'), '3'); });
     await flush(400);
-    await act(async () => { button('Enviar').click(); });
+    await act(async () => { submitSend().click(); });
     await flush();
     await act(async () => { button('Confirmar').click(); });
     await flush();
@@ -110,7 +112,7 @@ describe('MaterialPanel', () => {
 
   it('sem ação nem ficha não chama o servidor', async () => {
     await mount();
-    await act(async () => { button('Enviar').click(); });
+    await act(async () => { submitSend().click(); });
     await flush();
     expect(api.apiPost).not.toHaveBeenCalled();
   });
@@ -142,7 +144,7 @@ describe('MaterialPanel', () => {
     api.apiGet.mockImplementation(async (path) => (path === '/allocations' ? [] : data[path] ?? []));
     await mount();
     expect(container.textContent).toContain('não tem fichas alocadas');
-    expect(button('Enviar').disabled).toBe(true);
+    expect(submitSend().disabled).toBe(true);
   });
 
   // ─── G7 — descarte de stack ────────────────────────────────────────────────

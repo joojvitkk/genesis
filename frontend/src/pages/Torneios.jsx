@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Trophy, Plus, Clock,
   ChevronRight, Trash2,
   Play, Pause, CheckCircle2, Users, Copy,
-  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, History, Package, Pencil } from 'lucide-react';
+  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, History, Package, Pencil, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
@@ -14,6 +14,7 @@ import TournamentClock from '../components/TournamentClock';
 import SessionBar from '../components/SessionBar';
 import AllocationModal from '../components/AllocationModal';
 import MaterialPanel from '../components/MaterialPanel';
+import TournamentBook from '../components/TournamentBook';
 import PhaseBlindsEditor from '../components/PhaseBlindsEditor';
 import SessionConfigPanel from '../components/SessionConfigPanel';
 import { can } from '../config';
@@ -47,6 +48,7 @@ const StatusBadge = ({ status }) => {
 export default function Torneios() {
   const { showAlert, showConfirm, showPrompt } = useAlert();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [tournaments, setTournaments] = useState([]);
   const [allocations, setAllocations] = useState([]);   // fichários VINCULADOS (abertos) a este torneio
   const [allocModal, setAllocModal] = useState(null);     // modal para vincular fichário a um torneio já criado
@@ -592,6 +594,12 @@ export default function Torneios() {
                     >
                       <Package size={13} /> Material
                     </button>
+                    <button
+                      onClick={() => setActiveTab('livro')}
+                      className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'livro' ? 'bg-surface dark:bg-zinc-700 text-brand-fg ' : 'text-fg-muted'}`}
+                    >
+                      <BookOpen size={13} /> Livro
+                    </button>
                   </div>
 
                   {/* Action buttons */}
@@ -791,8 +799,11 @@ export default function Torneios() {
                   </div>
                 </div>
               )
-              : activeTab === 'material' ? (
+              : activeTab === 'livro' ? (
+                <TournamentBook tournamentId={selectedTournament._id} refreshKey={allocations.length} />
+              ) : activeTab === 'material' ? (
                 <MaterialPanel
+                  onNavigate={navigate}
                   tournament={selectedTournament}
                   sessions={sessions}
                   sessionId={selectedSessionId}
@@ -930,8 +941,8 @@ export default function Torneios() {
                       </div>
                       )}
 
-                      {/* Chips in Play (Consolidated) */}
-                      <div className="card p-6">
+                      {/* Fichas em jogo por denominação: só Material/Admin (o Salão vê inscritos, jogando, nível, relógio e chamados) */}
+                      {canOperateMaterial && <div className="card p-6">
                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Layers className="text-amber-500" /> Fichas em Jogo</h3>
                         <div className="space-y-3">
                           {(sessionInPlay?.rows || []).map(row => (
@@ -948,7 +959,7 @@ export default function Torneios() {
                             <p className="text-xs text-amber-600">Sem fichas para: {sessionInPlay.uncovered.map((u) => `${u.label} (${u.count})`).join(', ')}.</p>
                           )}
                         </div>
-                      </div>
+                      </div>}
                     </div>
 
                     {/* History */}

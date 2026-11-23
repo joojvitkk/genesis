@@ -334,6 +334,10 @@ html.theme-wave, html.theme-wave *, html.theme-wave *::before, html.theme-wave *
     body { background: #fff !important; color: #000 !important; }
     * { box-shadow: none !important; }
     main { padding: 0 !important; }
+    @page { size: A4 landscape; margin: 10mm; }
+    .print-book-title { display: block !important; }
+    [data-testid="tournament-book"] .card { display: block !important; }
+    [data-testid="tournament-book"] .md\:hidden { display: none !important; }
   }
 
   /* Reduzir movimento: sem deslocamento/escala/mola; mantém só mudanças de opacidade e cor (feedback que ajuda a entender). */

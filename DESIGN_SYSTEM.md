@@ -200,6 +200,15 @@ Seção "Torneios ativos": um cartão por **sessão** rodando/pausada (nome do t
 
 ---
 
+### 3.10 Painel do Material e Livro do torneio — `components/MaterialPanel.jsx`, `components/TournamentBook.jsx`
+- **Visão principal curta:** faixa de resumo em `.card` (No salão · Em jogo (Chip Count) · Disponível em **stacks por ação** · Pendências) e, abaixo, botões grandes `.btn .btn-lg`
+  (Enviar, Volta de fichas, Troca, Descarte, Conferir). Enviar e Volta de fichas abrem o formulário na própria tela; Troca e Conferir levam às páginas Chip Race e Ocorrências.
+- **Detalhes sob demanda:** as tabelas técnicas (enviado × em jogo, fichas necessárias, descartes, movimentações) ficam em `<details>` recolhido ("Ver detalhes").
+- **Vocabulário:** "No salão" = fisicamente no salão; "Em jogo (Chip Count)" = entregue aos jogadores; "Disponível" = no salão e ainda não entregue. Cada termo tem `title` com a explicação.
+- **Salão:** a aba do Salão não mostra a tabela de fichas por denominação (só Material/Admin).
+- **Livro do torneio:** aba "Livro", só leitura, `.table-dense` (denominações × sessões; seções Esperado, Trocas, Descartes, Em jogo, Contado, Diferença).
+  No celular vira uma sessão por vez (seletor); botões CSV e PDF. Impressão A4 deitado (`@page` em `@media print`, classe `.no-print` nos controles).
+
 ## 4. Layout de página
 
 ```

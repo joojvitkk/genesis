@@ -1,6 +1,6 @@
 import { locale } from '../lib/i18n';
 import { useCallback, useEffect, useState } from 'react';
-import { Send, Undo2, Plus, Trash2, AlertCircle, PackageMinus } from 'lucide-react';
+import { Send, Undo2, Plus, Trash2, AlertCircle, PackageMinus, PackageCheck } from 'lucide-react';
 import { apiGet, apiPost } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
 import CustomSelect from './CustomSelect';
@@ -20,7 +20,7 @@ const TYPE_LABEL = {
  * Envio e retorno são movimentos imutáveis; as fichas de um envio por ação vêm do modelo de stack (servidor).
  * Só admin e material registram (o backend também barra).
  */
-export default function MaterialPanel({ tournament, sessions, sessionId, canOperate, isAdmin, stackActions, closed, refreshKey, onChanged }) {
+export default function MaterialPanel({ onNavigate, tournament, sessions, sessionId, canOperate, isAdmin, stackActions, closed, refreshKey, onChanged }) {
   const { showAlert, showConfirm, showPrompt } = useAlert();
   const [summary, setSummary] = useState(null);
   const [allocations, setAllocations] = useState([]);
@@ -32,6 +32,8 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
   const [extra, setExtra] = useState({});                            // envio adicional: { chipId: qtd }
   const [ret, setRet] = useState({ binder_id: '', chips: {}, reason: '' });
   const [tables, setTables] = useState({ count: '', per: String(tournament.seats_per_table || 9), action: 'buy_in' }); // envio por mesas
+  const [active, setActive] = useState(null);                       // formulário aberto: 'send' | 'return'
+  const [pending, setPending] = useState({ occurrences: 0, requests: 0 });
   const [sug, setSug] = useState(null);                              // sugestão da volta de fichas (por ação, em stacks)
   const [keep, setKeep] = useState({});                              // stacks que ficam na ilha: { ação: N }
   const [stackRet, setStackRet] = useState({});                      // stacks a devolver, ajustados pelo operador: { ação: N }
@@ -52,6 +54,16 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
     } catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao carregar o material', 'error'); }
   }, [tid, sessionId, showAlert]);
   useEffect(() => { load(); }, [load, refreshKey]);
+
+  // pendências: ocorrências abertas e chamados de troca (quem não enxerga uma das listas só não a conta)
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      apiGet('/occurrences', { tournament_id: tid, status: 'active', page: 1, limit: 1 }).then((r) => r?.pagination?.total ?? (Array.isArray(r) ? r.length : 0)).catch(() => 0),
+      apiGet('/conversion-requests', { tournament_id: tid, status: 'open' }).then((r) => (Array.isArray(r) ? r.length : 0)).catch(() => 0),
+    ]).then(([occurrences, requests]) => { if (alive) setPending({ occurrences, requests }); });
+    return () => { alive = false; };
+  }, [tid, refreshKey, summary]);
 
   // tempo real: outro operador enviou/devolveu/descartou → recarrega o material na hora
   useEffect(() => {
@@ -180,6 +192,33 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
         </section>
       )}
 
+      {/* Visão principal: curta e acionável. O detalhe técnico fica recolhido em "Ver detalhes". */}
+      {!isFinalPhase && summary && (
+        <section className="card p-6" data-testid="material-overview">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div title="Fichas fisicamente no salão: enviado − devolvido ± trocas."><p className="text-xs font-bold uppercase text-fg-subtle">No salão</p><p className="text-3xl font-bold tabular-nums">{fmt(summary.rows.reduce((s, r) => s + r.on_table, 0))}</p><p className="text-xs text-fg-muted">fichas</p></div>
+            <div title="O que as entradas já entregaram aos jogadores (ações × montagem ± trocas − descartes)."><p className="text-xs font-bold uppercase text-fg-subtle">Em jogo (Chip Count)</p><p className="text-3xl font-bold tabular-nums">{fmt(summary.chip_count?.quantity)}</p><p className="text-xs text-fg-muted">fichas</p></div>
+            <div title="No salão e ainda não entregue aos jogadores, em stacks completos por ação (remanejamento)."><p className="text-xs font-bold uppercase text-fg-subtle">Disponível</p>
+              {(summary.stacks || []).length === 0 ? <p className="text-sm text-fg-subtle">—</p> : (summary.stacks || []).map((s) => <p key={s.action} className="text-sm"><b className="text-2xl tabular-nums">{fmt(s.stacks)}</b> <span className="text-fg-muted">stacks · {s.label}</span></p>)}
+            </div>
+            <div title="Ocorrências abertas do torneio e chamados de troca em aberto."><p className="text-xs font-bold uppercase text-fg-subtle">Pendências</p><p className="text-3xl font-bold tabular-nums">{pending.occurrences + pending.requests}</p><p className="text-xs text-fg-muted">{pending.occurrences} ocorrência(s) · {pending.requests} chamado(s)</p></div>
+          </div>
+          {canOperate && (
+            <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5" data-testid="material-actions">
+              {!closed && <button type="button" onClick={() => setActive(active === 'send' ? null : 'send')} className="btn btn-success btn-lg"><Send size={16} /> Enviar</button>}
+              <button type="button" onClick={() => setActive(active === 'return' ? null : 'return')} className="btn btn-info btn-lg"><Undo2 size={16} /> Volta de fichas</button>
+              <a href="/chip-race" onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate('/chip-race'); } }} className="btn btn-secondary btn-lg">Troca</a>
+              {!closed && <button type="button" onClick={() => setDiscarding(true)} disabled={allocations.length === 0} className="btn btn-secondary btn-lg"><PackageMinus size={16} /> Descarte</button>}
+              <a href="/ocorrencias" onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate('/ocorrencias'); } }} className="btn btn-secondary btn-lg"><PackageCheck size={16} /> Conferir</a>
+            </div>
+          )}
+        </section>
+      )}
+
+      <details className="card p-6" data-testid="material-details">
+        <summary className="cursor-pointer text-sm font-bold">Ver detalhes · enviado × em jogo e fichas necessárias</summary>
+        <div className="mt-6 space-y-8">
+
       {/* esperado × em jogo */}
       {!isFinalPhase && (
       <section className="card p-6">
@@ -266,6 +305,9 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
           )}
         </section>
       )}
+        </div>
+      </details>
+
 
       {allocations.length === 0 && !isFinalPhase && (
         <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
@@ -273,6 +315,7 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
         </div>
       )}
 
+      <div className={active === 'send' ? '' : 'hidden'}>
       {canOperate && !closed && !isFinalPhase && (
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><Send size={18} className="text-emerald-500" /> Enviar fichas ao torneio</h3>
@@ -325,9 +368,11 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
           <button onClick={sendNow} disabled={busy || allocations.length === 0} className="btn btn-success mt-4 disabled:opacity-40">{busy ? 'Enviando…' : 'Enviar'}</button>
         </section>
       )}
+      </div>
 
       {tournament.is_ko && <KoPanel tournamentId={tid} canOperate={canOperate} refreshKey={refreshKey} />}
 
+      <div className={active === 'return' ? '' : 'hidden'}>
       {canOperate && (
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><Undo2 size={18} className="text-blue-500" /> Retornar fichas ao fichário</h3>
@@ -370,7 +415,9 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
           <div><button onClick={returnNow} disabled={busy} className="btn btn-info mt-4 disabled:opacity-40">{busy ? 'Registrando…' : 'Registrar retorno'}</button></div>
         </section>
       )}
+      </div>
 
+      <div className="hidden">
       {canOperate && !closed && (
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><PackageMinus size={18} className="text-red-500" /> Descarte de stack</h3>
@@ -378,7 +425,11 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
           <button onClick={() => setDiscarding(true)} disabled={allocations.length === 0} className="btn btn-danger-solid">Descartar stack</button>
         </section>
       )}
+      </div>
 
+      <details className="card p-6">
+        <summary className="cursor-pointer text-sm font-bold">Ver detalhes · descartes e movimentações</summary>
+        <div className="mt-6 space-y-8">
       {discards.length > 0 && (
         <section className="card p-6">
           <h3 className="mb-3 text-lg font-bold">Descartes do torneio</h3>
@@ -412,6 +463,8 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
           </ul>
         )}
       </section>
+        </div>
+      </details>
 
       {discarding && (
         <DiscardModal tournamentId={tid} sessionId={sessionId} rows={summary?.rows || []} allocations={allocations}

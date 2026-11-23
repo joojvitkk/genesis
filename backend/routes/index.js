@@ -2316,6 +2316,15 @@ router.post('/tournaments/:id/returns', verifyToken, requirePageAccess('torneios
   }
 });
 
+// Livro do torneio (só leitura): denominações × sessões — ações, esperado, trocas, descartes, Chip Count e contagem do dia.
+router.get('/tournaments/:id/book', verifyToken, async (req, res) => {
+  try {
+    res.json(await require('../lib/book').bookOf(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // Sugestão do assistente de "volta de fichas": enviados − usados (− manter na ilha), por ação, em stacks.
 // `?session_id=` e `?keep[buy_in]=N`.
 router.get('/tournaments/:id/return-suggestion', verifyToken, requirePageAccess('torneios', 'operate'), async (req, res) => {

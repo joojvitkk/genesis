@@ -792,3 +792,20 @@ test('fim de dia: sobra no salão conferida; ficha no lugar errado não é perda
   const lost = await count({ players: bagsOk, hall: hallShort, reason: 'ilha' });
   assert.equal(lost.body.occurrences[0].part, 'hall');
 });
+
+// ─── Livro do torneio ────────────────────────────────────────────────────────
+
+test('Livro do torneio: ações, esperado, contado e diferença por sessão e denominação (valor nominal)', async () => {
+  const { bagsOk, c, count, mat, t } = await eodScene();
+  const bags = bagsOk.map((b) => (String(b.chip_id) === String(c[100]._id) ? { ...b, counted: b.counted + 40 } : b));
+  await count({ players: bags });
+  const res = await get(mat, `/api/tournaments/${t._id}/book`);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const s = res.body.sessions[0];
+  assert.equal(s.total_actions, 90);
+  assert.equal(s.by_chip[c[100]._id].expected, 900);
+  assert.equal(s.by_chip[c[100]._id].counted, 940);
+  assert.equal(s.by_chip[c[100]._id].diff, 40);
+  assert.equal(s.totals.diff, 40 * 100);
+  assert.equal(res.body.chips.map((x) => x.value).join(), '100,500,1000,5000');
+});
