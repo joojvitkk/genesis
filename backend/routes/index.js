@@ -2406,14 +2406,18 @@ router.delete('/tournaments/:id/discards/:batch', verifyToken, (req, res) => res
 router.post('/tournaments/:id/count', verifyToken, requirePageAccess('torneios', 'operate'), async (req, res) => {
   try {
     const t = await material.openTournament(req.params.id);
-    const r = await occurrences.countTournament(t, { counts: req.body?.counts, reason: req.body?.reason, session_id: req.body?.session_id, user: req.user });
+    // Fim de dia (duas partes): { players: [...], hall?: [...], session_id }; sem `players`, vale a conferência única de antes
+    const eod = req.body?.players !== undefined;
+    const r = eod
+      ? await occurrences.countEndOfDay(t, { players: req.body.players, hall: req.body.hall, reason: req.body.reason, session_id: req.body.session_id, user: req.user })
+      : await occurrences.countTournament(t, { counts: req.body?.counts, reason: req.body?.reason, session_id: req.body?.session_id, user: req.user });
     if (r.diffs.length) {
       emitMaterial(req, t._id);
       req.app.get('io')?.emit('balancesChanged', { tournament_id: t._id });
       await announceOccurrences(req, r.occurrences);
     }
     await logActivity('Conferência do Torneio', 'inventory', `${t.name} | ${r.diffs.length} diferença(s)`, req.user);
-    res.json({ message: 'Conferência registrada', diffs: r.diffs, occurrences: r.occurrences.map(occurrences.shape), value: r.value });
+    res.json({ message: 'Conferência registrada', diffs: r.diffs, occurrences: r.occurrences.map(occurrences.shape), value: r.value, parts: r.parts, math_breakage: r.math_breakage, count_id: r.count_id });
   } catch (err) {
     sendError(res, err);
   }

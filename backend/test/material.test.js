@@ -744,3 +744,51 @@ test('sugestão de volta de fichas = enviados − usados (− manter na ilha), c
   s = (await get(mat, url)).body.rows.find((r) => r.action === 'buy_in');
   assert.deepEqual([s.returned, s.suggested], [10, 0]);
 });
+
+// ─── conferência de fim de dia em duas partes (Material C) ───────────────────
+
+const perEntry = (c) => [[c[100], 10], [c[500], 4], [c[1000], 7], [c[5000], 2]];
+async function eodScene() {
+  const s = await scene();
+  await send(s.mat, s.tournament, { items: [{ action: 'buy_in', count: 100 }] });
+  await post(s.admin, `/api/tournaments/${s.t._id}/entries`, { type: 'buy-in', quantity: 90 });
+  const bagsOk = perEntry(s.c).map(([chip, q]) => ({ chip_id: chip._id, counted: q * 90 }));
+  return { ...s, bagsOk, count: (body) => post(s.mat, `/api/tournaments/${s.t._id}/count`, body) };
+}
+
+test('fim de dia: enviar a mais sem uso NÃO gera ocorrência nos sacos (a reserva não é falta)', async () => {
+  const { bagsOk, count } = await eodScene();
+  const res = await count({ players: bagsOk });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.diffs.length, 0);
+  assert.equal(await Movement.countDocuments({ type: 'LOSS' }), 0);
+  // o modo antigo compararia os sacos com o saldo físico (inclui a reserva) e abriria falta falsa
+});
+
+test('fim de dia: falta REAL nos sacos abre ocorrência na parte "players"', async () => {
+  const { bagsOk, c, count } = await eodScene();
+  const bags = bagsOk.map((b) => (String(b.chip_id) === String(c[100]._id) ? { ...b, counted: b.counted - 5 } : b));
+  const res = await count({ players: bags, reason: 'saco 7 conferido' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.diffs.length, 1);
+  assert.equal(res.body.occurrences[0].part, 'players');
+  assert.equal(res.body.occurrences[0].kind, 'LOSS');
+  assert.equal(res.body.occurrences[0].quantity, 5);
+});
+
+test('fim de dia: sobra no salão conferida; ficha no lugar errado não é perda; falta na ilha abre ocorrência na parte "hall"', async () => {
+  const { bagsOk, c, count } = await eodScene();
+  const hallOk = perEntry(c).map(([chip, q]) => ({ chip_id: chip._id, counted: q * 10 }));
+  assert.equal((await count({ players: bagsOk, hall: hallOk })).body.diffs.length, 0);
+
+  // 2 fichas de 1000 a menos nos sacos e 2 a mais na ilha: só mudaram de lugar
+  const bags = bagsOk.map((b) => (String(b.chip_id) === String(c[1000]._id) ? { ...b, counted: b.counted - 2 } : b));
+  const hall = hallOk.map((h) => (String(h.chip_id) === String(c[1000]._id) ? { ...h, counted: h.counted + 2 } : h));
+  const moved = await count({ players: bags, hall });
+  assert.equal(moved.body.diffs.length, 0);
+  assert.equal(moved.body.parts.find((p) => p.chip_id === String(c[1000]._id)).displaced, true);
+
+  const hallShort = hallOk.map((h) => (String(h.chip_id) === String(c[500]._id) ? { ...h, counted: h.counted - 3 } : h));
+  const lost = await count({ players: bagsOk, hall: hallShort, reason: 'ilha' });
+  assert.equal(lost.body.occurrences[0].part, 'hall');
+});

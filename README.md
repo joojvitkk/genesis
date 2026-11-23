@@ -196,6 +196,12 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 `POST /sends` aceita `{ tables, per_table?, action? }`; `GET /tournaments/:id/return-suggestion?session_id=&keep[ação]=N` devolve, por ação,
 enviados, usados, já devolvidos e a sugestão (limitada pelos stacks completos no salão).
 
+**Conferência de fim de dia (duas partes).** `POST /tournaments/:id/count` com `{ session_id, players: [{chip_id, counted}], hall?: [...] }`:
+`players` (sacos) é comparado ao **Chip Count** (em jogo) e `hall` (ilha) ao **disponível**; a soma das partes é o saldo físico no salão.
+Só a diferença física da soma vira ocorrência (com `part`: `players` | `hall` | `both`); ficha que só mudou de parte é "no lugar errado",
+e a quebra das trocas segue sendo explicação em valor. A contagem fica em `SessionCount` (imutável; a nova substitui a anterior).
+Sem `players`, vale a conferência única anterior (`counts`).
+
 | Método | Rota |
 | --- | --- |
 | GET | `/users` |

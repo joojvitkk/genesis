@@ -102,7 +102,7 @@ async function openFromDiffs(diffs, where, { reason, user, source = 'count' }) {
   const occurrences = await Occurrence.insertMany(rows.map((r) => ({
     _id: r.occurrence_id, kind: r.kind, scope: where.scope, chip_id: r.chip._id,
     binder_id: where.binder?._id || null, tournament_id: where.tournament?._id || null, session_id: where.session?._id || null,
-    expected: r.expected, counted: r.counted, diff: r.diff, quantity: r.quantity,
+    expected: r.expected, counted: r.counted, diff: r.diff, quantity: r.quantity, part: r.part || null,
     severity: r.level, severity_reason: r.reason, source,
     status: reason ? 'justified' : 'open', justification: reason || undefined,
     movement_batch_id: docs[0].batch_id, ...actor(user),
@@ -135,6 +135,66 @@ async function countTournament(tournament, { counts, reason, session_id, user })
   const convs = await Conversion.find({ tournament_id: tournament._id, status: 'active', legacy: { $ne: true }, ...(session ? { session_id: session._id } : {}) }).select('math_breakage').lean();
   const math_breakage = convs.reduce((s, c) => s + (c.math_breakage || 0), 0);
   return { ...result, value: { expected: val('expected'), counted: val('counted'), diff: val('counted') - val('expected'), math_breakage } };
+}
+
+/**
+ * Conferência de FIM DE DIA em duas partes, por sessão (Material C):
+ *   • `players`: sacos/stacks dos jogadores × Chip Count esperado (em jogo: ações × montagem ± trocas − descartes);
+ *   • `hall`   : sobra no salão (ilha/reserva) × disponível (no salão − Chip Count). Opcional: sem ela, a reserva é dada como conferida.
+ * A soma das partes é o saldo físico "em jogo". Só a diferença FÍSICA da soma vira ocorrência (informando a parte);
+ * faltar num lado e sobrar no outro na mesma ficha é apenas ficha no lugar errado. A quebra das trocas é explicação em valor.
+ */
+async function countEndOfDay(tournament, { players, hall, reason, session_id, user }) {
+  const material = require('./material');
+  const { SessionCount } = require('../models');
+  const session = await sessionsLib.resolveSession(tournament._id, session_id);
+  if (!session) throw new HttpError(400, 'Informe a sessão (session_id): a conferência de fim de dia é por sessão.');
+  const P = normalizeCounts(players);
+  const H = hall === undefined || hall === null ? null : normalizeCounts(hall);
+
+  const sum = await material.summary(tournament._id, { sessionId: session._id });
+  const row = new Map(sum.rows.map((r) => [String(r.chip._id), r]));
+  const ids = [...new Set([...P.map((c) => c.chip_id), ...(H || []).map((c) => c.chip_id)])];
+  const pMap = new Map(P.map((c) => [c.chip_id, c.counted]));
+  const hMap = new Map((H || []).map((c) => [c.chip_id, c.counted]));
+
+  const lines = ids.map((id) => {
+    const r = row.get(id);
+    const inPlay = r?.in_play || 0; const onTable = r?.on_table || 0;
+    const expP = inPlay; const expH = onTable - inPlay; // pode ser negativo: enviado a menos que o Chip Count
+    const cP = pMap.has(id) ? pMap.get(id) : expP;      // parte não informada para a ficha = conforme o esperado
+    const cH = hMap.has(id) ? hMap.get(id) : expH;
+    const dP = cP - expP; const dH = cH - expH;
+    return { chip_id: id, on_table: onTable, expP, cP, dP, expH, cH, dH, physical: dP + dH };
+  });
+
+  const diffs = lines.filter((l) => l.physical !== 0).map((l) => ({
+    chip_id: l.chip_id, expected: l.on_table, counted: l.on_table + l.physical, diff: l.physical,
+    part: l.dP !== 0 && l.dH !== 0 ? 'both' : l.dP !== 0 ? 'players' : 'hall',
+  }));
+  const result = await finish(diffs, { scope: 'tournament', tournament, session }, { reason: text(reason), user });
+
+  const convs = await Conversion.find({ tournament_id: tournament._id, session_id: session._id, status: 'active', legacy: { $ne: true } }).select('math_breakage').lean();
+  const math_breakage = convs.reduce((s, c) => s + (c.math_breakage || 0), 0);
+  await SessionCount.updateMany({ tournament_id: tournament._id, session_id: session._id, status: 'active' }, { status: 'superseded' });
+  const saved = await SessionCount.create({
+    tournament_id: tournament._id, session_id: session._id, hall_checked: !!H, math_breakage, note: text(reason) || undefined, user_name: actor(user).user_name,
+    players: lines.map((l) => ({ chip_id: l.chip_id, expected: l.expP, counted: l.cP, diff: l.dP })),
+    hall: H ? lines.map((l) => ({ chip_id: l.chip_id, expected: l.expH, counted: l.cH, diff: l.dH })) : [],
+    occurrence_ids: result.occurrences.map((o) => o._id),
+  });
+  const value = await valueOf(lines);
+  return {
+    ...result, count_id: saved._id, math_breakage, value,
+    parts: lines.map((l) => ({ chip_id: l.chip_id, players: { expected: l.expP, counted: l.cP, diff: l.dP }, hall: { expected: Math.max(0, l.expH), counted: l.cH, diff: l.dH }, physical: l.physical, displaced: l.physical === 0 && (l.dP !== 0 || l.dH !== 0) })),
+  };
+}
+
+async function valueOf(lines) {
+  const chips = await loadChips(lines.map((l) => l.chip_id));
+  const v = (l, f) => l[f] * (chips.get(l.chip_id)?.value || 0);
+  const tot = (f) => lines.reduce((s, l) => s + v(l, f), 0);
+  return { players_diff: tot('dP'), hall_diff: tot('dH'), physical_diff: tot('physical') };
 }
 
 async function finish(diffs, where, { reason, user }) {
@@ -288,6 +348,6 @@ async function alertPayload(o) {
 }
 
 module.exports = {
-  countBinder, countTournament, recordManualLoss, justify, recover, reverseRecovery, close, voidOccurrence,
+  countBinder, countTournament, countEndOfDay, recordManualLoss, justify, recover, reverseRecovery, close, voidOccurrence,
   load, shape, summary, alertPayload, statusOf, remainingOf, recoveredQuantity, TERMINAL,
 };

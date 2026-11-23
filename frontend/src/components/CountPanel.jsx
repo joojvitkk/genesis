@@ -6,7 +6,7 @@ import CustomSelect from './CustomSelect';
 import SeverityBadge from './SeverityBadge';
 
 const fmt = (n) => (n ?? 0).toLocaleString(locale());
-const SCOPES = [{ value: 'binder', label: 'Fichário' }, { value: 'tournament', label: 'Jogo (torneio)' }];
+const SCOPES = [{ value: 'binder', label: 'Fichário' }, { value: 'tournament', label: 'Jogo (torneio)' }, { value: 'eod', label: 'Fim de dia (sessão)' }];
 
 /**
  * Conferência física (G8): o operador conta e informa; o SERVIDOR compara com o saldo derivado dos movimentos,
@@ -22,6 +22,7 @@ export default function CountPanel({ onDone }) {
   const [sessionId, setSessionId] = useState('');
   const [rows, setRows] = useState([]);        // [{ chip, expected }]
   const [counted, setCounted] = useState({});
+  const [hallCounted, setHallCounted] = useState({}); // fim de dia: sobra no salão (ilha)
   const [reason, setReason] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -34,11 +35,16 @@ export default function CountPanel({ onDone }) {
 
   // o que o sistema espera encontrar
   useEffect(() => {
-    setCounted({}); setResult(null); setError(null);
+    setCounted({}); setHallCounted({}); setResult(null); setError(null);
     if (!targetId) { setRows([]); return; }
     if (scope === 'binder') {
       const b = binders.find((x) => x._id === targetId);
       setRows((b?.chips || []).filter((c) => c.chip_id).map((c) => ({ chip: c.chip_id, expected: c.quantity })));
+    } else if (scope === 'eod') {
+      if (!sessionId) { setRows([]); return; }
+      apiGet(`/tournaments/${targetId}/material`, { session_id: sessionId })
+        .then((m) => setRows(m.rows.filter((r) => r.on_table > 0 || r.in_play > 0).map((r) => ({ chip: r.chip, expected: r.in_play, hall: r.available }))))
+        .catch(() => setRows([]));
     } else {
       apiGet(`/tournaments/${targetId}/material`, { session_id: sessionId })
         .then((m) => setRows(m.rows.filter((r) => r.on_table > 0).map((r) => ({ chip: r.chip, expected: r.on_table }))))
@@ -48,7 +54,7 @@ export default function CountPanel({ onDone }) {
 
   useEffect(() => {
     setSessionId('');
-    if (scope !== 'tournament' || !targetId) { setSessions([]); return; }
+    if (scope === 'binder' || !targetId) { setSessions([]); return; }
     apiGet(`/tournaments/${targetId}/sessions`).then((s) => setSessions(Array.isArray(s) ? s : [])).catch(() => setSessions([]));
   }, [scope, targetId]);
 
@@ -57,11 +63,16 @@ export default function CountPanel({ onDone }) {
 
   const submit = async () => {
     if (!targetId) return setError(scope === 'binder' ? 'Escolha o fichário.' : 'Escolha o torneio.');
+    if (scope === 'eod' && !sessionId) return setError('Escolha a sessão: a conferência de fim de dia é por sessão.');
     if (!counts.length) return setError('Informe a contagem de ao menos uma ficha.');
     setBusy(true); setError(null); setResult(null);
     try {
       const url = scope === 'binder' ? `/binders/${targetId}/count` : `/tournaments/${targetId}/count`;
-      const res = await apiPost(url, { counts, reason: reason.trim() || undefined, session_id: scope === 'tournament' ? sessionId || undefined : undefined });
+      const hall = Object.entries(hallCounted).filter(([, v]) => v !== '' && v !== undefined).map(([chip_id, v]) => ({ chip_id, counted: Number(v) }));
+      const body = scope === 'eod'
+        ? { players: counts, hall: hall.length ? hall : undefined, reason: reason.trim() || undefined, session_id: sessionId }
+        : { counts, reason: reason.trim() || undefined, session_id: scope === 'tournament' ? sessionId || undefined : undefined };
+      const res = await apiPost(url, body);
       setResult(res);
       if (res.diffs.length) onDone?.();
     } catch (e) {
@@ -82,13 +93,40 @@ export default function CountPanel({ onDone }) {
       <div className="grid gap-3 md:grid-cols-3">
         <CustomSelect options={SCOPES} value={scope} onChange={pickScope} />
         <CustomSelect options={targets} value={targetId} onChange={setTargetId} placeholder={scope === 'binder' ? 'Fichário…' : 'Torneio…'} />
-        {scope === 'tournament' && sessions.length > 1 && (
-          <CustomSelect options={[{ value: '', label: 'Todas as sessões' }, ...sessions.map((s) => ({ value: s._id, label: s.name }))]} value={sessionId} onChange={setSessionId} placeholder="Sessão…" />
+        {scope !== 'binder' && (scope === 'eod' || sessions.length > 1) && (
+          <CustomSelect options={[...(scope === 'eod' ? [] : [{ value: '', label: 'Todas as sessões' }]), ...sessions.map((s) => ({ value: s._id, label: s.name }))]} value={sessionId} onChange={setSessionId} placeholder="Sessão…" />
         )}
       </div>
 
       {targetId && rows.length === 0 && <p className="text-sm italic text-fg-subtle">Nada esperado {scope === 'binder' ? 'neste fichário' : 'em jogo'}.</p>}
-      {rows.length > 0 && (
+      {scope === 'eod' && rows.length > 0 && (
+        <div className="space-y-4" data-testid="eod-parts">
+          <p className="text-xs text-fg-muted">Parte 1: sacos/stacks dos jogadores × Chip Count esperado. Parte 2 (opcional): sobra no salão × disponível. A quebra das trocas explica a diferença em valor — não é perda.</p>
+          <div>
+            <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-fg-subtle">1 · Sacos dos jogadores (Chip Count)</h4>
+            <div className="flex flex-wrap gap-3">
+              {rows.map((r) => (
+                <label key={r.chip._id} className="flex items-center gap-2 text-xs font-bold text-fg-muted">
+                  <span className="h-3 w-3 rounded-full border border-line" style={{ backgroundColor: r.chip.color }} /> {fmt(r.chip.value)} <span className="text-fg-subtle">(esperado {fmt(r.expected)})</span>
+                  <input type="number" min="0" step="1" placeholder="contado" aria-label={`Sacos ${r.chip.value}`} value={counted[r.chip._id] ?? ''} onChange={(e) => setCounted((x) => ({ ...x, [r.chip._id]: e.target.value }))} className={numCls} />
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-fg-subtle">2 · Sobra no salão (ilha)</h4>
+            <div className="flex flex-wrap gap-3">
+              {rows.map((r) => (
+                <label key={r.chip._id} className="flex items-center gap-2 text-xs font-bold text-fg-muted">
+                  <span className="h-3 w-3 rounded-full border border-line" style={{ backgroundColor: r.chip.color }} /> {fmt(r.chip.value)} <span className="text-fg-subtle">(disponível {fmt(r.hall)})</span>
+                  <input type="number" min="0" step="1" placeholder="contado" aria-label={`Ilha ${r.chip.value}`} value={hallCounted[r.chip._id] ?? ''} onChange={(e) => setHallCounted((x) => ({ ...x, [r.chip._id]: e.target.value }))} className={numCls} />
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {scope !== 'eod' && rows.length > 0 && (
         <div className="flex flex-wrap gap-3">
           {rows.map((r) => (
             <label key={r.chip._id} className="flex items-center gap-2 text-xs font-bold text-fg-muted">
@@ -121,6 +159,7 @@ export default function CountPanel({ onDone }) {
                   return (
                     <li key={d.occurrence_id} className="flex flex-wrap items-center gap-2 text-xs">
                       <SeverityBadge level={d.severity} />
+                      {d.part && <span className="badge badge-neutral">{{ players: 'nos sacos', hall: 'na ilha', both: 'sacos e ilha' }[d.part]}</span>}
                       <span className="font-bold">{fmt(row?.chip.value)}</span>
                       <span className="text-fg-muted">esperado {fmt(d.expected)} · contado {fmt(d.counted)} · {d.diff < 0 ? 'faltam' : 'sobram'} {fmt(Math.abs(d.diff))}</span>
                     </li>

@@ -28,6 +28,7 @@ const OccurrenceSchema = new mongoose.Schema({
   binder_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Binder', default: null },
   tournament_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament', default: null },
   session_id: { type: mongoose.Schema.Types.ObjectId, default: null },
+  part: { type: String, enum: ['players', 'hall', 'both'], default: null }, // conferência de fim de dia: em qual parte está a diferença física
   expected: { type: Number, default: null },  // null em perda lançada à mão (sem contagem)
   counted: { type: Number, default: null },
   diff: { type: Number, required: true },     // counted − expected (negativo = falta)
