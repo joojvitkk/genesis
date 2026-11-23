@@ -149,18 +149,28 @@ async function countEndOfDay(tournament, { players, hall, reason, session_id, us
   const { SessionCount } = require('../models');
   const session = await sessionsLib.resolveSession(tournament._id, session_id);
   if (!session) throw new HttpError(400, 'Informe a sessão (session_id): a conferência de fim de dia é por sessão.');
+  // Material D: depois que a fase seguinte começou, a contagem que ela herdou não muda (corrigir exigiria refazer a herança)
+  const all = await sessionsLib.listSessions(tournament._id);
+  const started = all.filter((x) => x.type !== 'QUALIFIER' && String(x._id) !== String(session._id)
+    && sessionsLib.sourceSessions(all, x).some((q) => String(q._id) === String(session._id))
+    && (x.status !== 'scheduled' || x.level_started_at));
+  if (started.length) throw new HttpError(409, `A contagem não pode mais ser corrigida: a fase seguinte (${started.map((x) => x.name).join(', ')}) já começou e herdou esta contagem.`);
   const P = normalizeCounts(players);
   const H = hall === undefined || hall === null ? null : normalizeCounts(hall);
 
   const sum = await material.summary(tournament._id, { sessionId: session._id });
   const row = new Map(sum.rows.map((r) => [String(r.chip._id), r]));
+  // Fase herdada (Dia 2, Final): as fichas físicas foram enviadas nos classificatórios, então o saldo no salão é o do torneio todo
+  // (o livro de movimentos da fase não tem envios próprios) e a diferença física não se prende à sessão.
+  const inherited = session.type !== 'QUALIFIER';
+  const tournamentOnTable = inherited ? new Map((await mv.playBalances({ tournament_id: tournament._id })).map((r) => [String(r.chip_id), r.quantity])) : null;
   const ids = [...new Set([...P.map((c) => c.chip_id), ...(H || []).map((c) => c.chip_id)])];
   const pMap = new Map(P.map((c) => [c.chip_id, c.counted]));
   const hMap = new Map((H || []).map((c) => [c.chip_id, c.counted]));
 
   const lines = ids.map((id) => {
     const r = row.get(id);
-    const inPlay = r?.in_play || 0; const onTable = r?.on_table || 0;
+    const inPlay = r?.in_play || 0; const onTable = inherited ? (tournamentOnTable.get(id) || 0) : (r?.on_table || 0);
     const expP = inPlay; const expH = onTable - inPlay; // pode ser negativo: enviado a menos que o Chip Count
     const cP = pMap.has(id) ? pMap.get(id) : expP;      // parte não informada para a ficha = conforme o esperado
     const cH = hMap.has(id) ? hMap.get(id) : expH;
@@ -172,7 +182,7 @@ async function countEndOfDay(tournament, { players, hall, reason, session_id, us
     chip_id: l.chip_id, expected: l.on_table, counted: l.on_table + l.physical, diff: l.physical,
     part: l.dP !== 0 && l.dH !== 0 ? 'both' : l.dP !== 0 ? 'players' : 'hall',
   }));
-  const result = await finish(diffs, { scope: 'tournament', tournament, session }, { reason: text(reason), user });
+  const result = await finish(diffs, { scope: 'tournament', tournament, session: inherited ? null : session }, { reason: text(reason), user });
 
   const convs = await Conversion.find({ tournament_id: tournament._id, session_id: session._id, status: 'active', legacy: { $ne: true } }).select('math_breakage').lean();
   const math_breakage = convs.reduce((s, c) => s + (c.math_breakage || 0), 0);

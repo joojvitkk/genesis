@@ -6,7 +6,7 @@
 // mapeado para a ação no torneio (`stack_models`) ou, na falta, o padrão (`stack_model_id`).
 // Entradas antigas com `stack_model_id` próprio (o operador escolhia por entrada) continuam honradas.
 const mongoose = require('mongoose');
-const { Tournament, TournamentSession, TournamentEntry, StackModel, Chip, Conversion, Movement } = require('../models');
+const { Tournament, TournamentSession, TournamentEntry, StackModel, Chip, Conversion, Movement, SessionCount } = require('../models');
 const { HttpError } = require('./catalog');
 const calc = require('./stackCalc');
 const sessionsLib = require('./sessions');
@@ -77,6 +77,15 @@ async function inheritedChipsInPlay(tournament, sessionId) {
   const sources = sessionsLib.sourceSessions(all, self).filter((x) => x.status === 'finished');
   const parts = [];
   for (const q of sources) parts.push(await chipsInPlay(tournament._id, { sessionId: q._id }));
+
+  // Material D: com contagem de fim de dia CONFIRMADA em todas as sessões de origem, a fase herda a composição CONTADA
+  // (é o que está nos sacos); sem contagem em alguma delas, herda a calculada (ações × montagem ± trocas − descartes).
+  const sourceCounts = sources.length ? await Promise.all(sources.map((q) => SessionCount.findOne({ tournament_id: tournament._id, session_id: q._id, status: 'active' }).sort({ createdAt: -1 }).lean())) : [];
+  const useCounted = sources.length > 0 && sourceCounts.every(Boolean);
+  const diffs = [];
+  if (useCounted) {
+    for (let i = 0; i < parts.length; i++) parts[i] = await applyCount(parts[i], sourceCounts[i], diffs);
+  }
   // Novas inscrições da própria fase (quando permitidas): SÓ os novos stacks somam ao Chip Count herdado
   const ownEntries = await TournamentEntry.find({ tournament_id: tournament._id, session_id: sessionId }).select('type action stack_model_id').lean();
   if (ownEntries.length) parts.push(await entriesBase(tournament, ownEntries));
@@ -94,7 +103,30 @@ async function inheritedChipsInPlay(tournament, sessionId) {
   const rows = [...merged.values()].sort((a, b) => (a.chip.value || 0) - (b.chip.value || 0));
   const base = { tournament_id: tournament._id, counts, actions: [], rows, totals: { quantity: rows.reduce((s, r) => s + r.quantity, 0), value: rows.reduce((s, r) => s + r.value, 0) }, uncovered: [] };
   const result = await applyConversions(tournament._id, base, sessionId);
-  return { session_id: sessionId, inherited: true, ...result };
+  return {
+    session_id: sessionId, inherited: true, ...result,
+    inherited_from: useCounted ? 'counted' : 'calculated',
+    inherited_missing_count: sources.filter((_, i) => !sourceCounts[i]).map((q) => ({ session_id: String(q._id), name: q.name })),
+    inherited_diff: diffs, // contado − calculado, por ficha (visível no livro do torneio)
+  };
+}
+
+/** Troca as quantidades calculadas pelas CONTADAS na conferência de fim de dia (fichas não contadas ficam como calculadas). */
+async function applyCount(part, count, diffs) {
+  const byChip = new Map(part.rows.map((r) => [idOf(r.chip._id), r]));
+  const need = count.players.map((l) => idOf(l.chip_id)).filter((id) => !byChip.has(id));
+  const extra = need.length ? await Chip.find({ _id: { $in: need } }).setOptions({ withDeleted: true }).select('name value color').lean() : [];
+  const chipDoc = new Map(extra.map((c) => [idOf(c._id), c]));
+  const rows = new Map([...byChip].map(([id, r]) => [id, { ...r }]));
+  for (const l of count.players) {
+    const id = idOf(l.chip_id);
+    const cur = rows.get(id) || { chip_id: id, quantity: 0, value: 0, by_action: {}, chip: chipDoc.get(id) || { _id: id } };
+    if (l.counted !== cur.quantity) diffs.push({ chip_id: id, session_id: String(count.session_id), calculated: cur.quantity, counted: l.counted });
+    cur.quantity = l.counted; cur.value = l.counted * (cur.chip.value || 0);
+    rows.set(id, cur);
+  }
+  const list = [...rows.values()].filter((r) => r.quantity > 0).sort((a, b) => (a.chip.value || 0) - (b.chip.value || 0));
+  return { ...part, rows: list, totals: { quantity: list.reduce((t, r) => t + r.quantity, 0), value: list.reduce((t, r) => t + r.value, 0) } };
 }
 
 /** Fichas (antes de Chip Race/descartes) das entradas dadas: ações × modelo de stack. */

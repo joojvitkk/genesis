@@ -46,6 +46,7 @@ async function bookOf(tournamentId) {
       breakage: convs.reduce((sum, cv) => sum + (cv.math_breakage || 0), 0),
       counted_at: count?.createdAt || null, counted_by: count?.user_name || null, has_count: !!count,
       count_hall_checked: !!count?.hall_checked,
+      inherited_from: inPlay.inherited ? inPlay.inherited_from : null, inherited_diff: inPlay.inherited_diff || [],
     });
   }
 

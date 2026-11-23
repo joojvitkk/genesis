@@ -23,7 +23,7 @@ const book = {
   totals: { expected: 280000, out: 0, in: 0, discarded: 0, in_play: 280000, breakage: 0, actions: 100 },
 };
 let container; let root;
-beforeEach(() => { api.apiGet.mockResolvedValue(book); container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
+beforeEach(() => { api.apiGet.mockImplementation((url) => Promise.resolve(url.endsWith('/closing') ? { status: 'awaiting_count', open_occurrences: 0, rows: [], totals: { delivered: 0, trades: 0, discarded: 0, occurrences: 0, expected: 0, counted: null, diff: null }, divergences: [], binders: { all_returned: true, still_out: [] } } : book)); container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.clearAllMocks(); });
 
 describe('TournamentBook', () => {
@@ -37,5 +37,6 @@ describe('TournamentBook', () => {
     expect(t).toContain('não feita');
     expect(t).toContain('Quebra das trocas');
     expect(container.querySelector('button')).toBeTruthy(); // CSV / PDF
+    expect(container.querySelector('[data-testid="closing"]').textContent).toContain('Aguardando a contagem final');
   });
 });

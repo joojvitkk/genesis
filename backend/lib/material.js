@@ -460,6 +460,7 @@ async function summary(tournamentId, { sessionId } = {}) {
     stacks: phase === 'final' ? [] : await availableStacks(tournamentId, rows),
     totals: { expected_value: val('expected'), on_table_value: val('on_table'), in_play_value: val('in_play'), available_value: val('available'), pending_value: val('pending') },
     uncovered: inPlay.uncovered,
+    ...(inPlay.inherited ? { inherited_from: inPlay.inherited_from, inherited_missing_count: inPlay.inherited_missing_count, inherited_diff: inPlay.inherited_diff } : {}),
   };
 }
 

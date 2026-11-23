@@ -19,11 +19,12 @@ const SECTIONS = [
 /** Livro do torneio: planilha só de leitura (denominações × sessões), com exportação em CSV e PDF (impressão A4 deitado). */
 export default function TournamentBook({ tournamentId, refreshKey }) {
   const [book, setBook] = useState(null);
+  const [closing, setClosing] = useState(null);
   const [error, setError] = useState(null);
   const [sessionId, setSessionId] = useState(''); // celular: uma sessão por vez
 
   const load = useCallback(() => apiGet(`/tournaments/${tournamentId}/book`).then((b) => { setBook(b); setError(null); }).catch((e) => { if (e.status !== 401) setError(e.message || 'Erro ao carregar o livro'); }), [tournamentId]);
-  useEffect(() => { load(); }, [load, refreshKey]);
+  useEffect(() => { load(); apiGet(`/tournaments/${tournamentId}/closing`).then(setClosing).catch(() => setClosing(null)); }, [load, tournamentId, refreshKey]);
   useEffect(() => {
     const on = (p) => { if (!p?.tournament_id || String(p.tournament_id) === String(tournamentId)) load(); };
     socket.on('materialChanged', on);
@@ -119,6 +120,49 @@ export default function TournamentBook({ tournamentId, refreshKey }) {
       )}
       <div className="card p-4 md:hidden no-print">{table(mobileSessions, '')}</div>
       <div className="card hidden p-4 md:block print:block">{table(sessions, '')}</div>
+      {closing && <ClosingBlock closing={closing} />}
     </div>
+  );
+}
+
+const STATUS = {
+  closes: ['badge badge-ok', 'A conta fecha'],
+  does_not_close: ['badge badge-danger', 'A conta não fecha'],
+  awaiting_count: ['badge badge-warn', 'Aguardando a contagem final'],
+};
+
+/** Fechamento: entregue + trocas − descartes ± ocorrências = contagem final, por denominação e em valor nominal. */
+function ClosingBlock({ closing }) {
+  const [cls, label] = STATUS[closing.status] || STATUS.awaiting_count;
+  return (
+    <section className="card space-y-3 p-4" data-testid="closing">
+      <div className="flex flex-wrap items-center gap-3">
+        <h3 className="text-lg font-bold">Fechamento do torneio</h3>
+        <span className={cls}>{label}</span>
+        {closing.open_occurrences > 0 && <span className="badge badge-warn">{closing.open_occurrences} ocorrência(s) sem justificativa</span>}
+      </div>
+      <p className="text-xs text-fg-muted">Entregue (ações × montagem) + trocas − descartes ± ocorrências = contagem final. Em valor nominal das fichas.</p>
+      <div className="overflow-x-auto">
+        <table className="table-dense w-full text-sm">
+          <thead><tr><th className="text-left">Denominação</th><th className="text-right">Entregue</th><th className="text-right">Trocas</th><th className="text-right">Descartes</th><th className="text-right">Ocorrências</th><th className="text-right">Esperado</th><th className="text-right">Contagem final</th><th className="text-right">Diferença</th></tr></thead>
+          <tbody className="divide-y divide-line-soft">
+            {closing.rows.map((r) => (
+              <tr key={r.chip._id}>
+                <td className="font-bold">{fmt(r.chip.value)}</td>
+                <td className="text-right tabular-nums">{fmt(r.delivered)}</td><td className="text-right tabular-nums">{fmt(r.trades)}</td>
+                <td className="text-right tabular-nums">{fmt(-r.discarded)}</td><td className="text-right tabular-nums">{fmt(r.occurrences)}</td>
+                <td className="text-right tabular-nums">{fmt(r.expected)}</td><td className="text-right tabular-nums">{r.counted == null ? '—' : fmt(r.counted)}</td>
+                <td className={`text-right font-bold tabular-nums ${r.diff ? 'text-red-600' : ''}`}>{r.diff == null ? '—' : fmt(r.diff)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot><tr className="font-bold"><td>Valor nominal</td><td className="text-right tabular-nums">{fmt(closing.totals.delivered)}</td><td className="text-right tabular-nums">{fmt(closing.totals.trades)}</td><td className="text-right tabular-nums">{fmt(-closing.totals.discarded)}</td><td className="text-right tabular-nums">{fmt(closing.totals.occurrences)}</td><td className="text-right tabular-nums">{fmt(closing.totals.expected)}</td><td className="text-right tabular-nums">{closing.totals.counted == null ? '—' : fmt(closing.totals.counted)}</td><td className="text-right tabular-nums">{closing.totals.diff == null ? '—' : fmt(closing.totals.diff)}</td></tr></tfoot>
+        </table>
+      </div>
+      {closing.divergences.length > 0 && (
+        <p className="text-xs text-fg-muted">Diferenças nas contagens: {closing.divergences.map((d) => `${d.session} · ${fmt(d.value)} (${d.diff > 0 ? '+' : ''}${fmt(d.diff)})`).join(' · ')}</p>
+      )}
+      <p className="text-xs text-fg-muted">Fichários: {closing.binders.all_returned ? 'todas as fichas voltaram.' : `ainda há fichas em jogo (${fmt(closing.binders.still_out.reduce((t, x) => t + x.quantity, 0))}).`}</p>
+    </section>
   );
 }

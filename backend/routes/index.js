@@ -2325,6 +2325,15 @@ router.get('/tournaments/:id/book', verifyToken, async (req, res) => {
   }
 });
 
+// Fechamento do torneio: entregue + trocas − descartes ± ocorrências = contagem final, por denominação e em valor nominal.
+router.get('/tournaments/:id/closing', verifyToken, async (req, res) => {
+  try {
+    res.json(await require('../lib/closing').closingOf(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // Sugestão do assistente de "volta de fichas": enviados − usados (− manter na ilha), por ação, em stacks.
 // `?session_id=` e `?keep[buy_in]=N`.
 router.get('/tournaments/:id/return-suggestion', verifyToken, requirePageAccess('torneios', 'operate'), async (req, res) => {

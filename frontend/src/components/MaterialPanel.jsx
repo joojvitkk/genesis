@@ -163,6 +163,8 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
       {isFinalPhase && (
         <section className="card p-6" data-testid="final-material">
           <h3 className="mb-1 text-lg font-bold">Fichas em jogo · Chip Count consolidado</h3>
+          {summary.inherited_from === 'counted' && <p className="mb-3 rounded-lg bg-surface p-3 text-xs font-bold text-fg-muted" data-testid="inherited-counted">Herdado da contagem de fim de dia dos sacos (não do valor calculado).</p>}
+          {summary.inherited_from === 'calculated' && <p role="status" className="mb-3 rounded-lg bg-amber-50 p-3 text-xs font-bold text-amber-700 dark:bg-amber-500/10" data-testid="inherited-calculated">Sem contagem de fim de dia{summary.inherited_missing_count?.length ? ` em ${summary.inherited_missing_count.map((m) => m.name).join(', ')}` : ''}: esta fase herda a composição calculada.</p>}
           <p className="mb-4 text-xs text-fg-muted">
             Posição atual herdada das sessões anteriores, já com Chip Race, Color Up e descartes. Esta fase não recebe nova distribuição inicial.
           </p>
