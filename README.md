@@ -21,7 +21,7 @@ auditoria de operações.
 | **Fichários** | Kits de fichas; alocação **por torneio** (veja acima). Conferência física compara o contado com o esperado (derivado): falta vira perda, sobra vira `FOUND` e cada diferença abre uma **ocorrência** com semáforo — nada é sobrescrito. |
 | **Fichas → Modelos de Fichário → Fichários** | Ficha é cadastro mestre (sem quantidade); o **Modelo de Fichário** define quanto de cada ficha compõe um fichário; o **Fichário físico** é a unidade real, criada a partir de um modelo. Cadastros só do admin. |
 | **Modelos de Stack** | Grade **ficha × ação** (buy-in padrão, opcional, reentrada, add-on…): quantas fichas UMA entrada recebe em cada ação. Informe só a **quantidade de ações**; o servidor calcula as fichas por denominação (e o valor). |
-| **Material no torneio** | **Envio** (fichário → em jogo, por ação: o stack calcula as fichas; só do que está alocado), **retorno** (em jogo → fichário) e o resumo *esperado × enviado × em jogo × pendente*. Tudo é movimentação imutável. |
+| **Material no torneio** | **Envio** (fichário → em jogo, por ação: o stack calcula as fichas; só do que está alocado), **envio por mesas** (N mesas × M stacks), **retorno por stacks** com assistente de *volta de fichas* (sugestão = enviados − usados − manter na ilha), fichas avulsas e **retorno** (em jogo → fichário) e o resumo *esperado × enviado × em jogo × pendente*. Tudo é movimentação imutável. |
 | **Chip Race / Color Up** | Lançamento por denominação do que **saiu** e do que **entrou** de jogo; o servidor calcula valor retirado, valor colocado e a **quebra matemática** (legítima — nunca vira perda física). Movimenta as fichas num lote e só se corrige por **estorno**. |
 | **Descarte de stack** | Um stack é abandonado: as fichas informadas (não precisam ser a composição original) saem do **jogo** e voltam ao fichário na hora; reduz o esperado em jogo. Valor total calculado no servidor; imutável (só estorno, admin); atualiza o painel em tempo real por socket. |
 | **Ocorrências e semáforo** | Divergência física (falta/sobra) vira **ocorrência**: verde/amarelo/vermelho pela faixa do valor nominal (configurável), justificativa, recuperação parcial ou total e histórico completo — nunca é apagada. Ocorrência vermelha dispara alerta urgente para todos. A quebra matemática do Chip Race **não** gera ocorrência. |
@@ -192,6 +192,10 @@ Base: `/api`. Todas as rotas (exceto `POST /login`) exigem header
 | POST | `/users/:id/revoke-sessions` | *admin* — encerra as sessões de um usuário. |
 
 ### Usuários — *admin*
+**Volta de fichas (stacks).** `POST /tournaments/:id/returns` aceita `items: [{ action, count }]` (convertido pelo modelo de stack) e/ou `chips`;
+`POST /sends` aceita `{ tables, per_table?, action? }`; `GET /tournaments/:id/return-suggestion?session_id=&keep[ação]=N` devolve, por ação,
+enviados, usados, já devolvidos e a sugestão (limitada pelos stacks completos no salão).
+
 | Método | Rota |
 | --- | --- |
 | GET | `/users` |

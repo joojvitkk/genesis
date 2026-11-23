@@ -5,7 +5,7 @@
 //  • return   em jogo → fichário, por denominação (contagem física).
 //  • conversão OUT (em jogo → fichário) + IN (fichário → em jogo) em UM lote; quebra matemática no registro.
 const mongoose = require('mongoose');
-const { Tournament, TournamentSession, Conversion, Binder, Chip, Allocation, Movement, StackModel } = require('../models');
+const { Tournament, TournamentSession, TournamentEntry, Conversion, Binder, Chip, Allocation, Movement, StackModel } = require('../models');
 const calc = require('./stackCalc');
 const mv = require('./movements');
 const conv = require('./conversion');
@@ -83,6 +83,14 @@ async function send(tournament, body = {}, user) {
   const session = await sessionsLib.resolveSession(tournament._id, body.session_id, { open: true });
   const needs = [];
 
+  // Envio por MESAS: "N mesas × M stacks por mesa" (M padrão = lugares por mesa) → vira `items` por ação.
+  if (body.tables !== undefined) {
+    const tables = Number(body.tables);
+    const perTable = body.per_table !== undefined ? Number(body.per_table) : Number(tournament.seats_per_table);
+    if (!Number.isInteger(tables) || tables < 1) throw new HttpError(400, 'Informe o número de mesas (inteiro ≥ 1).');
+    if (!Number.isInteger(perTable) || perTable < 1) throw new HttpError(400, 'Informe os stacks por mesa (inteiro ≥ 1).');
+    body = { ...body, items: [{ action: body.action || 'buy_in', count: tables * perTable }, ...(body.items || [])] };
+  }
   if (body.items !== undefined) {
     if (!Array.isArray(body.items) || !body.items.length) throw new HttpError(400, 'items deve ser uma lista de { action, count }.');
     const counts = {};
@@ -114,21 +122,110 @@ async function send(tournament, body = {}, user) {
 }
 
 // ─── retorno ─────────────────────────────────────────────────────────────────
-/** Retorno de fichas do jogo para um fichário, por denominação (o que foi fisicamente contado/devolvido). */
+/** Fichas por denominação de `items: [{ action, count }]` (stacks completos), pelo modelo de stack da ação. */
+async function expandItems(tournament, items) {
+  if (!Array.isArray(items) || !items.length) throw new HttpError(400, 'items deve ser uma lista de { action, count }.');
+  const counts = {};
+  for (const it of items) counts[it?.action] = (counts[it?.action] || 0) + Number(it?.count);
+  const plan = await tournamentChips.needsForTournament(tournament._id, counts);
+  if (plan.uncovered.length) {
+    throw new HttpError(400, `Sem composição de stack para: ${plan.uncovered.map((u) => u.label || u.action).join(', ')}.`);
+  }
+  const lines = [];
+  for (const row of plan.rows) {
+    for (const [action, quantity] of Object.entries(row.by_action)) {
+      lines.push({ chip_id: String(row.chip._id), quantity, meta: { action, stacks: plan.counts[action] }, chip: row.chip });
+    }
+  }
+  return lines;
+}
+
+/**
+ * Retorno de fichas do jogo para um fichário. Por STACKS (`items: [{ action, count }]`, convertido pelo modelo de stack
+ * da ação) e/ou por denominação (`chips`, fichas avulsas). Não devolve mais do que está fisicamente no salão.
+ */
 async function returnChips(tournament, body = {}, user) {
   if (!mongoose.isValidObjectId(body.binder_id)) throw new HttpError(400, 'Informe o fichário de destino.');
   const binder = await Binder.findById(body.binder_id);
   if (!binder) throw new HttpError(404, 'Fichário não encontrado.');
-  let list;
-  try { list = conv.normalizeSide(body.chips, 'chips'); } catch (e) { throw asHttp(e); }
+  if (body.items === undefined && body.chips === undefined) throw new HttpError(400, 'Informe os stacks (items) ou as fichas (chips) a devolver.');
+
+  const lines = [];
+  if (body.items !== undefined) lines.push(...(await expandItems(tournament, body.items)));
+  if (body.chips !== undefined) {
+    let list;
+    try { list = conv.normalizeSide(body.chips, 'chips'); } catch (e) { throw asHttp(e); }
+    for (const l of list) lines.push({ chip_id: String(l.chip_id), quantity: l.quantity, meta: { action: null } });
+  }
 
   let session = null; // um retorno pode acontecer depois do fim das sessões: só vincula se não for ambíguo
   try { session = await sessionsLib.resolveSession(tournament._id, body.session_id); } catch (e) { if (body.session_id) throw e; }
-  return mv.postBatch(list.map((l) => ({
+
+  // validação amigável: qual denominação falta no salão para os stacks pedidos
+  const hall = new Map((await mv.playBalances({ tournament_id: tournament._id, session_id: session?._id })).map((r) => [String(r.chip_id), r.quantity]));
+  const want = new Map();
+  for (const l of lines) want.set(l.chip_id, (want.get(l.chip_id) || 0) + l.quantity);
+  const short = [...want].filter(([id, q]) => q > (hall.get(id) || 0));
+  if (body.items !== undefined && short.length) { // só no retorno por stacks: aponta a denominação que falta (por fichas, vale a mensagem do livro)
+    const chips = await chipsMap(short.map(([id]) => id));
+    const details = short.map(([id, q]) => ({ chip_id: id, chip: chips.get(id)?.name || id, requested: q, at_hall: hall.get(id) || 0 }));
+    throw new HttpError(409, `Não há fichas suficientes no salão para devolver: ${details.slice(0, 3).map((d) => `${d.chip} (pedido ${d.requested}, no salão ${d.at_hall})`).join(', ')}${details.length > 3 ? '…' : ''}.`, details);
+  }
+
+  return mv.postBatch(lines.map((l) => ({
     type: 'RETURN', chip_id: l.chip_id, quantity: l.quantity,
     from: { kind: 'play', id: tournament._id }, to: { kind: 'binder', id: binder._id },
-    session_id: session?._id || null, reason: body.reason,
+    session_id: session?._id || null, reason: body.reason, ...(l.meta?.action ? { meta: l.meta } : {}),
   })), { user });
+}
+
+// ─── assistente de "volta de fichas" ─────────────────────────────────────────
+/** Stacks líquidos (envio − estorno) por ação para os tipos de movimento dados; conta cada (lote, ação) uma única vez. */
+async function stacksByAction(tournamentId, sessionId, types, countField) {
+  const moves = await Movement.find({ tournament_id: tournamentId, type: { $in: types }, 'meta.action': { $ne: null }, ...(sessionId ? { session_id: sessionId } : {}) }).lean();
+  if (!moves.length) return new Map();
+  const reversed = new Set((await Movement.find({ reverses: { $in: moves.map((m) => m._id) } }).select('reverses').lean()).map((r) => String(r.reverses)));
+  const seen = new Map(); // `${batch}|${action}` → { action, count, reversed }
+  for (const m of moves) {
+    const k = `${m.batch_id}|${m.meta.action}`;
+    const cur = seen.get(k) || { action: m.meta.action, count: Number(m.meta[countField]) || 0, reversed: false };
+    if (reversed.has(String(m._id))) cur.reversed = true;
+    seen.set(k, cur);
+  }
+  const out = new Map();
+  for (const g of seen.values()) if (!g.reversed) out.set(g.action, (out.get(g.action) || 0) + g.count);
+  return out;
+}
+
+/**
+ * Sugestão de retorno por ação = enviados − usados (entradas válidas da sessão) − já devolvidos − "manter na ilha",
+ * limitada pelos stacks completos fisicamente disponíveis no salão (`availableStacks`).
+ * `keep`: { [action]: N } stacks que ficam na ilha.
+ */
+async function returnSuggestion(tournament, { session_id, keep = {} } = {}) {
+  const session = session_id ? await sessionsLib.resolveSession(tournament._id, session_id) : null;
+  const sessionId = session?._id || null;
+  const sent = await stacksByAction(tournament._id, sessionId, SEND_TYPES, 'count');
+  const returned = await stacksByAction(tournament._id, sessionId, ['RETURN'], 'stacks');
+  const entries = await TournamentEntry.find({ tournament_id: tournament._id, ...(sessionId ? { session_id: sessionId } : {}) }).select('type action').lean();
+  const used = new Map();
+  for (const e of entries) { const a = tournamentChips.actionOf(e); if (a) used.set(a, (used.get(a) || 0) + 1); }
+
+  const sum = await summary(tournament._id, { sessionId });
+  const limit = new Map(sum.stacks.map((s) => [s.action, s]));
+  const rows = [...sent.keys()].map((action) => {
+    const k = Math.max(0, Math.floor(Number(keep[action]) || 0));
+    const s = sent.get(action) || 0;
+    const r = returned.get(action) || 0;
+    const u = used.get(action) || 0;
+    const lim = limit.get(action);
+    return {
+      action, label: lim?.label || action, sent: s, returned: r, used: u, keep: k,
+      available: lim?.stacks ?? 0, composition: lim?.composition || [],
+      suggested: Math.max(0, Math.min(s - r - u - k, lim?.stacks ?? 0)),
+    };
+  });
+  return { session_id: sessionId ? String(sessionId) : null, rows };
 }
 
 // ─── conversões (Chip Race / Color Up) ───────────────────────────────────────
@@ -392,6 +489,6 @@ async function availableStacks(tournamentId, rows) {
 }
 
 module.exports = {
-  send, returnChips, preview, createConversion, reverseConversion, summary, pickSources, sendTypeFor, SEND_TYPES, openTournament,
+  send, returnChips, returnSuggestion, preview, createConversion, reverseConversion, summary, pickSources, sendTypeFor, SEND_TYPES, openTournament,
   discard, discardPreview, listDiscards, reverseDiscard,
 };

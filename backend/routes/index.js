@@ -2303,7 +2303,7 @@ router.post('/tournaments/:id/sends', verifyToken, requirePageAccess('torneios',
   }
 });
 
-// Retorno em jogo → fichário, por denominação: { binder_id, chips: [{ chip_id, quantity }], session_id?, reason? }
+// Retorno em jogo → fichário, por STACKS ({ items: [{ action, count }] }) e/ou por denominação ({ chips }): { binder_id, session_id?, reason? }
 router.post('/tournaments/:id/returns', verifyToken, requirePageAccess('torneios', 'operate'), async (req, res) => {
   try {
     const t = await material.openTournament(req.params.id);
@@ -2311,6 +2311,17 @@ router.post('/tournaments/:id/returns', verifyToken, requirePageAccess('torneios
     await logActivity('Retorno de Fichas do Torneio', 'inventory', `${t.name} | ${(await mvDescribe(docs))} | para o fichário ${(await Binder.findById(req.body.binder_id).select('name').lean())?.name} | lote ${docs[0]?.batch_id}`, req.user);
     emitMaterial(req, t._id);
     res.status(201).json({ batch_id: docs[0].batch_id, movements: docs });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Sugestão do assistente de "volta de fichas": enviados − usados (− manter na ilha), por ação, em stacks.
+// `?session_id=` e `?keep[buy_in]=N`.
+router.get('/tournaments/:id/return-suggestion', verifyToken, requirePageAccess('torneios', 'operate'), async (req, res) => {
+  try {
+    const t = await material.openTournament(req.params.id);
+    res.json(await material.returnSuggestion(t, { session_id: req.query.session_id, keep: req.query.keep || {} }));
   } catch (err) {
     sendError(res, err);
   }

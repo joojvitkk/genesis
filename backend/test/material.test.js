@@ -687,3 +687,60 @@ test('conversão com a MESMA ficha nos dois lados: bruto no registro, líquido n
   // sem diferença em nenhuma denominação: nada a mover → recusado
   assert.equal((await race(s, { outs: [{ chip_id: c[500]._id, quantity: 3 }], ins: [{ chip_id: c[500]._id, quantity: 3 }] })).status, 400);
 });
+
+// ─── retorno por stacks, envio por mesas e volta de fichas (Material A) ──────
+
+test('retorno por STACKS equivale ao retorno por fichas e guarda a ação no meta', async () => {
+  const { c, binder, mat, tournament } = await scene();
+  await send(mat, tournament, { items: [{ action: 'buy_in', count: 100 }] });
+  const res = await post(mat, `/api/tournaments/${tournament._id}/returns`, { binder_id: binder._id, items: [{ action: 'buy_in', count: 10 }] });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  const byChip = Object.fromEntries(res.body.movements.map((m) => [m.chip_id, m.quantity]));
+  assert.deepEqual(byChip, { [c[100]._id]: 100, [c[500]._id]: 40, [c[1000]._id]: 70, [c[5000]._id]: 20 });
+  for (const m of res.body.movements) { assert.equal(m.type, 'RETURN'); assert.deepEqual([m.meta.action, m.meta.stacks], ['buy_in', 10]); }
+  assert.equal(await onTable(tournament, c[100]), 900);
+});
+
+test('retorno por stacks + fichas avulsas no mesmo lote; falta de ficha aponta a denominação', async () => {
+  const { c, binder, mat, tournament } = await scene();
+  await send(mat, tournament, { items: [{ action: 'buy_in', count: 2 }] });
+  const ok = await post(mat, `/api/tournaments/${tournament._id}/returns`, { binder_id: binder._id, items: [{ action: 'buy_in', count: 1 }], chips: [{ chip_id: c[100]._id, quantity: 3 }] });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  assert.equal(await onTable(tournament, c[100]), 20 - 10 - 3);
+  const bad = await post(mat, `/api/tournaments/${tournament._id}/returns`, { binder_id: binder._id, items: [{ action: 'buy_in', count: 2 }] });
+  assert.equal(bad.status, 409);
+  assert.match(bad.body.error, /Não há fichas suficientes no salão/);
+  assert.ok(bad.body.details.length >= 1);
+});
+
+test('envio por MESAS: N mesas × M stacks (padrão = lugares por mesa)', async () => {
+  const { c, mat, tournament } = await scene();
+  await Tournament.updateOne({ _id: tournament._id }, { seats_per_table: 9 });
+  const res = await send(mat, tournament, { tables: 10 });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(await onTable(tournament, c[100]), 10 * 9 * 10);
+  const custom = await send(mat, tournament, { tables: 2, per_table: 5, action: 'buy_in' });
+  assert.equal(custom.status, 201);
+  assert.equal(await onTable(tournament, c[100]), 900 + 100);
+  assert.equal((await send(mat, tournament, { tables: 0 })).status, 400);
+});
+
+test('sugestão de volta de fichas = enviados − usados (− manter na ilha), com entradas, reentradas e cancelamentos', async () => {
+  const { binder, mat, admin, tournament } = await scene();
+  await Tournament.updateOne({ _id: tournament._id }, { seats_per_table: 10 });
+  await send(mat, tournament, { tables: 10 }); // 100 buy-ins
+  const entry = await post(admin, `/api/tournaments/${tournament._id}/entries`, { type: 'buy-in', quantity: 90 });
+  assert.equal(entry.status, 201, JSON.stringify(entry.body));
+  const url = `/api/tournaments/${tournament._id}/return-suggestion`;
+  let s = (await get(mat, url)).body.rows.find((r) => r.action === 'buy_in');
+  assert.deepEqual([s.sent, s.used, s.suggested], [100, 90, 10]);
+
+  s = (await get(mat, `${url}?keep[buy_in]=3`)).body.rows.find((r) => r.action === 'buy_in');
+  assert.equal(s.suggested, 7);
+
+  // confirmar a sugestão devolve exatamente os 10 stacks e zera a próxima sugestão
+  const ret = await post(mat, `/api/tournaments/${tournament._id}/returns`, { binder_id: binder._id, items: [{ action: 'buy_in', count: 10 }] });
+  assert.equal(ret.status, 201);
+  s = (await get(mat, url)).body.rows.find((r) => r.action === 'buy_in');
+  assert.deepEqual([s.returned, s.suggested], [10, 0]);
+});

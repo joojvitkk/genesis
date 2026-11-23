@@ -31,6 +31,10 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
   const [plan, setPlan] = useState(null);                            // fichas calculadas pelo servidor
   const [extra, setExtra] = useState({});                            // envio adicional: { chipId: qtd }
   const [ret, setRet] = useState({ binder_id: '', chips: {}, reason: '' });
+  const [tables, setTables] = useState({ count: '', per: String(tournament.seats_per_table || 9), action: 'buy_in' }); // envio por mesas
+  const [sug, setSug] = useState(null);                              // sugestão da volta de fichas (por ação, em stacks)
+  const [keep, setKeep] = useState({});                              // stacks que ficam na ilha: { ação: N }
+  const [stackRet, setStackRet] = useState({});                      // stacks a devolver, ajustados pelo operador: { ação: N }
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const tid = tournament._id;
@@ -56,6 +60,24 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
     socket.on('discardRegistered', onEvent);
     return () => { socket.off('materialChanged', onEvent); socket.off('discardRegistered', onEvent); };
   }, [tid, load]);
+
+  // sugestão = enviados − usados − manter na ilha, por ação (servidor); o operador só confirma ou ajusta
+  useEffect(() => {
+    if (!canOperate) return undefined;
+    let alive = true;
+    const keepQs = Object.fromEntries(Object.entries(keep).filter(([, v]) => Number(v) > 0).map(([a, v]) => [`keep[${a}]`, v]));
+    apiGet(`/tournaments/${tid}/return-suggestion`, { session_id: sessionId, ...keepQs })
+      .then((r) => { if (alive) { setSug(r); setStackRet(Object.fromEntries(r.rows.map((x) => [x.action, String(x.suggested)]))); } })
+      .catch(() => { if (alive) setSug(null); });
+    return () => { alive = false; };
+  }, [tid, sessionId, canOperate, refreshKey, keep, summary?.rows?.length]);
+
+  const addTables = () => {
+    const n = Number(tables.count); const m = Number(tables.per);
+    if (!tables.action || !(n >= 1) || !(m >= 1)) return showAlert('Informe a ação, as mesas e os stacks por mesa.', 'error');
+    setRows((x) => [...x.filter((r) => r.action && r.count), { action: tables.action, count: String(n * m) }]);
+    setTables((t) => ({ ...t, count: '' }));
+  };
 
   const items = rows.filter((r) => r.action && Number(r.count) > 0).map((r) => ({ action: r.action, count: Number(r.count) }));
   const chips = Object.entries(extra).filter(([, v]) => Number(v) > 0).map(([chip_id, v]) => ({ chip_id, quantity: Number(v) }));
@@ -93,11 +115,12 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
 
   const returnNow = async () => {
     const list = Object.entries(ret.chips).filter(([, v]) => Number(v) > 0).map(([chip_id, v]) => ({ chip_id, quantity: Number(v) }));
+    const stacksList = Object.entries(stackRet).filter(([, v]) => Number(v) > 0).map(([action, v]) => ({ action, count: Number(v) }));
     if (!ret.binder_id) return showAlert('Escolha o fichário que recebe as fichas.', 'error');
-    if (!list.length) return showAlert('Informe as fichas devolvidas.', 'error');
+    if (!list.length && !stacksList.length) return showAlert('Informe os stacks ou as fichas devolvidas.', 'error');
     setBusy(true); setError(null);
     try {
-      await apiPost(`/tournaments/${tid}/returns`, { binder_id: ret.binder_id, chips: list, reason: ret.reason.trim() || undefined, session_id: sessionId || undefined });
+      await apiPost(`/tournaments/${tid}/returns`, { binder_id: ret.binder_id, items: stacksList.length ? stacksList : undefined, chips: list.length ? list : undefined, reason: ret.reason.trim() || undefined, session_id: sessionId || undefined });
       showAlert('Retorno registrado!', 'success');
       setRet((r) => ({ ...r, chips: {}, reason: '' }));
       await load(); onChanged?.();
@@ -255,6 +278,12 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><Send size={18} className="text-emerald-500" /> Enviar fichas ao torneio</h3>
           <p className="mb-4 text-xs text-fg-muted">{sessions.length > 1 ? 'Vai para a sessão selecionada. ' : ''}Por ação: informe só a quantidade; as fichas por denominação são calculadas pelo modelo de stack.</p>
 
+          <div className="mb-4 flex flex-wrap items-end gap-2" data-testid="send-tables">
+            <div className="w-48"><CustomSelect options={actionOptions} value={tables.action} onChange={(v) => setTables((t) => ({ ...t, action: v }))} placeholder="Ação" /></div>
+            <label className="text-xs font-bold text-fg-muted">Mesas<input type="number" min="1" step="1" value={tables.count} onChange={(e) => setTables((t) => ({ ...t, count: e.target.value }))} className={`${numCls} ml-2`} /></label>
+            <label className="text-xs font-bold text-fg-muted">Stacks por mesa<input type="number" min="1" step="1" value={tables.per} onChange={(e) => setTables((t) => ({ ...t, per: e.target.value }))} className={`${numCls} ml-2`} /></label>
+            <button type="button" onClick={addTables} className="btn btn-secondary">Adicionar por mesas</button>
+          </div>
           <div className="space-y-2">
             {rows.map((r, i) => (
               <div key={i} className="grid grid-cols-[1fr_110px_auto] items-center gap-2">
@@ -302,10 +331,32 @@ export default function MaterialPanel({ tournament, sessions, sessionId, canOper
       {canOperate && (
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><Undo2 size={18} className="text-blue-500" /> Retornar fichas ao fichário</h3>
-          <p className="mb-4 text-xs text-fg-muted">Registre a quantidade fisicamente devolvida, por denominação. Volta a ficar reservada ao torneio.</p>
+          <p className="mb-4 text-xs text-fg-muted">Volta de fichas: o sistema sugere enviados − usados, em stacks. Confirme com um toque ou ajuste; sobras que não fecham um stack entram como fichas avulsas.</p>
           <div className="mb-3 max-w-sm">
             <CustomSelect options={allocations.map((a) => ({ value: a.binder_id?._id, label: a.binder_id?.name }))} value={ret.binder_id} onChange={(v) => setRet((r) => ({ ...r, binder_id: v }))} placeholder="Fichário que recebe…" />
           </div>
+          {sug?.rows?.length > 0 && (
+            <div className="mb-4 overflow-x-auto" data-testid="return-stacks">
+              <table className="w-full min-w-[34rem] text-left text-sm">
+                <thead className="text-xs text-fg-subtle">
+                  <tr><th className="py-1 pr-2">Ação</th><th className="px-2 text-right">Enviados</th><th className="px-2 text-right">Usados</th><th className="px-2 text-right">Já devolvidos</th><th className="px-2 text-right">Manter na ilha</th><th className="px-2 text-right">Devolver (stacks)</th></tr>
+                </thead>
+                <tbody className="divide-y divide-line-soft">
+                  {sug.rows.map((r) => (
+                    <tr key={r.action}>
+                      <td className="py-2 pr-2 font-bold">{r.label}</td>
+                      <td className="px-2 text-right tabular-nums">{fmt(r.sent)}</td>
+                      <td className="px-2 text-right tabular-nums">{fmt(r.used)}</td>
+                      <td className="px-2 text-right tabular-nums">{fmt(r.returned)}</td>
+                      <td className="px-2 text-right"><input type="number" min="0" step="1" aria-label={`Manter na ilha — ${r.label}`} value={keep[r.action] ?? ''} placeholder="0" onChange={(e) => setKeep((k) => ({ ...k, [r.action]: e.target.value }))} className={numCls} /></td>
+                      <td className="px-2 text-right"><input type="number" min="0" max={r.available} step="1" aria-label={`Devolver stacks — ${r.label}`} value={stackRet[r.action] ?? ''} onChange={(e) => setStackRet((k) => ({ ...k, [r.action]: e.target.value }))} className={`${numCls} ${Number(stackRet[r.action]) > r.available ? 'border-red-400' : ''}`} /> <span className="text-xs text-fg-subtle">(cabem {fmt(r.available)})</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="mb-2 text-xs font-bold text-fg-subtle">Fichas avulsas (sobras que não fecham um stack)</p>
           <div className="flex flex-wrap gap-3">
             {(summary?.rows || []).filter((r) => r.on_table > 0).map((r) => (
               <label key={r.chip._id} className="flex items-center gap-2 text-xs font-bold text-fg-muted">
