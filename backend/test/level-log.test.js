@@ -382,3 +382,14 @@ test('6: cadastro é da direção; níveis adicionais no fim da estrutura só pe
   assert.deepEqual([ok.body.kind, ok.body.rows_affected], ['levels_added', 2]);
   assert.ok(await BlindChange.exists({ session_id: A._id, kind: 'levels_added' }));
 });
+
+test('9: "Salão agora" só traz o que é de HOJE: agendadas para outro dia ficam de fora; em andamento sempre entram', async () => {
+  const { admin, s, clockCmd } = await scene(['Dia 1A', 'Dia 1B', 'Dia 1C']);
+  const in2h = new Date(Date.now() + 2 * 3600e3); const nextWeek = new Date(Date.now() + 7 * 24 * 3600e3);
+  await TournamentSession.updateOne({ _id: s['Dia 1A']._id }, { starts_at: in2h });
+  await TournamentSession.updateOne({ _id: s['Dia 1B']._id }, { starts_at: nextWeek });
+  await TournamentSession.updateOne({ _id: s['Dia 1C']._id }, { starts_at: nextWeek });
+  await clockCmd(s['Dia 1C'], 'start'); // rodando: entra mesmo com data de outro dia
+  const names = (await get(admin, '/api/salao/now')).body.map((x) => x.session_name).sort();
+  assert.deepEqual(names, ['Dia 1A', 'Dia 1C']);
+});

@@ -27,9 +27,10 @@ export default function ChipRace() {
 
   const [tournaments, setTournaments] = useState([]);
   const [chips, setChips] = useState([]);
-  const [tid, setTid] = useState('');
+  // vindo do Material do torneio: abre já no torneio e na sessão escolhidos (?tournament=&session=)
+  const [tid, setTid] = useState(() => new URLSearchParams(window.location.search).get('tournament') || '');
   const [sessions, setSessions] = useState([]);
-  const [sessionId, setSessionId] = useState('');
+  const [sessionId, setSessionId] = useState(() => new URLSearchParams(window.location.search).get('session') || '');
   const [material, setMaterial] = useState(null);
   const [history, setHistory] = useState([]);
   const [type, setType] = useState('CHIP_RACE');

@@ -105,7 +105,15 @@ async function salaoNow(allowedIds) {
   const tIds = [...new Set(sessions.map((s) => String(s.tournament_id)))];
   const tournaments = new Map((await Tournament.find({ _id: { $in: tIds }, status: { $nin: ['finished', 'finalized'] } }).lean()).map((t) => [String(t._id), t]));
   const now = Date.now();
-  const list = sessions.filter((s) => tournaments.has(String(s.tournament_id))).map((s) => {
+  // Só entra o que é de HOJE: em andamento (relógio rodando/pausado ou status running) ou agendado para a janela
+  // [−12 h, +24 h] em torno de agora — sessões agendadas para outro dia ficam de fora do painel.
+  const WINDOW_BEHIND = 12 * 3600e3; const WINDOW_AHEAD = 24 * 3600e3;
+  const today = (s) => {
+    if (s.status === 'running' || s.status === 'paused' || s.clock_status !== 'stopped') return true;
+    const at = new Date(s.starts_at || tournaments.get(String(s.tournament_id))?.starts_at || 0).getTime();
+    return at >= now - WINDOW_BEHIND && at <= now + WINDOW_AHEAD;
+  };
+  const list = sessions.filter((s) => tournaments.has(String(s.tournament_id)) && today(s)).map((s) => {
     const t = tournaments.get(String(s.tournament_id));
     const view = sessionsLib.clockView(t, s);
     const p = clock.clockPayload(view, now);

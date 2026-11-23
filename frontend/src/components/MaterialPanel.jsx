@@ -82,7 +82,7 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
       .then((r) => { if (alive) { setSug(r); setStackRet(Object.fromEntries(r.rows.map((x) => [x.action, String(x.suggested)]))); } })
       .catch(() => { if (alive) setSug(null); });
     return () => { alive = false; };
-  }, [tid, sessionId, canOperate, refreshKey, keep, summary?.rows?.length]);
+  }, [tid, sessionId, canOperate, refreshKey, keep, summary]);
 
   const addTables = () => {
     const n = Number(tables.count); const m = Number(tables.per);
@@ -90,6 +90,8 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
     setRows((x) => [...x.filter((r) => r.action && r.count), { action: tables.action, count: String(n * m) }]);
     setTables((t) => ({ ...t, count: '' }));
   };
+
+  const tradeHref = `/chip-race?tournament=${tid}${sessionId ? `&session=${sessionId}` : ''}`; // abre a troca já neste torneio e sessão
 
   const items = rows.filter((r) => r.action && Number(r.count) > 0).map((r) => ({ action: r.action, count: Number(r.count) }));
   const chips = Object.entries(extra).filter(([, v]) => Number(v) > 0).map(([chip_id, v]) => ({ chip_id, quantity: Number(v) }));
@@ -209,7 +211,7 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
             <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5" data-testid="material-actions">
               {!closed && <button type="button" onClick={() => setActive(active === 'send' ? null : 'send')} className="btn btn-success btn-lg"><Send size={16} /> Enviar</button>}
               <button type="button" onClick={() => setActive(active === 'return' ? null : 'return')} className="btn btn-info btn-lg"><Undo2 size={16} /> Volta de fichas</button>
-              <a href="/chip-race" onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate('/chip-race'); } }} className="btn btn-secondary btn-lg">Troca</a>
+              <a href={tradeHref} onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate(tradeHref); } }} className="btn btn-secondary btn-lg">Troca</a>
               {!closed && <button type="button" onClick={() => setDiscarding(true)} disabled={allocations.length === 0} className="btn btn-secondary btn-lg"><PackageMinus size={16} /> Descarte</button>}
               <a href="/ocorrencias" onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate('/ocorrencias'); } }} className="btn btn-secondary btn-lg"><PackageCheck size={16} /> Conferir</a>
             </div>
