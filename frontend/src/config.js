@@ -25,6 +25,8 @@ export function can(role, area, level = 'view') {
 export const ROUTE_AREA = {
   '/dashboard': 'dashboard',
   '/salao': 'mesas',
+  '/salao-sessao/:tid/:sid': 'mesas',   // Salão de um toque (por sessão)
+  '/tracking-sessao/:tid/:sid': 'mesas', // Tracking da sessão (folha digital, só leitura)
   '/eventos': 'torneios',
   '/torneios': 'torneios',
   '/tracking-sheet': 'torneios', // Tracking Sheet: consulta (view) para todos; edição só com torneios.manage (admin)

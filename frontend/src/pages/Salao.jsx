@@ -1,4 +1,5 @@
 import ConnectionStatus from '../components/ConnectionStatus';
+import SalaoAgora from '../components/SalaoAgora';
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
@@ -41,6 +42,8 @@ export default function Salao() {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-12">
+      <SalaoAgora />
+
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="page-title">Visão de Salão</h1>
@@ -135,11 +138,11 @@ function TournamentCard({ tournament, onOpen }) {
               <span className="text-lg font-bold text-fg">{tournament.actual_players || 0}</span>
             </div>
           </div>
-          <div className="bg-sunken p-4 rounded-3xl border border-line-soft">
-            <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Stack Inicial</p>
+          <div className="bg-sunken p-4 rounded-3xl border border-line-soft" title="Fichas em jogo somando todos os dias, até o final.">
+            <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Chip Count total</p>
             <div className="flex items-center gap-2">
               <Coins size={16} className="text-amber-500" />
-              <span className="text-lg font-bold text-fg">{tournament.starting_stack?.toLocaleString()}</span>
+              <span className="text-lg font-bold text-fg">{(tournament.chips_value_in_play ?? 0).toLocaleString()}</span>
             </div>
           </div>
         </div>

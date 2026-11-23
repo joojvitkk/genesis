@@ -868,6 +868,8 @@ export default {
   "Registrar Entrada": "Record Entry",
   "Registrar recuperação": "Record recovery",
   "Registrar retorno": "Record return",
+  "Chip Count total: {}": "Total Chip Count: {}",
+  "Chip Count total": "Total Chip Count",
   "Entregue (ações × montagem) + trocas − descartes ± ocorrências = contagem final. Em valor nominal das fichas.": "Delivered (actions × build) + exchanges − discards ± occurrences = final count. In nominal chip value.",
   "Herdado da contagem de fim de dia dos sacos (não do valor calculado).": "Inherited from the end-of-day bag count (not the calculated value).",
   "Contagem final": "Final count",

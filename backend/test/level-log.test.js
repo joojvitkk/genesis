@@ -169,3 +169,153 @@ test('1: correção posterior grava valor novo com motivo e autor e preserva o o
   assert.equal(ok.body.corrections[0].reason, 'entrada cancelada com atraso');
   assert.equal(ok.body.at_start.entries_initial, 5, 'o valor original do início permanece');
 });
+
+// ─── item 3: conferência do floor por nível ──────────────────────────────────
+test('3: contagem do floor grava diferença, autor e motivo ligados ao nível e ajusta o active_offset; histórico preservado', async () => {
+  const { admin, t, s, clockCmd, logs } = await scene();
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 10, session_id: s['Dia 1A']._id });
+  await clockCmd(s['Dia 1A'], 'start');
+  const url = `/api/tournaments/${t._id}/active-players`;
+  const r = await put(admin, url, { active_players: 8, session_id: s['Dia 1A']._id, reason: 'conferi mesa a mesa' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.active, 8);
+  await clockCmd(s['Dia 1A'], 'next');
+  await put(admin, url, { active_players: 7, session_id: s['Dia 1A']._id });
+  const l = await logs(s['Dia 1A']);
+  const [n1, n2] = l.rows;
+  assert.equal(n1.floor_counts.length, 1, 'ligado ao nível 1');
+  assert.deepEqual([n1.floor_counts[0].counted, n1.floor_counts[0].calculated, n1.floor_counts[0].diff], [8, 10, -2]);
+  assert.equal(n1.floor_counts[0].reason, 'conferi mesa a mesa');
+  assert.ok(n1.floor_counts[0].user_name);
+  assert.equal(n2.floor_counts[0].diff, -1, 'diferença do nível 2 é sobre o valor já ajustado: 8 → 7');
+  assert.equal((await TournamentSession.findById(s['Dia 1A']._id)).active_offset, -3);
+  assert.equal((await put(await hdr('material'), url, { active_players: 5, session_id: s['Dia 1A']._id })).status, 403, 'só quem opera o Salão confere');
+});
+
+// ─── item 4: fechamento do dia ───────────────────────────────────────────────
+test('4: resumo do dia (inscritos, classificados, horários, "parou no nível…", pico e níveis) e resumo do torneio', async () => {
+  const { admin, t, s, clockCmd } = await scene();
+  const A = s['Dia 1A']; const B = s['Dia 1B'];
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 6, session_id: A._id });
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 're-entry', quantity: 2, session_id: A._id });
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 3, session_id: B._id });
+  await clockCmd(A, 'start'); await clockCmd(A, 'next'); await clockCmd(A, 'next');
+  await put(admin, sp(t, A), { status: 'running' });
+  assert.equal((await put(admin, sp(t, A), { status: 'finished', qualified_count: 5 })).status, 200);
+  await put(admin, sp(t, B), { status: 'running' });
+  await put(admin, sp(t, B), { status: 'finished', qualified_count: 2 });
+
+  const d = (await get(admin, `${sp(t, A)}/day-summary`)).body;
+  assert.deepEqual([d.entries_initial, d.entries_reentries, d.entries_total, d.qualified_count], [6, 2, 8, 5]);
+  assert.equal(d.levels_played, 3);
+  assert.equal(d.peak_players >= 8, true);
+  assert.match(d.stopped, /^parou no nível 3, faltando \d\d:\d\d$/);
+  assert.ok(d.started_at && d.ended_at && d.duration_ms >= 0 && d.duration_net_ms <= d.duration_ms);
+
+  await put(admin, `${sp(t, A)}/qualified`, { qualified_count: 4, reason: 'recontagem' });
+  assert.equal((await get(admin, `${sp(t, A)}/day-summary`)).body.qualified_log.length, 1, 'histórico de correções');
+
+  const sum = (await get(admin, `/api/tournaments/${t._id}/summary`)).body;
+  assert.deepEqual([sum.totals.entries_initial, sum.totals.entries_reentries, sum.totals.qualified], [9, 2, 6]);
+  assert.equal(sum.days.length, 2);
+  assert.equal(JSON.stringify(sum).includes('R$'), false);
+  assert.equal((await get(admin, `/api/tournaments/${t._id}/sessions/000000000000000000000000/day-summary`)).status, 404);
+});
+
+// ─── itens 2 e 11: folha digital, previsão com pausas e "Salão agora" ────────
+const { forecastRows } = require('../lib/tracking');
+
+test('11: previsão = início real + tempo restante + durações; níveis jogados mostram o horário REAL; pausa desloca a previsão', () => {
+  const rows = [
+    { row_type: 'level', small_blind: 100, big_blind: 200, duration: 20 },
+    { row_type: 'level', small_blind: 200, big_blind: 400, duration: 20 },
+    { row_type: 'break', duration: 10, label: 'Break' },
+    { row_type: 'end_registration' },
+    { row_type: 'level', small_blind: 300, big_blind: 600, duration: 20 },
+    { row_type: 'end_day' },
+  ];
+  const t0 = Date.parse('2026-10-01T18:00:00Z');
+  const logs = [{ status: 'closed', row_index: 0, started_at: new Date(t0), ended_at: new Date(t0 + 25 * 60000), duration_ms: 25 * 60000, entries_total: 5, playing: 5 }];
+  const view = { current_level: 1, clock_status: 'running', level_started_at: new Date(t0 + 25 * 60000), clock_adjust_seconds: 0, level_offset: 0 };
+  const now = t0 + 35 * 60000; // 10 min dentro do nível 2 → faltam 10
+  const g = forecastRows(rows, view, logs, null, now);
+  assert.equal(g[0].kind, 'actual');
+  assert.equal(new Date(g[0].end).getTime(), t0 + 25 * 60000, 'horário real, nunca o previsto');
+  assert.equal(g[1].kind, 'current');
+  assert.equal(new Date(g[1].end).getTime(), now + 10 * 60000);
+  assert.equal(new Date(g[2].start).getTime(), now + 10 * 60000, 'break começa quando o nível atual acaba');
+  assert.equal(new Date(g[3].end).getTime(), now + 20 * 60000, 'fim do registro previsto');
+  assert.equal(new Date(g[5].end).getTime(), now + 40 * 60000, 'fim do dia previsto');
+
+  // pausado: o tempo restante congela em 10 min; 30 min depois a previsão desliza 30 min
+  const paused = { ...view, clock_status: 'paused', paused_at: new Date(now) };
+  const later = forecastRows(rows, paused, logs, null, now + 30 * 60000);
+  assert.equal(new Date(later[5].end).getTime(), now + 70 * 60000, 'pausado há 30 min: a previsão desliza 30 min junto com o "agora"');
+  assert.equal(new Date(forecastRows(rows, paused, logs, null, now)[1].end).getTime(), now + 10 * 60000);
+});
+
+test('11: sessão ainda não iniciada prevê a partir do horário da sessão; linhas puladas não têm horário', () => {
+  const rows = [{ row_type: 'level', duration: 20 }, { row_type: 'level', duration: 20 }, { row_type: 'level', duration: 20 }];
+  const start = new Date('2026-10-01T14:00:00Z');
+  const g = forecastRows(rows, { current_level: 0, clock_status: 'stopped', level_started_at: null }, [], start, Date.now());
+  assert.deepEqual(g.map((r) => r.kind), ['forecast', 'forecast', 'forecast']);
+  assert.equal(new Date(g[2].end).toISOString(), '2026-10-01T15:00:00.000Z');
+  const skipped = forecastRows(rows, { current_level: 2, clock_status: 'running', level_started_at: new Date() }, [], start);
+  assert.deepEqual(skipped.map((r) => r.kind), ['skipped', 'skipped', 'current']);
+});
+
+test('2: folha digital da sessão: cabeçalho sem dinheiro nem stack inicial, grade, rodapé e escopo por torneio', async () => {
+  const { admin, t, s, clockCmd } = await scene();
+  const A = s['Dia 1A'];
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 4, session_id: A._id });
+  await clockCmd(A, 'start'); await clockCmd(A, 'next');
+  const r = await get(admin, `${sp(t, A)}/tracking`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const b = r.body;
+  assert.equal(b.sessions.length, 2, 'todas as sessões no cabeçalho');
+  assert.equal(b.rows[0].kind, 'actual');
+  assert.equal(b.rows[1].kind, 'current');
+  assert.equal(b.rows[2].kind, 'forecast');
+  assert.equal(b.rows[0].entries_total, 4);
+  const text = JSON.stringify(b);
+  for (const banned of ['starting_stack', 'buy_in', 'rake', 'bounty', 'R$']) assert.equal(text.includes(banned), false, `não expõe ${banned}`);
+  assert.ok(b.day && b.tournament_summary);
+  // operador restrito a outro torneio não lê a folha
+  const other = await makeUser('salao', { allowed_tournament_ids: ['64b000000000000000000000'] });
+  assert.equal((await get({ Authorization: `Bearer ${other.token}` }, `${sp(t, A)}/tracking`)).status, 403);
+});
+
+test('9: "Salão agora" lista as sessões em andamento de todos os torneios do escopo, por horário de início, sem misturar', async () => {
+  const a = await scene(['Dia 1A', 'Dia 1B']);
+  await a.clockCmd(a.s['Dia 1B'], 'start');
+  await a.clockCmd(a.s['Dia 1A'], 'start');
+  await post(a.admin, `/api/tournaments/${a.t._id}/entries`, { type: 'buy-in', quantity: 2, session_id: a.s['Dia 1B']._id });
+  const r = await get(a.admin, '/api/salao/now');
+  assert.equal(r.status, 200);
+  const running = r.body.filter((x) => x.clock_status === 'running');
+  assert.equal(running.length, 2);
+  const b = running.find((x) => x.session_name === 'Dia 1B');
+  assert.deepEqual([b.entries_total, b.level_number, b.tournament_name], [2, 1, 'Main']);
+  assert.equal(running.find((x) => x.session_name === 'Dia 1A').entries_total, 0, 'o lançamento no 1B não altera o 1A');
+  const restricted = await makeUser('salao', { allowed_tournament_ids: ['64b000000000000000000000'] });
+  assert.equal((await get({ Authorization: `Bearer ${restricted.token}` }, '/api/salao/now')).body.length, 0);
+});
+
+test('10: eliminação de um toque (só session_id) elimina a entrada ativa mais recente da SESSÃO e devolve o id para desfazer', async () => {
+  const { admin, t, s } = await scene();
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 3, session_id: s['Dia 1A']._id });
+  await post(admin, `/api/tournaments/${t._id}/entries`, { type: 'buy-in', quantity: 2, session_id: s['Dia 1B']._id });
+  const r = await post(admin, `/api/tournaments/${t._id}/eliminations`, { session_id: s['Dia 1A']._id }, { 'Idempotency-Key': 'elim-um-toque-1' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.ok(r.body.elimination_id);
+  const counts = async (sess) => (await get(admin, `/api/tournaments/${t._id}/headcount?session_id=${sess._id}`)).body.active;
+  assert.equal(await counts(s['Dia 1A']), 2);
+  assert.equal(await counts(s['Dia 1B']), 2, 'a eliminação no 1A não altera o 1B');
+  const undo = await post(admin, `/api/tournaments/${t._id}/eliminations/${r.body.elimination_id}/cancel`, { reason: 'toque errado' });
+  assert.equal(undo.status < 300, true, JSON.stringify(undo.body));
+  assert.equal(await counts(s['Dia 1A']), 3);
+  const empty = await post(admin, `/api/tournaments/${t._id}/eliminations`, { session_id: s['Dia 1B']._id });
+  await post(admin, `/api/tournaments/${t._id}/eliminations`, { session_id: s['Dia 1B']._id });
+  assert.equal((await post(admin, `/api/tournaments/${t._id}/eliminations`, { session_id: s['Dia 1B']._id })).status >= 400, true, 'sem ativos não elimina');
+  assert.equal(empty.status, 201);
+});

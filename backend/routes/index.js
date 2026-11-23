@@ -1258,6 +1258,41 @@ router.put('/tournaments/:tid/sessions/:sid/level-log/:lid', verifyToken, requir
   }
 });
 
+// Tracking da sessão (folha digital: horário real nos níveis jogados, previsto nos próximos) e painel "Salão agora".
+router.get('/tournaments/:tid/sessions/:sid/tracking', verifyToken, async (req, res) => {
+  try {
+    const allowed = await allowedTournaments(req.user);
+    if (allowed && !allowed.includes(String(req.params.tid))) throw new HttpError(403, 'Você não tem acesso a este torneio.');
+    res.json(await require('../lib/tracking').trackingSheet(req.params.tid, req.params.sid));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+router.get('/salao/now', verifyToken, async (req, res) => {
+  try {
+    res.json(await require('../lib/tracking').salaoNow(await allowedTournaments(req.user)));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Fechamento do dia (resumo da sessão) e resumo do torneio, sem valores em dinheiro.
+router.get('/tournaments/:tid/sessions/:sid/day-summary', verifyToken, async (req, res) => {
+  try {
+    res.json(await require('../lib/dayClosing').sessionSummary(req.params.tid, req.params.sid));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+router.get('/tournaments/:id/summary', verifyToken, async (req, res) => {
+  try {
+    if (!(await Tournament.exists({ _id: req.params.id }))) throw new HttpError(404, 'Torneio não encontrado.');
+    res.json(await require('../lib/dayClosing').tournamentSummary(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, (req, res) => runClockAction(req, res, req.params.id, req.body?.session_id));
 router.post('/tournaments/:tid/sessions/:sid/clock', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, (req, res) => runClockAction(req, res, req.params.tid, req.params.sid));
 
@@ -1383,6 +1418,11 @@ router.put('/tournaments/:id/active-players', verifyToken, requirePageAccess('me
     const session = await sessionsLib.resolveSession(t._id, req.body?.session_id, { open: true });
     const { before, after, counts } = await playersLib.setActivePlayers(t._id, req.body?.active_players, req.app.get('io'), session?._id || null);
     const reason = String(req.body?.reason || '').trim();
+    if (session) {
+      const off = (await TournamentSession.findById(session._id).select('active_offset').lean())?.active_offset;
+      await levelLog.recordFloorCount(session._id, { counted: after, before, offsetAfter: off, reason, user: req.user });
+      req.app.get('io')?.emit('sessionLevelLog', { tournament_id: String(t._id), session_id: String(session._id) });
+    }
     await logActivity('Ativos Informados (Salão)', 'tournament', `${t.name}${session ? ` · ${session.name}` : ''} | ativos ${before} → ${after} | inscrições ${counts.entries_total} (${counts.entries_initial} iniciais + ${counts.entries_reentries} reentradas) | eliminados ${counts.eliminated}${reason ? ` | motivo: ${reason}` : ''}`, req.user);
     res.json(counts);
   } catch (err) {
@@ -2203,8 +2243,12 @@ router.get('/tournaments/:id/finance', verifyToken, async (req, res) => {
 // grava os prêmios de cada colocação. (Não há cadastro de jogadores nem bounty por eliminador.)
 router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
   try {
-    const { entry_id } = req.body || {};
-    if (!mongoose.isValidObjectId(entry_id)) return res.status(400).json({ error: 'Entrada inválida.' });
+    let { entry_id } = req.body || {};
+    let createdElim = null;
+    // Eliminação "de um toque" (Salão): sem entry_id, com session_id → elimina a entrada ativa mais recente da sessão
+    // (as entradas não têm nome: só a contagem importa; a escolhida entra no registro como qualquer outra).
+    const anonymous = !entry_id && mongoose.isValidObjectId(req.body?.session_id);
+    if (!anonymous && !mongoose.isValidObjectId(entry_id)) return res.status(400).json({ error: 'Entrada inválida.' });
     // Serializa as eliminações do torneio: duas requisições simultâneas para a mesma entrada (ou duas que disputam a
     // mesma colocação) não passam juntas pela checagem — a segunda espera, enxerga a primeira e é recusada.
     await require('../lib/movements').execute([`eliminations:${req.params.id}`], async () => {
@@ -2212,6 +2256,14 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
     if (!t) throw new HttpError(404, 'Torneio não encontrado.');
     if (t.status === 'finalized') throw new HttpError(400, 'Torneio já finalizado.');
 
+    if (anonymous) {
+      const sess = await sessionsLib.resolveSession(t._id, req.body.session_id, { open: true });
+      const pool = await TournamentEntry.find({ tournament_id: t._id, session_id: sess._id, type: { $in: ['buy-in', 're-entry'] } }).sort({ number: -1 });
+      const out = new Set((await Elimination.find({ tournament_id: t._id, session_id: sess._id }).select('entry_id')).map((e) => String(e.entry_id)));
+      const pick = pool.find((e) => !out.has(String(e._id)));
+      if (!pick) throw new HttpError(409, 'Não há jogadores ativos nesta sessão para eliminar.');
+      entry_id = String(pick._id);
+    }
     // A eliminação vale DENTRO da sessão da entrada: colocação e "campeã" nunca misturam sessões (Simulação 2.1 §4)
     const target = await TournamentEntry.findOne({ _id: entry_id, tournament_id: t._id, type: { $in: ['buy-in', 're-entry'] } });
     if (!target) throw new HttpError(400, 'Entrada não encontrada neste torneio.');
@@ -2227,7 +2279,7 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
     const remaining = alive.length;
     const position = remaining; // 8 entradas restando → quem sai é a 8ª
 
-    await Elimination.create({ tournament_id: t._id, session_id: sid, entry_id, position });
+    createdElim = await Elimination.create({ tournament_id: t._id, session_id: sid, entry_id, position });
     await Seat.deleteOne({ tournament_id: t._id, entry_id }); // libera o lugar
     // eliminar tira UM jogador dos ativos; inscrições e fichas em jogo (Chip Count) não mudam
     await playersLib.refreshPlayers(t._id, req.app.get('io'), sid);
@@ -2263,6 +2315,7 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
     }
 
     });
+    if (anonymous) return res.status(201).json({ ok: true, elimination_id: createdElim?._id, entry_id, position: createdElim?.position });
     res.status(201).json(await buildFinance(req.params.id));
   } catch (err) {
     if (err?.code === 11000) return res.status(409).json({ error: 'Esta entrada já foi eliminada.' });

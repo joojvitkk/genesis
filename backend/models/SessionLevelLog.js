@@ -15,6 +15,17 @@ const CorrectionSchema = new mongoose.Schema({
   at: { type: Date, default: Date.now },
 }, { _id: false });
 
+// Conferência do floor (item 3): contagem real de jogadores num nível. Só se acrescenta — nunca se apaga o histórico de ajustes.
+const FloorCountSchema = new mongoose.Schema({
+  counted: { type: Number, required: true },
+  calculated: { type: Number, required: true },   // "jogando" calculado pelo sistema no momento
+  diff: { type: Number, required: true },         // counted − calculated
+  offset_after: { type: Number, default: null },  // active_offset da sessão depois do ajuste
+  reason: { type: String },
+  user_name: { type: String },
+  at: { type: Date, default: Date.now },
+}, { _id: false });
+
 const Snapshot = {
   entries_initial: { type: Number, default: 0 },
   entries_reentries: { type: Number, default: 0 },
@@ -45,6 +56,7 @@ const SessionLevelLogSchema = new mongoose.Schema({
   at_start: Snapshot,
   ...Snapshot,                                           // valores no FIM do nível (ou atuais, se aberto) — é o que a folha mostra
   corrections: { type: [CorrectionSchema], default: [] },
+  floor_counts: { type: [FloorCountSchema], default: [] },
 }, { timestamps: true });
 
 // no máximo UM registro aberto por sessão: impede nível duplicado mesmo com o executor e comandos manuais simultâneos

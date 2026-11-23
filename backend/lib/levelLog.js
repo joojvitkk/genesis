@@ -118,6 +118,23 @@ const reconcile = (sessionId, io) => safe(async () => {
   return sync(sessionId, { reason: 'reconcile', io });
 }, { sessionId: String(sessionId), action: 'reconcile' });
 
+/**
+ * Conferência do floor: liga a contagem real de jogadores ao nível em andamento (ou ao último, se o relógio está parado).
+ * Chamada depois de `setActivePlayers`, que continua ajustando o `active_offset` (o histórico de ajustes não é apagado).
+ */
+async function recordFloorCount(sessionId, { counted, before, offsetAfter, reason, user }) {
+  return safe(async () => {
+    const log = await SessionLevelLog.findOne({ session_id: sessionId }).sort({ status: -1, seq: -1 }).select('_id status seq').lean();
+    if (!log) return null;
+    const open = await SessionLevelLog.findOne({ session_id: sessionId, status: 'open' }).select('_id').lean();
+    const target = open?._id || log._id;
+    return SessionLevelLog.findOneAndUpdate({ _id: target }, {
+      $push: { floor_counts: { counted, calculated: before, diff: counted - before, offset_after: offsetAfter ?? null, reason: String(reason || '').trim() || undefined, user_name: user?.name || user?.email || 'Sistema' } },
+      ...(open ? { $set: { playing: counted } } : {}),
+    }, { returnDocument: 'after' });
+  }, { sessionId: String(sessionId), action: 'floor-count' });
+}
+
 const list = (sessionId) => SessionLevelLog.find({ session_id: sessionId }).sort({ seq: 1 }).lean();
 
 /** Correção posterior (ex.: entrada cancelada com atraso): guarda valor novo, motivo e autor; o original fica. */
@@ -137,4 +154,4 @@ async function correct(logId, { field, value, reason }, user) {
   );
 }
 
-module.exports = { sync, closeOpen, onClockAction, onAutoAdvance, onSessionFinished, reconcile, list, correct, CORRECTABLE };
+module.exports = { recordFloorCount, sync, closeOpen, onClockAction, onAutoAdvance, onSessionFinished, reconcile, list, correct, CORRECTABLE };

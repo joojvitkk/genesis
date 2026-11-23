@@ -335,7 +335,13 @@ html.theme-wave, html.theme-wave *, html.theme-wave *::before, html.theme-wave *
     * { box-shadow: none !important; }
     main { padding: 0 !important; }
     @page { size: A4 landscape; margin: 10mm; }
+    @page tracking { size: A4 portrait; margin: 10mm; }
+    [data-testid="tracking-sessao"] { page: tracking; }
     .print-book-title { display: block !important; }
+    .print-only { display: block !important; }
+    td.print-only, th.print-only { display: table-cell !important; }
+    [data-testid="tracking-sessao"] .md\:block, [data-testid="tracking-sessao"] .hidden.md\:block { display: block !important; }
+    [data-testid="tracking-sessao"] ul { display: none !important; }
     [data-testid="tournament-book"] .card { display: block !important; }
     [data-testid="tournament-book"] .md\:hidden { display: none !important; }
   }

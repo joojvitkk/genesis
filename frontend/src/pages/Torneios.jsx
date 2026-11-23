@@ -518,7 +518,7 @@ export default function Torneios() {
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-fg-muted">
                       <span className="flex items-center gap-1"><Clock size={14} /> {tournamentWhen(t)}</span>
                       <span className="flex items-center gap-1"><Users size={14} /> {t.actual_players || 0} jogando · {(t.entries_initial || 0) + (t.entries_reentries || 0)} inscrições</span>
-                      <span className="flex items-center gap-1"><Layers size={14} /> Stack: {t.starting_stack.toLocaleString()}</span>
+                      <span className="flex items-center gap-1"><Layers size={14} /> Chip Count total: {(t.chips_value_in_play ?? 0).toLocaleString()}</span>
                     </div>
                   </div>
                 </div>

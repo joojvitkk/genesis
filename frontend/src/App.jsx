@@ -22,6 +22,8 @@ import Chat from './pages/Chat';
 import ModelosStack from './pages/ModelosStack';
 import Relatorios from './pages/Relatorios';
 import Salao from './pages/Salao';
+import SalaoSessao from './pages/SalaoSessao';
+import TrackingSessao from './pages/TrackingSessao';
 import Auditoria from './pages/Auditoria';
 import Usuarios from './pages/Usuarios';
 import Ocorrencias from './pages/Ocorrencias';
@@ -223,6 +225,8 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
               <Route path="/conta" element={<Conta user={auth.user} onPasswordChanged={onPasswordChanged} onAvatarChanged={onAvatarChanged} />} />
               {Object.entries({
                 '/salao': <Salao />,
+                '/salao-sessao/:tid/:sid': <SalaoSessao />,
+                '/tracking-sessao/:tid/:sid': <TrackingSessao />,
                 '/eventos': <Eventos />,
                 '/torneios': <Torneios />,
                 '/tracking-sheet': <TrackingSheet />,
