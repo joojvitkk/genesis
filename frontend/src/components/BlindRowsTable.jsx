@@ -1,6 +1,22 @@
+import { useState } from 'react';
 import { Coffee, Trash2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 import { levelNumberAt, isLevelRow } from '../lib/blinds';
+
+/**
+ * Número do nível editável. Guarda o que o operador digita num rascunho: apagar "16" para digitar "17" passa por
+ * valores momentaneamente inválidos ("", "1") que não podem ser rejeitados no meio da digitação. Só um número
+ * válido (≥ min) vai para a estrutura; ao sair do campo, o rascunho inválido volta ao valor atual.
+ */
+function LevelNumberInput({ value, min, label, onCommit, className }) {
+  const [draft, setDraft] = useState(null);
+  const change = (e) => {
+    setDraft(e.target.value);
+    const n = parseInt(e.target.value, 10);
+    if (Number.isInteger(n) && n >= min) onCommit(n);
+  };
+  return <input type="number" min={min} aria-label={label} value={draft ?? value} onChange={change} onBlur={() => setDraft(null)} className={className} />;
+}
 
 const BREAK_DURATIONS = [10, 15, 20, 30, 45, 60, 90];
 
@@ -55,17 +71,14 @@ export default function BlindRowsTable({ rows = [], onCell, onRemove, readOnly =
             // Editar o número de um nível renumera a estrutura: o backend parte do `level` da 1ª linha de nível.
             const firstIdx = rows.findIndex(isLevelRow);
             const before = rows.slice(0, idx).filter(isLevelRow).length;
-            const onNumber = (e) => {
-              const n = parseInt(e.target.value, 10);
-              if (Number.isInteger(n) && n >= before + 1) onCell(firstIdx, 'level', n - before);
-            };
+            const onNumber = (n) => onCell(firstIdx, 'level', n - before);
             const field = (name, w) => (readOnly
               ? <span>{row[name]}</span>
               : <input type="number" min="0" aria-label={`${name} nível ${num}`} value={row[name] ?? ''} onChange={(e) => onCell(idx, name, e.target.value)} className={`${cell} ${w || ''}`} />);
             return (
               <tr key={idx} className="border-b border-line-soft hover:bg-sunken/50">
                 <td className="py-2 pr-4 font-semibold text-fg-muted">
-                  {readOnly ? num : <input type="number" min={before + 1} aria-label={`Número do nível ${num}`} value={num} onChange={onNumber} className={`${cell} w-16`} />}
+                  {readOnly ? num : <LevelNumberInput min={before + 1} label={`Número do nível ${num}`} value={num} onCommit={onNumber} className={`${cell} w-16`} />}
                 </td>
                 <td className="px-2 py-2">{field('small_blind')}</td>
                 <td className="px-2 py-2">{field('big_blind')}</td>
