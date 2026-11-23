@@ -1,3 +1,4 @@
+import ConnectionStatus from '../components/ConnectionStatus';
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
@@ -43,6 +44,7 @@ export default function Salao() {
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="page-title">Visão de Salão</h1>
+          <ConnectionStatus />
           <p className="page-sub">Gerenciamento de entradas e controle de mesa em tempo real</p>
         </div>
         

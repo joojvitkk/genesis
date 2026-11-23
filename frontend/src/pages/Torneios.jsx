@@ -15,6 +15,7 @@ import SessionBar from '../components/SessionBar';
 import AllocationModal from '../components/AllocationModal';
 import MaterialPanel from '../components/MaterialPanel';
 import TournamentBook from '../components/TournamentBook';
+import ConnectionStatus from '../components/ConnectionStatus';
 import PhaseBlindsEditor from '../components/PhaseBlindsEditor';
 import SessionConfigPanel from '../components/SessionConfigPanel';
 import { can } from '../config';
@@ -564,6 +565,7 @@ export default function Torneios() {
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="text-lg md:text-2xl font-bold text-fg leading-tight">{selectedTournament.name}</h2>
+                        <ConnectionStatus className="ml-3 align-middle" />
                         <StatusBadge status={selectedTournament.status} />
                       </div>
                       <p className="text-xs text-fg-muted font-medium mt-0.5">{tournamentWhen(selectedTournament)}</p>

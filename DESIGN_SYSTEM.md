@@ -209,6 +209,9 @@ Seção "Torneios ativos": um cartão por **sessão** rodando/pausada (nome do t
 - **Livro do torneio:** aba "Livro", só leitura, `.table-dense` (denominações × sessões; seções Esperado, Trocas, Descartes, Em jogo, Contado, Diferença).
   No celular vira uma sessão por vez (seletor); botões CSV e PDF. Impressão A4 deitado (`@page` em `@media print`, classe `.no-print` nos controles).
 
+### 3.11 Indicador de conexão — `components/ConnectionStatus.jsx`
+`.badge` sempre visível nas telas do Salão: `badge-ok` Online · `badge-warn` Reconectando… · `badge-danger` Sem conexão — lançamentos bloqueados (o app é só online, sem fila offline). Usa `role="status"` e `aria-live="polite"`.
+
 ## 4. Layout de página
 
 ```

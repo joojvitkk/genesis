@@ -22,6 +22,8 @@ module.exports = {
   Setting: require('./Setting'),
   Occurrence: require('./Occurrence'),
   SessionCount: require('./SessionCount'),
+  IdempotencyKey: require('./IdempotencyKey'),
+  SessionLevelLog: require('./SessionLevelLog'),
   KoChip: require('./KoChip'),
   KoMovement: require('./KoMovement'),
 };

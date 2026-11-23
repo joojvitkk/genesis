@@ -39,6 +39,8 @@ const allocationLib = require('../lib/allocation');
 const playersLib = require('../lib/headcount');
 const conversionRequests = require('../lib/conversionRequests');
 const material = require('../lib/material');
+const { idempotent } = require('../middlewares/idempotency');
+const levelLog = require('../lib/levelLog');
 const occurrences = require('../lib/occurrences');
 const dashboardLib = require('../lib/dashboard');
 const binderView = require('../lib/binderView');
@@ -1132,6 +1134,7 @@ async function ensureClockStarted(tournamentId, req, sessionId = null) {
     if (t.status === 'scheduled') t.status = 'running';
     await t.save();
   }
+  if (session) await levelLog.onClockAction(session._id, 'start', { io: req.app.get('io') });
   emitClock(req, t, session);
   return t;
 }
@@ -1223,6 +1226,7 @@ async function runClockAction(req, res, tournamentId, requestedSession) {
       req.app.get('io').emit('allocationsChanged', { tournament_id: fresh._id });
     }
 
+    if (session) await levelLog.onClockAction(session._id, action, { io: req.app.get('io') });
     const payload = clockPayload(clockView(fresh, session));
     emitClock(req, fresh, session); // Dashboard: quem está rodando mudou
     await logActivity('Relógio do Torneio', 'tournament', `${t.name}${session ? ` · ${session.name}` : ''} | ${action}${seconds ? ` (${seconds}s)` : ''}`, req.user);
@@ -1231,8 +1235,31 @@ async function runClockAction(req, res, tournamentId, requestedSession) {
     sendError(res, err);
   }
 }
-router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'operate'), (req, res) => runClockAction(req, res, req.params.id, req.body?.session_id));
-router.post('/tournaments/:tid/sessions/:sid/clock', verifyToken, requirePageAccess('mesas', 'operate'), (req, res) => runClockAction(req, res, req.params.tid, req.params.sid));
+// Registro por nível da sessão (Tracking Sheet digital). Leitura: quem acessa o torneio; correção: quem opera o Salão.
+router.get('/tournaments/:tid/sessions/:sid/level-log', verifyToken, async (req, res) => {
+  try {
+    const session = await TournamentSession.findOne({ _id: req.params.sid, tournament_id: req.params.tid }).select('_id');
+    if (!session) throw new HttpError(404, 'Sessão não encontrada.');
+    const rows = await levelLog.list(session._id);
+    res.json({ session_id: String(session._id), has_history: rows.length > 0, rows });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+router.put('/tournaments/:tid/sessions/:sid/level-log/:lid', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
+  try {
+    const log = await levelLog.correct(req.params.lid, req.body || {}, req.user);
+    if (String(log.session_id) !== String(req.params.sid)) throw new HttpError(404, 'Registro de nível não encontrado nesta sessão.');
+    req.app.get('io')?.emit('sessionLevelLog', { tournament_id: String(log.tournament_id), session_id: String(log.session_id) });
+    await logActivity('Correção de Registro de Nível', 'tournament', `${log.session_id} | ${req.body.field} → ${req.body.value} | ${req.body.reason}`, req.user);
+    res.json(log);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+router.post('/tournaments/:id/clock', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, (req, res) => runClockAction(req, res, req.params.id, req.body?.session_id));
+router.post('/tournaments/:tid/sessions/:sid/clock', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, (req, res) => runClockAction(req, res, req.params.tid, req.params.sid));
 
 // Estrutura de blinds PRÓPRIA da sessão (Tracking Sheet por sessão): copia por valor uma estrutura cadastrada (`template_id`),
 // a do torneio (`source: 'tournament'`) ou linhas enviadas (`rows`), opcionalmente só a faixa de níveis oficiais
@@ -1348,7 +1375,7 @@ router.get('/tournaments/:id/headcount', verifyToken, async (req, res) => {
     sendError(res, err);
   }
 });
-router.put('/tournaments/:id/active-players', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+router.put('/tournaments/:id/active-players', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
   try {
     const t = await Tournament.findById(req.params.id);
     if (!t) throw new HttpError(404, 'Torneio não encontrado.');
@@ -1649,7 +1676,7 @@ const MAX_BATCH_ENTRIES = 500;
 // add_on…) e do modelo mapeado no torneio — o operador não escolhe stack por entrada.
 // `quantity` > 1 registra várias ações de uma vez: é o "informar só a quantidade de ações". Não há cadastro de
 // jogadores: cada entrada é numerada ("Entrada #n") e é ela que ocupa a mesa e pode ser eliminada.
-router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
   try {
     const { type } = req.body || {}; // `stack_model_id` legado é ignorado
     if (!['buy-in', 're-entry', 'add-on'].includes(type)) throw new HttpError(400, 'Tipo de entrada inválido.');
@@ -1694,7 +1721,7 @@ router.post('/tournaments/:id/entries', verifyToken, requirePageAccess('mesas', 
 // Entradas nunca são apagadas (spec §18.3): CANCELAM-SE com motivo (quem, quando e por quê ficam no registro).
 const CANCEL_ONLY = 'Registros não são apagados: cancele com motivo (POST …/cancel { reason }).';
 router.delete('/tournaments/:tid/entries/:eid', verifyToken, (req, res) => res.status(405).json({ error: CANCEL_ONLY }));
-router.post('/tournaments/:tid/entries/:eid/cancel', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+router.post('/tournaments/:tid/entries/:eid/cancel', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
   try {
     const entry = await TournamentEntry.findOne({ _id: req.params.eid, tournament_id: req.params.tid });
     if (!entry) return res.status(404).json({ error: 'Entrada não encontrada.' });
@@ -1955,6 +1982,7 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
       session.qualified_count = null; // sessão reaberta: os classificados voltam a ser apurados no próximo encerramento
     }
     await session.save();
+    if (session.status === 'finished' && !wasFinished) await levelLog.onSessionFinished(session._id);
     if (req.body?.status !== undefined) {
       await sessionsLib.prepareFinalLevels(session.tournament_id);
       // os classificados mudam o Dia Final: suas fichas em jogo são herdadas das classificatórias encerradas
@@ -2173,7 +2201,7 @@ router.get('/tournaments/:id/finance', verifyToken, async (req, res) => {
 
 // Registra a eliminação de uma ENTRADA (`entry_id`). Se sobrar só 1 entrada, ela é a campeã: finaliza o torneio e
 // grava os prêmios de cada colocação. (Não há cadastro de jogadores nem bounty por eliminador.)
-router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
   try {
     const { entry_id } = req.body || {};
     if (!mongoose.isValidObjectId(entry_id)) return res.status(400).json({ error: 'Entrada inválida.' });
@@ -2243,7 +2271,7 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
 });
 
 router.delete('/tournaments/:tid/eliminations/:eid', verifyToken, (req, res) => res.status(405).json({ error: CANCEL_ONLY }));
-router.post('/tournaments/:tid/eliminations/:eid/cancel', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+router.post('/tournaments/:tid/eliminations/:eid/cancel', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
   try {
     const elim = await Elimination.findOne({ _id: req.params.eid, tournament_id: req.params.tid });
     if (!elim) return res.status(404).json({ error: 'Eliminação não encontrada.' });
@@ -2646,7 +2674,7 @@ router.get('/conversions/:id', verifyToken, async (req, res) => {
 
 // ─── Chamados de Chip Race / Color Up (MEL-02): o Salão solicita, o Material atende ───────────────
 const emitRequests = (req, tournamentId) => req.app.get('io')?.emit('conversionRequestsChanged', { tournament_id: tournamentId });
-router.post('/tournaments/:id/conversion-requests', verifyToken, requirePageAccess('mesas', 'operate'), async (req, res) => {
+router.post('/tournaments/:id/conversion-requests', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
   try {
     const doc = await conversionRequests.create(req.params.id, req.body, req.user);
     await logActivity('Chamado de Troca', 'chip_race', `${doc.type} | ${doc.tables} mesa(s) | ativos ${doc.snapshot.active_players}${doc.snapshot.provisional ? ' (provisório)' : ''}`, req.user);

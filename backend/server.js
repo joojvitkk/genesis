@@ -13,6 +13,7 @@ const { publicMessage } = require('./lib/chat');
 const { authenticate, allowedTournaments } = require('./middlewares/authMiddleware');
 const logActivity = require('./services/activityLogger');
 const { autoAdvance, clockPayload, levelNumber } = require('./lib/tournamentClock');
+const levelLog = require('./lib/levelLog');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/genesis';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
@@ -176,11 +177,13 @@ io.on('connection', (socket) => {
 // A cada segundo: para cada torneio rodando, avança o nível se o tempo estourou
 // e transmite o estado do relógio para quem estiver assistindo aquele torneio.
 let clockTimer = null;
+let tickCount = 0;
 function startClockRunner() {
   if (clockTimer) return;
   clockTimer = setInterval(async () => {
     try {
       const now = Date.now();
+      tickCount += 1;
       // Cada SESSÃO roda o seu próprio relógio; torneios sem sessões (dados antigos) ainda rodam no torneio.
       const sessions = await TournamentSession.find({ clock_status: 'running' });
       const tournaments = new Map();
@@ -203,9 +206,12 @@ function startClockRunner() {
             else if (ev.type === 'ended') io.to(room).emit('tournamentEnded', { tournament_id: String(t._id), session_id: sid });
           }
           if (session && owner.clock_status !== 'running') await sessionsLib.syncTournamentCache(t._id);
+          if (session) await levelLog.onAutoAdvance(session._id, io);
           logActivity('Nível do Torneio Avançou', 'tournament', `${t.name}${session ? ` · ${session.name}` : ''} | nível ${(() => { const n = levelNumber(view.blind_structure || [], owner.current_level); return n === null ? '-' : n + (view.level_offset || 0); })()} (linha ${owner.current_level + 1})`, { name: 'Relógio' });
         }
         io.to(room).emit('tournamentClock', clockPayload(sessionsLib.clockView(t, session), now));
+        // repara (a cada ~15 s) o registro por nível de uma sessão rodando sem ele — falha anterior não trava nem esconde o nível
+        if (session && tickCount % 15 === 0) await levelLog.reconcile(session._id, io);
       };
       for (const session of sessions) {
         const t = await tournamentOf(session.tournament_id);

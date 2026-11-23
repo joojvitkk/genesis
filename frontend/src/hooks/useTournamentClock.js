@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { socket, connectSocket } from '../lib/socket';
+import { socket, connectSocket, trackRoom } from '../lib/socket';
 import { apiGet } from '../lib/api';
 
 /**
@@ -38,7 +38,7 @@ export function useTournamentClock(tournamentId, { sessionId, onLevel, onMarker,
     const onLevelChanged = (p) => { if (mine(p)) cbs.current.onLevel?.(p); };
     const onMk = (p) => { if (mine(p)) cbs.current.onMarker?.(p); };
     const onEnd = (p) => { if (mine(p)) cbs.current.onEnded?.(p); };
-    const onConnect = () => { setConnected(true); socket.emit('joinTournament', tournamentId); fetchNow(); };
+    const onConnect = () => { setConnected(true); fetchNow(); }; // a sala é reassinada por trackRoom
     const onDisconnect = () => setConnected(false);
 
     socket.on('tournamentClock', onClock);
@@ -47,12 +47,12 @@ export function useTournamentClock(tournamentId, { sessionId, onLevel, onMarker,
     socket.on('tournamentEnded', onEnd);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
-    socket.emit('joinTournament', tournamentId);
+    const untrack = trackRoom('joinTournament', 'leaveTournament', tournamentId); // volta à sala sozinho ao reconectar
 
     return () => {
       alive = false;
       clearInterval(fallback);
-      socket.emit('leaveTournament', tournamentId);
+      untrack();
       socket.off('tournamentClock', onClock);
       socket.off('tournamentLevelChanged', onLevelChanged);
       socket.off('tournamentMarker', onMk);

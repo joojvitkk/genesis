@@ -9,7 +9,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const api = vi.hoisted(() => ({ apiGet: vi.fn() }));
 vi.mock('../lib/api', () => api);
 const sock = vi.hoisted(() => { const h = {}; return { handlers: h, socket: { on: (e, f) => { (h[e] ||= new Set()).add(f); }, off: (e, f) => h[e]?.delete(f) } }; });
-vi.mock('../lib/socket', () => ({ socket: { ...sock.socket, emit: () => {}, connected: true }, connectSocket: () => {} }));
+vi.mock('../lib/socket', () => ({ socket: { ...sock.socket, emit: () => {}, connected: true }, connectSocket: () => {}, trackRoom: () => () => {} }));
 
 import Dashboard from './Dashboard';
 import { EVENT_BLOCKS } from '../lib/useDashboard';

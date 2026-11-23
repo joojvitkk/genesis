@@ -2,7 +2,7 @@ import { locale } from '../lib/i18n';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Users, AlertTriangle, Clock, MessageSquare, Bell, Shield, CalendarDays, Package, MonitorPlay, ImagePlus, X, Check, Reply, SmilePlus, Eye, ThumbsUp, Heart, Smile, Sparkles, HandHelping, CircleCheck } from 'lucide-react';
-import { socket } from '../lib/socket';
+import { socket, trackRoom } from '../lib/socket';
 import { apiGet, apiPost } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 import { useAlert } from '../contexts/AlertContext';
@@ -42,6 +42,7 @@ export default function Chat() {
   const [urgentAlerts, setUrgentAlerts] = useState([]);
   const [showAlerts, setShowAlerts] = useState(false);
   const eventsRef = useRef([]);
+  const untrackers = useRef([]);
   const [activeChannel, setActiveChannelRaw] = useState('general');
   const activeRef = useRef({ event: activeEvent, channel: 'general' });
   const eventName = (id) => events.find((e) => e._id === id)?.name || 'Evento';
@@ -74,7 +75,7 @@ export default function Chat() {
     apiGet('/events').then((list) => {
       setEvents(list);
       eventsRef.current = list.map((ev) => ev._id);
-      list.forEach((ev) => socket.emit('joinEvent', ev._id));
+      untrackers.current = list.map((ev) => trackRoom('joinEvent', 'leaveEvent', ev._id));
       if (list.length && !activeRef.current.event) setActiveEvent(list[0]._id);
     }).catch(() => {});
 
@@ -111,7 +112,7 @@ export default function Chat() {
       socket.off('messageReactions', onReactions);
       socket.off('messageRead', onRead);
       socket.off('urgentAck', onAck);
-      eventsRef.current.forEach((id) => socket.emit('leaveEvent', id));
+      untrackers.current.forEach((fn) => fn());
     };
   }, []);
 

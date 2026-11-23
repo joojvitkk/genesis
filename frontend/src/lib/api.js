@@ -8,7 +8,7 @@ import { getToken, notifyUnauthorized } from './auth';
  * - em 401 dispara logout global
  * - lança Error com `.status` e `.data` em respostas não-ok
  */
-export async function api(path, { method = 'GET', body, params, signal } = {}) {
+export async function api(path, { method = 'GET', body, params, signal, idempotencyKey } = {}) {
   const base = BACKEND_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
   const url = new URL(`${base}/api${path.startsWith('/') ? path : '/' + path}`);
   if (params) {
@@ -21,6 +21,9 @@ export async function api(path, { method = 'GET', body, params, signal } = {}) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  // Lançamentos (POST/PUT) levam um identificador único: o servidor guarda e, num reenvio com a MESMA chave, devolve o mesmo
+  // resultado sem repetir a operação. Quem repete a mesma intenção (toque duplo, nova tentativa) passa `idempotencyKey`.
+  if (method !== 'GET' && method !== 'DELETE') headers['Idempotency-Key'] = idempotencyKey || newOpId();
 
   let res;
   try {
@@ -60,7 +63,10 @@ export async function api(path, { method = 'GET', body, params, signal } = {}) {
   return data;
 }
 
+const newOpId = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `op-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`);
+export { newOpId };
+
 export const apiGet = (path, params) => api(path, { params });
-export const apiPost = (path, body) => api(path, { method: 'POST', body });
-export const apiPut = (path, body) => api(path, { method: 'PUT', body });
+export const apiPost = (path, body, opts) => api(path, { method: 'POST', body, ...opts });
+export const apiPut = (path, body, opts) => api(path, { method: 'PUT', body, ...opts });
 export const apiDelete = (path) => api(path, { method: 'DELETE' });
