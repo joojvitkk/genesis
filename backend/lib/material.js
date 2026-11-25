@@ -12,6 +12,7 @@ const conv = require('./conversion');
 const tournamentChips = require('./tournamentChips');
 const sessionsLib = require('./sessions');
 const { HttpError } = require('./catalog');
+const { INHERITING_TYPES } = require('../models/TournamentSession');
 
 const CLOSED = ['finished', 'finalized'];
 const oid = (x) => new mongoose.Types.ObjectId(String(x));
@@ -195,6 +196,29 @@ async function stacksByAction(tournamentId, sessionId, types, countField) {
   const out = new Map();
   for (const g of seen.values()) if (!g.reversed) out.set(g.action, (out.get(g.action) || 0) + g.count);
   return out;
+}
+
+/**
+ * Tabela por AÇÃO, em stacks (modo enxuto, item 26): enviados, usados (entradas da sessão), disponível e falta.
+ * Lista todas as ações do torneio, inclusive as zeradas. Enviados já descontam o que voltou.
+ */
+async function actionTable(tournamentId, sessionId) {
+  const tournament = await Tournament.findById(tournamentId).lean();
+  const ids = [tournament.stack_model_id, ...(tournament.stack_models || []).map((m) => m.stack_model_id)].filter(Boolean);
+  const models = await StackModel.find({ _id: { $in: ids } }).setOptions({ withDeleted: true }).lean();
+  const labels = new Map([['buy_in', 'Buy-in padrão'], ['re_entry', 'Reentrada']]);
+  for (const m of models) for (const a of m.actions || []) labels.set(a.key, a.label);
+  const sent = await stacksByAction(tournamentId, sessionId, SEND_TYPES, 'count');
+  const returned = await stacksByAction(tournamentId, sessionId, ['RETURN'], 'stacks');
+  const entries = await TournamentEntry.find({ tournament_id: tournamentId, ...(sessionId ? { session_id: sessionId } : {}) }).select('type action').lean();
+  const used = new Map();
+  for (const e of entries) { const a = tournamentChips.actionOf(e); if (a) used.set(a, (used.get(a) || 0) + 1); }
+  for (const a of [...sent.keys(), ...used.keys()]) if (!labels.has(a)) labels.set(a, a);
+  return [...labels].map(([action, label]) => {
+    const s = (sent.get(action) || 0) - (returned.get(action) || 0);
+    const u = used.get(action) || 0;
+    return { action, label, sent: Math.max(0, s), used: u, available: Math.max(0, s - u), missing: Math.max(0, u - s) };
+  });
 }
 
 /**
@@ -453,11 +477,13 @@ async function summary(tournamentId, { sessionId } = {}) {
   }).sort((a, b) => (a.chip.value ?? 0) - (b.chip.value ?? 0));
   const val = (f) => rows.reduce((s, r) => s + r[f] * (r.chip.value || 0), 0);
   // Dia 2 / Dia Final (Simulação 3.0 §2): só a posição ATUAL das fichas em jogo (herdada, com Chip Race/Color Up/descartes)
-  const phase = sessionId && (await TournamentSession.exists({ _id: sessionId, type: { $ne: 'QUALIFIER' } })) ? 'final' : 'qualifier';
+  const phase = sessionId && (await TournamentSession.exists({ _id: sessionId, type: { $in: INHERITING_TYPES } })) ? 'final' : 'qualifier';
   return {
     tournament_id: String(tournamentId), session_id: sessionId || null, phase, rows, binders,
     chip_count: { quantity: rows.reduce((s, r) => s + r.in_play, 0), value: val('in_play') },
     stacks: phase === 'final' ? [] : await availableStacks(tournamentId, rows),
+    by_action: await actionTable(tournamentId, sessionId || null),
+    stacks_per_table: (await Tournament.findById(tournamentId).select('stacks_per_table').lean())?.stacks_per_table || null,
     totals: { expected_value: val('expected'), on_table_value: val('on_table'), in_play_value: val('in_play'), available_value: val('available'), pending_value: val('pending') },
     uncovered: inPlay.uncovered,
     ...(inPlay.inherited ? { inherited_from: inPlay.inherited_from, inherited_missing_count: inPlay.inherited_missing_count, inherited_diff: inPlay.inherited_diff } : {}),

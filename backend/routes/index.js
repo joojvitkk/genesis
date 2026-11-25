@@ -828,7 +828,7 @@ router.get('/balances', verifyToken, requirePageAccess('estoque'), async (req, r
 const TOURNAMENT_FIELDS = [
   'name', 'date', 'start_time', 'timezone', 'status',
   'stack_model_id', 'stack_models', 'blind_structure',
-  'notes', 'seats_per_table', 'event_id', 'number', 'is_ko', 'ko_chip_id',
+  'notes', 'seats_per_table', 'stacks_per_table', 'event_id', 'number', 'is_ko', 'ko_chip_id',
   // financeiro (P2)
   'buy_in', 'rake', 'addon_value', 'addon_chips', 'bounty_value', 'payout_template_id',
 ];
@@ -2054,7 +2054,7 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
     if (req.body?.type !== undefined) {
       if (!isAdmin) throw new HttpError(403, 'Apenas administradores mudam o tipo da sessão.');
       if (!SESSION_TYPES.includes(req.body.type)) throw new HttpError(400, `Tipo de sessão inválido. Use: ${SESSION_TYPES.join(', ')}.`);
-      if (req.body.type !== session.type && await TournamentEntry.exists({ session_id: session._id })) throw new HttpError(409, 'A sessão já tem entradas: o tipo não pode mudar.');
+      await sessionsLib.assertTypeChange(session, req.body.type);
       session.type = req.body.type;
     }
     const wasFinished = session.status === 'finished';
@@ -2067,14 +2067,16 @@ router.put('/tournaments/:tid/sessions/:sid', verifyToken, requirePageAccess('me
       session.ended_level_number = ended ? ended.number : null;
       session.ended_remaining_ms = ended ? ended.remaining_ms : null;
       Object.assign(session, { clock_status: 'stopped', paused_at: null });
-      if (session.type !== 'FINAL') {
+      if (sessionsLib.hasQualified(session)) {
         const counts = await playersLib.playerCounts(session.tournament_id, session._id);
         const wanted = req.body?.qualified_count;
         qualified = wanted === undefined || wanted === null || wanted === '' ? counts.active : Number(wanted);
         if (!Number.isInteger(qualified) || qualified < 0 || qualified > 100000) throw new HttpError(400, 'Classificados deve ser um inteiro (0 ou mais).');
         session.qualified_count = qualified;
+        session.closing_adjust = { previous_active: counts.active, qualified, by: req.user.name || req.user.email, at: new Date() };
       }
     } else if (wasFinished && session.status !== 'finished') {
+      session.closing_adjust = null;
       session.qualified_count = null; // sessão reaberta: os classificados voltam a ser apurados no próximo encerramento
     }
     await session.save();
@@ -2103,7 +2105,7 @@ router.put('/tournaments/:tid/sessions/:sid/qualified', verifyToken, requirePage
   try {
     const session = await TournamentSession.findOne({ _id: req.params.sid, tournament_id: req.params.tid });
     if (!session) throw new HttpError(404, 'Sessão não encontrada.');
-    if (session.type === 'FINAL') throw new HttpError(409, 'O Dia Final não tem classificados.');
+    if (!sessionsLib.hasQualified(session)) throw new HttpError(409, 'Esta sessão não tem classificados (Dia Final e Dia Único não geram).');
     if (session.status !== 'finished') throw new HttpError(409, 'Encerre a sessão para registrar os classificados.');
     const to = Number(req.body?.qualified_count);
     if (!Number.isInteger(to) || to < 0 || to > 100000) throw new HttpError(400, 'Classificados deve ser um inteiro (0 ou mais).');
@@ -2112,6 +2114,7 @@ router.put('/tournaments/:tid/sessions/:sid/qualified', verifyToken, requirePage
     const from = session.qualified_count;
     session.qualified_log.push({ from, to, by: req.user.name || req.user.email, reason });
     session.qualified_count = to;
+    session.closing_adjust = { previous_active: session.closing_adjust?.previous_active ?? from, qualified: to, by: req.user.name || req.user.email, at: new Date() };
     await session.save();
     await playersLib.refreshPlayers(session.tournament_id, req.app.get('io'), session._id);
     await tournamentChips.refreshTournamentChips(session.tournament_id, req.app.get('io'));
@@ -2295,8 +2298,7 @@ router.get('/tournaments/:id/finance', verifyToken, async (req, res) => {
   }
 });
 
-// Registra a eliminação de uma ENTRADA (`entry_id`). Se sobrar só 1 entrada, ela é a campeã: finaliza o torneio e
-// grava os prêmios de cada colocação. (Não há cadastro de jogadores nem bounty por eliminador.)
+// Registra a eliminação de uma ENTRADA (`entry_id`). Se sobrar só 1 entrada, ela é a campeã: finaliza o torneio. (Não há cadastro de jogadores nem bounty por eliminador.)
 router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mesas', 'operate'), idempotent, async (req, res) => {
   try {
     let { entry_id } = req.body || {};
@@ -2314,6 +2316,19 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
 
     if (anonymous) {
       const sess = await sessionsLib.resolveSession(t._id, req.body.session_id, { open: true });
+      // Fase herdada (Dia 2, Final): os classificados não têm entrada na fase — a eliminação é da SESSÃO, sem entrada própria
+      if (sessionsLib.isInheriting(sess)) {
+        const c = await playersLib.playerCounts(t._id, sess._id);
+        if (c.derived <= 0) throw new HttpError(409, 'Não há jogadores ativos nesta sessão para eliminar.');
+        if (c.derived === 1) throw new HttpError(409, 'Resta um jogador: ele é o campeão.');
+        createdElim = await Elimination.create({ tournament_id: t._id, session_id: sess._id, entry_id: null, position: c.derived });
+        // restou 1 jogador: é o campeão (colocação 1)
+        const champion = c.derived === 2;
+        if (champion) await Elimination.create({ tournament_id: t._id, session_id: sess._id, entry_id: null, position: 1 });
+        await playersLib.refreshPlayers(t._id, req.app.get('io'), sess._id);
+        await logActivity('Eliminação Registrada', 'tournament', `${t.name} | ${sess.name} | posição ${createdElim.position}${champion ? ' | campeão definido' : ''}`, req.user);
+        return;
+      }
       const pool = await TournamentEntry.find({ tournament_id: t._id, session_id: sess._id, type: { $in: ['buy-in', 're-entry'] } }).sort({ number: -1 });
       const out = new Set((await Elimination.find({ tournament_id: t._id, session_id: sess._id }).select('entry_id')).map((e) => String(e.entry_id)));
       const pick = pool.find((e) => !out.has(String(e._id)));
@@ -2348,16 +2363,6 @@ router.post('/tournaments/:id/eliminations', verifyToken, requirePageAccess('mes
       if (winner) await Elimination.create({ tournament_id: t._id, entry_id: winner._id, position: 1 });
       await Seat.deleteMany({ tournament_id: t._id }); // torneio acabou
 
-      const finance = await buildFinance(t._id);
-      // grava prize_awarded em cada eliminação premiada
-      const byPlace = new Map(finance.payouts.map((p) => [p.place, p.amount]));
-      await Promise.all(
-        (await Elimination.find({ tournament_id: t._id })).map((e) =>
-          byPlace.has(e.position)
-            ? Elimination.findByIdAndUpdate(e._id, { prize_awarded: byPlace.get(e.position) })
-            : null
-        )
-      );
       t.status = 'finalized';
       t.finalized_at = new Date();
       await sessionsLib.finishAll(t._id); // torneio encerrado → sessões encerradas
@@ -2386,6 +2391,10 @@ router.post('/tournaments/:tid/eliminations/:eid/cancel', verifyToken, requirePa
     if (!elim) return res.status(404).json({ error: 'Eliminação não encontrada.' });
     if (!String(req.body?.reason || '').trim()) throw new HttpError(400, 'Informe o motivo do cancelamento.');
     await elim.cancel({ user: req.user, reason: req.body.reason });
+    if (!elim.entry_id && elim.position > 1) { // eliminação sem entrada (fase herdada): desfaz também a marca de campeão
+      const champ = await Elimination.findOne({ tournament_id: req.params.tid, session_id: elim.session_id, entry_id: null, position: 1, status: 'active' });
+      if (champ) await champ.cancel({ user: req.user, reason: `desfeita a eliminação ${elim.position}º` });
+    }
     // desfazer a finalização se for o caso
     await Tournament.updateOne({ _id: req.params.tid, status: 'finalized' }, { status: 'running', finalized_at: null });
     // a entrada volta ao jogo → ganha um lugar de volta
@@ -2412,7 +2421,6 @@ router.get('/tournaments/:id/results', verifyToken, async (req, res) => {
     res.json(eliminations.map((e) => ({
       position: e.position,
       entry_id: e.entry_id, entry_number: byId.get(String(e.entry_id))?.number ?? null, label: entryLabel(byId.get(String(e.entry_id))),
-      prize: e.prize_awarded || 0,
       at: e.at,
     })));
   } catch (err) {

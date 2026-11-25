@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Play, Flag, RotateCcw, Plus, Edit2, Trash2, Clock, X } from 'lucide-react';
 import { apiPost, apiPut, apiDelete } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
+import { hasQualified } from '../lib/sessionTypes';
 
 const DEFAULT_TZ = 'America/Sao_Paulo';
 const inputCls = 'w-full rounded-xl border border-line bg-sunken px-4 py-3 focus:outline-none dark:bg-zinc-800';
@@ -57,7 +58,7 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
   const setStatus = (status) => run(() => apiPut(`${base}/${selected._id}`, { status }));
   // Encerrar uma classificatória registra os CLASSIFICADOS (padrão: os jogadores ativos no encerramento; pode ser ajustado)
   const finish = async () => {
-    if (selected.type === 'FINAL') return setStatus('finished');
+    if (!hasQualified(selected)) return setStatus('finished');
     const active = selected.players?.active ?? 0;
     const typed = await showPrompt(`Quantos jogadores classificaram do ${selected.name}? (jogando agora: ${active})`, { title: 'Encerrar sessão', defaultValue: String(active), confirmLabel: 'Encerrar' });
     if (typed === null || typed === undefined || typed === '') return undefined;
@@ -73,6 +74,8 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
     return run(() => apiPut(`${base}/${selected._id}/qualified`, { qualified_count: Number(typed), reason }), 'Classificados corrigidos.');
   };
   const addSession = async () => {
+    const only = sessions.length === 1 && sessions[0].type === 'SINGLE';
+    if (only && !(await showConfirm(`"${sessions[0].name}" é um Dia Único. Acrescentar outra sessão o transforma em Classificatória. Continuar?`))) return;
     const name = await showPrompt('Nome da nova sessão (ex.: Dia 1B). Um nome com "Final" cria o Dia Final (sem buy-in nem reentrada):', { title: 'Nova sessão', confirmLabel: 'Criar' });
     if (name) await run(() => apiPost(base, { name }), 'Sessão criada.');
   };
@@ -108,6 +111,7 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
               <span className={`h-2 w-2 rounded-full ${st.dot}`} />
               {s.name}
               {s.type === 'FINAL' && <span className="badge badge-info">Final</span>}
+              {s.type === 'SINGLE' && <span className="badge badge-info">Único</span>}
               {s.starts_at && <span className="font-medium text-fg-subtle">{sessionWhen(s, timezone).split(' · ')[1]}</span>}
               <span className="rounded-md bg-raised px-1.5 py-0.5 text-xs font-bold tabular-nums text-fg-muted" title="Jogando agora">{s.players?.active ?? 0}</span>
             </button>
@@ -127,7 +131,7 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
             {selected.starts_at && <span className="ml-2 text-fg-subtle">início {sessionWhen(selected, timezone)}</span>}
             {selected.chips_value > 0 && <span className="ml-2 text-fg-subtle">valor nominal em jogo {selected.chips_value.toLocaleString(locale())}</span>}
             {selected.type === 'FINAL' && <span className="ml-2 text-fg-subtle">iniciais {(selected.players?.starting_players ?? 0).toLocaleString(locale())}</span>}
-            {selected.type === 'QUALIFIER' && selected.status === 'finished' && <span className="ml-2 text-fg-subtle">classificados {(selected.qualified_count ?? 0).toLocaleString(locale())}</span>}
+            {hasQualified(selected) && selected.status === 'finished' && <span className="ml-2 text-fg-subtle">classificados {(selected.qualified_count ?? 0).toLocaleString(locale())}</span>}
           </span>
           {canOperate && selected.status === 'scheduled' && (
             <button onClick={() => setStatus('running')} className="btn btn-success flex items-center"><Play size={12} /> Iniciar sessão</button>
@@ -138,7 +142,7 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
           {selected.status === 'finished' && isAdmin && (
             <button onClick={() => setStatus('running')} className="flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 font-bold text-fg-muted hover:border-brand"><RotateCcw size={12} /> Reabrir</button>
           )}
-          {canOperate && selected.type === 'QUALIFIER' && selected.status === 'finished' && (
+          {canOperate && hasQualified(selected) && selected.status === 'finished' && (
             <button onClick={correctQualified} className="btn btn-secondary btn-sm">Corrigir classificados</button>
           )}
           {isAdmin && (

@@ -151,7 +151,7 @@ async function countEndOfDay(tournament, { players, hall, reason, session_id, us
   if (!session) throw new HttpError(400, 'Informe a sessão (session_id): a conferência de fim de dia é por sessão.');
   // Material D: depois que a fase seguinte começou, a contagem que ela herdou não muda (corrigir exigiria refazer a herança)
   const all = await sessionsLib.listSessions(tournament._id);
-  const started = all.filter((x) => x.type !== 'QUALIFIER' && String(x._id) !== String(session._id)
+  const started = all.filter((x) => sessionsLib.isInheriting(x) && String(x._id) !== String(session._id)
     && sessionsLib.sourceSessions(all, x).some((q) => String(q._id) === String(session._id))
     && (x.status !== 'scheduled' || x.level_started_at));
   if (started.length) throw new HttpError(409, `A contagem não pode mais ser corrigida: a fase seguinte (${started.map((x) => x.name).join(', ')}) já começou e herdou esta contagem.`);
@@ -162,7 +162,7 @@ async function countEndOfDay(tournament, { players, hall, reason, session_id, us
   const row = new Map(sum.rows.map((r) => [String(r.chip._id), r]));
   // Fase herdada (Dia 2, Final): as fichas físicas foram enviadas nos classificatórios, então o saldo no salão é o do torneio todo
   // (o livro de movimentos da fase não tem envios próprios) e a diferença física não se prende à sessão.
-  const inherited = session.type !== 'QUALIFIER';
+  const inherited = sessionsLib.isInheriting(session);
   const tournamentOnTable = inherited ? new Map((await mv.playBalances({ tournament_id: tournament._id })).map((r) => [String(r.chip_id), r.quantity])) : null;
   const ids = [...new Set([...P.map((c) => c.chip_id), ...(H || []).map((c) => c.chip_id)])];
   const pMap = new Map(P.map((c) => [c.chip_id, c.counted]));

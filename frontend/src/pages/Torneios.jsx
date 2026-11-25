@@ -26,6 +26,7 @@ import BlindRowsTable from '../components/BlindRowsTable';
 import { nextLevelRow, cloneRows } from '../lib/blinds';
 import { tournamentWhen } from '../lib/format';
 import { modalMotion, scrimMotion, SPRING_SHEET, EXIT } from '../lib/motion';
+import { isInheritingSession } from '../lib/sessionTypes';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -474,7 +475,7 @@ export default function Torneios() {
   const eventName = (id) => events.find((ev) => ev._id === id)?.name;
   const selectedSession = sessions.find((x) => x._id === selectedSessionId);
   const sessionClosed = selectedSession?.status === 'finished';
-  const isFinalSession = !!selectedSession && selectedSession.type !== 'QUALIFIER'; // fase de continuação (Dia 2…Final): herda classificados e fichas
+  const isFinalSession = isInheritingSession(selectedSession); // fase de continuação (Dia 2…Final): herda classificados e fichas
   // inscrições são configuração da SESSÃO (padrão: classificatória permite; continuação/final não)
   const allowBuyins = selectedSession?.allow_buyins ?? !isFinalSession;
   const allowReentries = selectedSession?.allow_reentries ?? !isFinalSession;

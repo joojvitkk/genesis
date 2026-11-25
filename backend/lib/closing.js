@@ -17,7 +17,7 @@ async function closingOf(tournamentId) {
   const delivered = {}; const trades = {}; const discarded = {};
   for (const s of sessions) {
     for (const [id, c] of Object.entries(s.by_chip)) {
-      if (s.type === 'QUALIFIER') delivered[id] = (delivered[id] || 0) + c.expected;
+      if (s.type === 'QUALIFIER' || s.type === 'SINGLE') delivered[id] = (delivered[id] || 0) + c.expected;
       trades[id] = (trades[id] || 0) + c.in - c.out;
       discarded[id] = (discarded[id] || 0) + c.discarded;
     }

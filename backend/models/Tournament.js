@@ -44,6 +44,7 @@ const TournamentSchema = new mongoose.Schema({
   ko_chip_id: { type: mongoose.Schema.Types.ObjectId, ref: 'KoChip', default: null },
   ko_closed_at: { type: Date, default: null },
   seats_per_table: { type: Number, default: 9 }, // P4
+  stacks_per_table: { type: Number, default: null, min: 1 }, // padrão de stacks por mesa no envio do Material (null = lugares por mesa)
   blind_version: { type: Number, default: 0 },   // P6 — trava otimista da estrutura de blinds
 
   // ─── Financeiro (P2) ─────────────────────────────────────────────────────

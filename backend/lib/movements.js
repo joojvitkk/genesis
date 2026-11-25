@@ -17,6 +17,7 @@ const { Movement, BalanceLock, Chip, Binder, Tournament, TournamentSession } = r
 const { MOVEMENT_TYPES } = require('../models/Movement');
 const { HttpError } = require('./catalog');
 const logger = require('./logger');
+const sessionsLib = require('./sessions');
 
 const oid = (x) => new mongoose.Types.ObjectId(String(x));
 
@@ -84,7 +85,19 @@ async function sumSide(side, loc, chipId, session) {
   return row?.q || 0;
 }
 
-/** Saldo em jogo de um torneio/ficha DENTRO de uma sessão (Σ recebido − Σ devolvido com aquele session_id). */
+/**
+ * Origens FÍSICAS de uma fase herdada (Dia 2, Final): as sessões encerradas de onde ela herda classificados e fichas.
+ * As fichas chegaram nos sacos delas e continuam registradas nelas no livro (que é imutável): a fase seguinte as
+ * enxerga SOMANDO o saldo das origens na hora da conferência — sem lançamento de transferência (item 28 do modo enxuto).
+ */
+async function physicalSources(sessionId) {
+  const self = await TournamentSession.findById(sessionId).lean();
+  if (!self || !sessionsLib.isInheriting(self)) return [];
+  const all = await sessionsLib.listSessions(self.tournament_id);
+  return sessionsLib.sourceSessions(all, self).filter((s) => s.status === 'finished').map((s) => String(s._id));
+}
+
+/** Saldo em jogo de um torneio/ficha DENTRO de uma sessão: Σ recebido − Σ devolvido com aquele session_id (+ o herdado das origens). */
 async function sessionPlayBalance(tournamentId, chipId, sessionId, session) {
   const agg = async (side) => {
     const [row] = await Movement.aggregate([
@@ -93,7 +106,9 @@ async function sessionPlayBalance(tournamentId, chipId, sessionId, session) {
     ]).session(session || null);
     return row?.q || 0;
   };
-  return (await agg('to')) - (await agg('from'));
+  let total = (await agg('to')) - (await agg('from'));
+  for (const src of await physicalSources(sessionId)) total += await sessionPlayBalance(tournamentId, chipId, src, session);
+  return total;
 }
 
 /** Saldo de UMA localização/ficha. Sequencial de propósito (uma sessão não aceita operações paralelas). */
@@ -373,6 +388,17 @@ async function playBalances({ tournament_id, session_id, chip_id } = {}) {
     map.set(k, cur);
   });
   add(ins, 1); add(outs, -1);
+  // fase herdada: soma o saldo físico das origens encerradas (recursivo: o Dia Final enxerga Dia 2 e, por ele, as classificatórias)
+  if (session_id && tournament_id) {
+    for (const src of await physicalSources(session_id)) {
+      for (const r of await playBalances({ tournament_id, session_id: src, chip_id })) {
+        const k = `${r.tournament_id}:${r.chip_id}`;
+        const cur = map.get(k) || { tournament_id: r.tournament_id, chip_id: r.chip_id, quantity: 0 };
+        cur.quantity += r.quantity;
+        map.set(k, cur);
+      }
+    }
+  }
   return [...map.values()].filter((r) => r.quantity !== 0);
 }
 

@@ -6,7 +6,7 @@
 // jogo e Chip Race. A estrutura (blinds, fichário, modelos de stack) é do torneio e compartilhada (spec §18.8).
 const { Tournament, TournamentSession, TournamentEntry } = require('../models');
 const { HttpError } = require('./catalog');
-const { SESSION_TYPES } = require('../models/TournamentSession');
+const { SESSION_TYPES, INHERITING_TYPES } = require('../models/TournamentSession');
 const { escapeRegex } = require('../utils/sanitize');
 const { levelNumber, indexOfLevel, remainingMs } = require('./tournamentClock');
 
@@ -43,7 +43,9 @@ async function resolveSession(tournamentId, requested, { open = false } = {}) {
 /** Toda consulta operacional usa a sessão; `tournament_id` só agrega. Torneio SEM sessões (dados muito antigos) → null. */
 const isFinal = (session) => session?.type === 'FINAL';
 /** Fase que HERDA classificados e fichas da anterior (Dia 2, 3, 4…, Final) — tudo que não é classificatório. */
-const isInheriting = (session) => !!session && session.type !== 'QUALIFIER';
+const isInheriting = (session) => !!session && INHERITING_TYPES.includes(session.type);
+/** Tipos que fecham o dia com classificados: Classificatória e Continuação. O Dia Final e o Dia Único não têm. */
+const hasQualified = (session) => !!session && ['QUALIFIER', 'CONTINUATION'].includes(session.type);
 
 /**
  * Sessões de onde `session` herda: a fase não classificatória imediatamente anterior (por ordem) ou, se for a
@@ -51,7 +53,7 @@ const isInheriting = (session) => !!session && session.type !== 'QUALIFIER';
  */
 function sourceSessions(all, session) {
   const idx = all.findIndex((s) => String(s._id) === String(session._id));
-  const prev = all.slice(0, idx < 0 ? all.length : idx).filter((s) => s.type !== 'QUALIFIER').pop();
+  const prev = all.slice(0, idx < 0 ? all.length : idx).filter(isInheriting).pop();
   return prev ? [prev] : all.filter((s) => s.type === 'QUALIFIER');
 }
 
@@ -59,7 +61,7 @@ function sourceSessions(all, session) {
 function registrationBlock(session, type, clock) {
   if (!session || type === 'add-on') return null;
   const flag = type === 'buy-in' ? session.allow_buyins : session.allow_reentries;
-  const allowed = flag === null || flag === undefined ? session.type === 'QUALIFIER' : flag;
+  const allowed = flag === null || flag === undefined ? !isInheriting(session) : flag;
   const label = type === 'buy-in' ? 'buy-in' : 'reentrada';
   if (!allowed) return `A sessão "${session.name}" não aceita ${label} (configuração da sessão).`;
   if (clock && session.level_started_at) {
@@ -242,10 +244,43 @@ async function createSession(tournamentId, { name, starts_at, notes, type, ...co
   if (type !== undefined && !SESSION_TYPES.includes(type)) throw new HttpError(400, `Tipo de sessão inválido. Use: ${SESSION_TYPES.join(', ')}.`);
   await assertUniqueName(tournamentId, clean);
   const last = await TournamentSession.findOne({ tournament_id: tournamentId }).sort({ order: -1 });
+  const existing = last ? await TournamentSession.find({ tournament_id: tournamentId }) : [];
+  // Sem tipo explícito: a primeira (e única) sessão é Dia Único; as demais seguem o nome (Final) ou são classificatórias.
+  const inferred = !existing.length ? 'SINGLE' : /final/i.test(clean) ? 'FINAL' : 'QUALIFIER';
+  const finalType = type || inferred;
+  assertTypeAllowed(finalType, existing.length > 0);
+  // acrescentar a 2ª sessão a um Dia Único: ele passa a ser Classificatória (a tela pergunta antes)
+  if (existing.length === 1 && existing[0].type === 'SINGLE' && finalType !== 'SINGLE') {
+    existing[0].type = 'QUALIFIER';
+    await existing[0].save();
+  }
   return new TournamentSession({
     tournament_id: tournamentId, name: clean, order: (last?.order || 0) + 1,
-    starts_at: starts_at || null, notes, type: type || (/final/i.test(clean) ? 'FINAL' : 'QUALIFIER'), ...config,
+    starts_at: starts_at || null, notes, type: finalType, ...config,
   }).save();
+}
+
+/** Continuação e Dia Final só existem com uma sessão antes (a origem dos classificados e das fichas). */
+function assertTypeAllowed(type, hasPrevious) {
+  if (INHERITING_TYPES.includes(type) && !hasPrevious) {
+    throw new HttpError(409, `${type === 'FINAL' ? 'Dia Final' : 'Continuação'} precisa de uma sessão antes dele no torneio (a origem dos classificados e das fichas).`);
+  }
+}
+
+/**
+ * Mudança de tipo de uma sessão (item 16): "Dia Final" e "Continuação" só com uma sessão antes; com inscrições só vale
+ * entre Classificatória e Dia Único (nada se perde); para Continuação/Final, ou a partir deles, fica bloqueado.
+ */
+async function assertTypeChange(session, nextType) {
+  if (nextType === session.type) return;
+  const before = await TournamentSession.exists({ tournament_id: session.tournament_id, order: { $lt: session.order }, _id: { $ne: session._id } });
+  assertTypeAllowed(nextType, !!before);
+  if (await TournamentEntry.exists({ session_id: session._id })) {
+    const own = ['QUALIFIER', 'SINGLE'];
+    if (!(own.includes(session.type) && own.includes(nextType))) {
+      throw new HttpError(409, 'A sessão já tem inscrições: o tipo só muda entre Classificatória e Dia Único (para Continuação ou Dia Final as fichas herdadas não bateriam).');
+    }
+  }
 }
 
 /** Aplica uma mudança de status respeitando o ciclo. */
@@ -294,4 +329,4 @@ async function sessionCounters(tournamentId) {
   return out;
 }
 
-module.exports = { lastPlayable, prepareFinalLevels, applyStartMode, endedState, endedOf, sourceSessions, registrationBlock, isInheriting, isFinal, clockView, saveClock, syncTournamentCache, qualifiedTotal, TRANSITIONS, listSessions, resolveSession, createSession, applyStatus, pendingSessions, finishAll, sessionCounters, assertUniqueName };
+module.exports = { lastPlayable, prepareFinalLevels, applyStartMode, endedState, endedOf, sourceSessions, registrationBlock, isInheriting, hasQualified, assertTypeChange, isFinal, clockView, saveClock, syncTournamentCache, qualifiedTotal, TRANSITIONS, listSessions, resolveSession, createSession, applyStatus, pendingSessions, finishAll, sessionCounters, assertUniqueName };

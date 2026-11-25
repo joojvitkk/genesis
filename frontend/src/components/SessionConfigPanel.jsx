@@ -3,8 +3,8 @@ import { Save, ListOrdered } from 'lucide-react';
 import { apiPut } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
 import CustomSelect from './CustomSelect';
+import { isInheritingSession, SESSION_TYPE_LABELS as TYPES } from '../lib/sessionTypes';
 
-const TYPES = [['QUALIFIER', 'Classificatória'], ['CONTINUATION', 'Continuação (Dia 2, 3…)'], ['FINAL', 'Dia Final']];
 const YES_NO = [{ value: 'true', label: 'Sim' }, { value: 'false', label: 'Não' }];
 const MODES = [['next', 'Próximo nível (depois do último jogado)'], ['resume', 'Retomar o nível anterior (com o tempo restante)'], ['manual', 'Primeiro nível da estrutura da sessão']];
 
@@ -15,7 +15,7 @@ const MODES = [['next', 'Próximo nível (depois do último jogado)'], ['resume'
  */
 export default function SessionConfigPanel({ tournamentId, session, templates = [], onChanged }) {
   const { showAlert } = useAlert();
-  const inheriting = session.type !== 'QUALIFIER';
+  const inheriting = isInheritingSession(session);
   const [f, setF] = useState({});
   const [busy, setBusy] = useState(false);
   const started = !!session.level_started_at;
@@ -44,7 +44,7 @@ export default function SessionConfigPanel({ tournamentId, session, templates = 
       allow_buyins: f.allow_buyins === 'true', allow_reentries: f.allow_reentries === 'true',
       registration_close_level: f.close_level === '' ? null : Number(f.close_level),
       registration_close_marker: f.close_marker,
-      start_mode: f.type === 'QUALIFIER' ? null : f.start_mode,
+      start_mode: f.type === 'CONTINUATION' || f.type === 'FINAL' ? f.start_mode : null,
     }), 'Configuração da sessão salva.');
   };
   const applyStructure = () => run(() => apiPut(`${base}/blinds`, {

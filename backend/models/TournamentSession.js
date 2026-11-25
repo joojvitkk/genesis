@@ -8,10 +8,13 @@ const softDelete = require('../lib/softDelete');
 //   type QUALIFIER = permite buy-in, reentrada e atualização de ativos; ao encerrar registra os classificados.
 //   type CONTINUATION = fase de continuação (Dia 2, 3, 4…): herda classificados e fichas da fase anterior.
 //   type FINAL     = Dia Final: herda como a continuação; sem buy-in/reentrada por padrão.
+//   type SINGLE    = Dia Único: aceita entradas, fichas próprias (ações × montagem); nunca herda nem gera classificados.
 // Inscrições são configuráveis POR SESSÃO (allow_buyins/allow_reentries/encerramento); null = padrão do tipo
 // (classificatória permite, continuação e final não). Cada sessão tem a SUA estrutura de blinds (blind_structure).
 const SESSION_STATUS = ['scheduled', 'running', 'finished'];
-const SESSION_TYPES = ['QUALIFIER', 'CONTINUATION', 'FINAL'];
+const SESSION_TYPES = ['QUALIFIER', 'CONTINUATION', 'FINAL', 'SINGLE'];
+// Fases que HERDAM classificados e fichas das origens (Dia 2, 3…, Final). Classificatória e Dia Único têm fichas próprias.
+const INHERITING_TYPES = ['CONTINUATION', 'FINAL'];
 const START_MODES = ['manual', 'next', 'resume'];
 
 const TournamentSessionSchema = new mongoose.Schema({
@@ -60,8 +63,10 @@ const TournamentSessionSchema = new mongoose.Schema({
   entries_initial: { type: Number, default: 0 },
   entries_reentries: { type: Number, default: 0 },
   chips_value_in_play: { type: Number, default: null },
-  // Classificados (só QUALIFIER): gravado ao encerrar; pode ser corrigido de forma auditável
+  // Classificados (QUALIFIER e CONTINUATION; Dia Final e Dia Único não geram): gravado ao encerrar; pode ser corrigido de forma auditável
   qualified_count: { type: Number, default: null },
+  // Ajuste de fechamento: ao encerrar, "Jogando" passa a ser os classificados (valor anterior, autor e horário ficam registrados)
+  closing_adjust: { type: new mongoose.Schema({ previous_active: Number, qualified: Number, by: String, at: { type: Date, default: Date.now } }, { _id: false }), default: null },
   qualified_log: [{ _id: false, from: Number, to: Number, by: String, reason: String, at: { type: Date, default: Date.now } }],
 }, { timestamps: true });
 
@@ -71,4 +76,5 @@ TournamentSessionSchema.plugin(softDelete);
 module.exports = mongoose.model('TournamentSession', TournamentSessionSchema);
 module.exports.SESSION_STATUS = SESSION_STATUS;
 module.exports.SESSION_TYPES = SESSION_TYPES;
+module.exports.INHERITING_TYPES = INHERITING_TYPES;
 module.exports.START_MODES = START_MODES;

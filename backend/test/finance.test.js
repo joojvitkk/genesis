@@ -100,10 +100,9 @@ test('fluxo de eliminação até finalizar com premiação (por entrada)', async
   assert.equal(results.body.length, 3);
   const champ = results.body.find((x) => x.position === 1);
   assert.deepEqual([champ.label, String(champ.entry_id)], ['Entrada #1', String(e1._id)]);
-  assert.equal(champ.prize, 189);                                       // 70% de 270 (3×100 − 3×10 de bounty)
   assert.equal(champ.bounty_won, undefined, 'não há bounty por eliminador');
-  assert.equal(results.body.find((x) => x.position === 2).prize, 81);   // 30%
-  assert.equal(results.body.find((x) => x.position === 3).prize, 0);
+  assert.equal(champ.prize, undefined, 'o sistema não grava premiação (nada de dinheiro)');
+  assert.equal(results.body.find((x) => x.position === 2).prize, undefined);
 });
 
 test('não elimina entrada inexistente, de outro torneio, add-on ou já eliminada', async () => {

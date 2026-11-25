@@ -16,6 +16,7 @@ async function connect() {
     });
     // o banco de teste é persistente: descarta índices antigos (ex.: Seat sem sessão, pré-G4) e cria os atuais
     await require('../models').Seat.syncIndexes();
+    await require('../models').Elimination.syncIndexes();
   }
 }
 

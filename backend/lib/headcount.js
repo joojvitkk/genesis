@@ -22,12 +22,23 @@ async function ownCounts(scope) {
   return { entries_initial: initial, entries_reentries: reentries, entries_total: initial + reentries, addons, eliminated };
 }
 
+/**
+ * Durante o dia: eliminados = inscrições − jogando (a conferência do floor ajusta o jogando). Sessão ENCERRADA com
+ * classificados: o dia fechou com esse número ("Jogando" = classificados). Os toques de eliminação ficam em `eliminated_taps`.
+ */
+function closedView(session, out, startingPlayers) {
+  const closed = session.status === 'finished' && session.qualified_count != null && sessionsLib.hasQualified(session);
+  const active = closed ? session.qualified_count : out.active;
+  // eliminados = tudo que entrou (herdados + inscrições) − jogando; os toques de "−1 eliminação" ficam só como detalhe
+  return { ...out, eliminated_taps: out.eliminated, eliminated: Math.max(0, startingPlayers + out.entries_total - active), active, ...(closed ? { closed: true } : {}) };
+}
+
 /** Contagens de UMA sessão (`session` = documento) ou, sem sessões, do torneio. `active` nunca fica negativo. */
 async function countsFor(tournamentId, session) {
   const scope = session ? { tournament_id: tournamentId, session_id: session._id } : { tournament_id: tournamentId };
   const offset = (session ? session.active_offset : (await Tournament.findById(tournamentId).select('active_offset').lean())?.active_offset) || 0;
 
-  if (session && session.type !== 'QUALIFIER') {
+  if (session && sessionsLib.isInheriting(session)) {
     // Fases de continuação (Dia 2, 3…, Final): iniciam com os classificados da fase anterior; se a sessão permitir, novas
     // inscrições SOMAM-se a eles (sem duplicar os classificados).
     const starting = await sessionsLib.qualifiedTotal(tournamentId, session);
@@ -42,11 +53,11 @@ async function countsFor(tournamentId, session) {
       entries_reentries: hist.reduce((a, c) => a + c.entries_reentries + (c.inherited?.entries_reentries || 0), 0),
     };
     inherited.entries_total = inherited.entries_initial + inherited.entries_reentries;
-    return {
+    return closedView(session, {
       session_id: String(session._id), session_type: session.type, entries_initial: own.entries_initial, entries_reentries: own.entries_reentries,
       entries_total: own.entries_total, addons: own.addons,
       inherited, starting_players: starting, eliminated, derived, offset, active: Math.max(0, derived + offset),
-    };
+    }, starting);
   }
   const [initial, reentries, addons, eliminated] = await Promise.all([
     TournamentEntry.countDocuments({ ...scope, type: 'buy-in' }),
@@ -56,10 +67,11 @@ async function countsFor(tournamentId, session) {
   ]);
   const entriesTotal = initial + reentries;
   const derived = Math.max(0, entriesTotal - eliminated);
-  return {
+  const out = {
     session_id: session ? String(session._id) : null, session_type: session?.type || null,
     entries_initial: initial, entries_reentries: reentries, entries_total: entriesTotal, addons, eliminated, derived, offset, active: Math.max(0, derived + offset),
   };
+  return session ? closedView(session, out, 0) : out;
 }
 
 /**

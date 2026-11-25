@@ -47,7 +47,7 @@ async function tournamentSummary(tournamentId) {
   const sessions = await sessionsLib.listSessions(tournamentId);
   const days = [];
   for (const s of sessions) days.push(await sessionSummary(tournamentId, s._id));
-  const qual = days.filter((d) => d.type === 'QUALIFIER');
+  const qual = days.filter((d) => d.type === 'QUALIFIER' || d.type === 'SINGLE');
   return {
     tournament_id: String(tournamentId), days,
     qualifiers: qual.map((d) => ({ session_id: d.session_id, name: d.name, entries_initial: d.entries_initial, entries_reentries: d.entries_reentries, qualified_count: d.qualified_count })),

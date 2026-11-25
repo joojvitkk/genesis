@@ -151,7 +151,7 @@ async function chipsInPlay(tournamentId, { sessionId } = {}) {
   if (!tournament) throw new HttpError(404, 'Torneio não encontrado.');
   if (sessionId) {
     const own = await TournamentSession.findOne({ _id: sessionId, tournament_id: tournament._id }).select('type').lean();
-    if (own && own.type !== 'QUALIFIER') return inheritedChipsInPlay(tournament, sessionId);
+    if (own && sessionsLib.isInheriting(own)) return inheritedChipsInPlay(tournament, sessionId);
   }
   // sem sessionId: o torneio inteiro (soma das sessões); com sessionId: só as ações daquela sessão
   const filter = { tournament_id: tournament._id, ...(sessionId ? { session_id: sessionId } : {}) };
