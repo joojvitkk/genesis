@@ -24,14 +24,14 @@ const links = (aside) => [...aside.querySelectorAll('nav a')].map((a) => a.getAt
 const groupTitles = (aside) => [...aside.querySelectorAll('[role="group"]')].map((g) => g.getAttribute('aria-label'));
 
 describe('Sidebar agrupado', () => {
-  it('admin vê os 4 grupos na ordem e os 16 itens na sequência definida', async () => {
+  it('admin vê os 4 grupos na ordem e os 17 itens na sequência definida', async () => {
     const aside = await render('admin');
     expect(groupTitles(aside)).toEqual(['Visão geral e planejamento', 'Operação', 'Estoque e configurações', 'Gestão e controle']);
     expect(links(aside)).toEqual([
-      '/dashboard', '/eventos', '/torneios', '/tracking-sheet',
+      '/dashboard', '/eventos', '/torneios', '/estruturas-blinds',
       '/salao', '/chip-race', '/ocorrencias', '/chat',
       '/estoque', '/fichas-ko', '/ficharios', '/modelos-stack',
-      '/relatorios', '/livro-estoque', '/auditoria', '/usuarios',
+      '/tracking-sheets', '/relatorios', '/livro-estoque', '/auditoria', '/usuarios',
     ]);
   });
 
@@ -39,7 +39,8 @@ describe('Sidebar agrupado', () => {
     for (const role of ['material', 'salao']) {
       const aside = await render(role);
       const hrefs = links(aside);
-      expect(hrefs).toContain('/tracking-sheet');
+      expect(hrefs).toContain('/estruturas-blinds');
+      expect(hrefs).toContain('/tracking-sheets');
       expect(hrefs).not.toContain('/usuarios');
       expect(hrefs).not.toContain('/auditoria');
       for (const h of hrefs) expect(PERMISSIONS[role][ROUTE_AREA[h]], `${role} → ${h}`).toBeTruthy();
@@ -48,17 +49,17 @@ describe('Sidebar agrupado', () => {
     }
   });
 
-  it('grupo só mostra itens autorizados: salão em "Gestão e controle" vê apenas o Livro Razão; papel sem permissão não vê grupo algum', () => {
+  it('grupo só mostra itens autorizados: salão em "Gestão e controle" vê o Tracking Sheet e o Livro Razão; papel sem permissão não vê grupo algum', () => {
     const control = visibleGroups('salao').find((g) => g.key === 'nav.group.control');
-    expect(control.items.map((i) => i.to)).toEqual(['/livro-estoque']);
+    expect(control.items.map((i) => i.to)).toEqual(['/tracking-sheets', '/livro-estoque']);
     expect(visibleGroups('salao').every((g) => g.items.length > 0)).toBe(true);
     expect(visibleGroups('desconhecido')).toEqual([]);
   });
 
   it('página ativa recebe o destaque (nav-item-active) e aria-current', async () => {
-    const aside = await render('admin', '/tracking-sheet');
+    const aside = await render('admin', '/estruturas-blinds');
     const active = aside.querySelector('a.nav-item-active');
-    expect(active.getAttribute('href')).toBe('/tracking-sheet');
+    expect(active.getAttribute('href')).toBe('/estruturas-blinds');
     expect(active.getAttribute('aria-current')).toBe('page');
   });
 

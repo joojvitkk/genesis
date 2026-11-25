@@ -103,7 +103,6 @@ export default function Dashboard() {
       {/* Fichas EM JOGO por torneio e sessão: o que já entrou nos stacks dos jogadores (não o que foi só enviado ao Salão) */}
       <section data-testid="chips-by-tournament" className="card p-6">
         <h2 className="text-lg font-bold text-fg">Fichas em jogo por torneio</h2>
-        <p className="mb-4 mt-1 text-xs text-fg-muted">Somente o que as entradas já entregaram aos jogadores (Chip Count). Fichas enviadas ao Salão e ainda não usadas não entram aqui.</p>
         {inPlay.rows.length === 0 ? <p className="py-4 text-sm italic text-fg-subtle">Nenhum torneio em andamento.</p> : (
           <ul className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
             {inPlay.rows.map((r) => (

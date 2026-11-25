@@ -59,7 +59,6 @@ export default function DiscardModal({ tournamentId, sessionId, rows, allocation
         <div className="flex items-start justify-between">
           <div>
             <h3 className="flex items-center gap-2 text-lg font-bold"><PackageMinus size={18} className="text-red-500" /> Descartar stack</h3>
-            <p className="mt-1 text-xs text-fg-muted">As fichas saem do jogo e voltam ao fichário. Informe o que foi devolvido, por denominação (não precisa ser o stack original).</p>
           </div>
           <button onClick={onClose} aria-label="Fechar" className="p-1 text-fg-subtle hover:text-red-500"><X size={18} /></button>
         </div>

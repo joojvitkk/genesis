@@ -48,7 +48,6 @@ export default function Salao() {
         <div>
           <h1 className="page-title">Visão de Salão</h1>
           <ConnectionStatus />
-          <p className="page-sub">Gerenciamento de entradas e controle de mesa em tempo real</p>
         </div>
         
         <div className="flex flex-1 md:max-w-md items-center gap-3 bg-surface p-2 rounded-2xl border border-line-soft">
@@ -78,7 +77,7 @@ export default function Salao() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {activeTournaments.map((t) => (
-                <TournamentCard key={t._id} tournament={t} onOpen={() => navigate(`/torneios?id=${t._id}&tab=salao`)} />
+                <TournamentCard key={t._id} tournament={t} onOpen={() => navigate(`/torneios/${t._id}/salao`)} />
               ))}
               {activeTournaments.length === 0 && (
                 <div className="col-span-full py-12 text-center text-fg-subtle font-medium italic border-2 border-dashed border-line-soft rounded-2xl">Nenhum torneio ativo no momento.</div>
@@ -96,7 +95,7 @@ export default function Salao() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {finishedTournaments.map((t) => (
-                  <TournamentCard key={t._id} tournament={t} onOpen={() => navigate(`/torneios?id=${t._id}&tab=salao`)} />
+                  <TournamentCard key={t._id} tournament={t} onOpen={() => navigate(`/torneios/${t._id}/salao`)} />
                 ))}
               </div>
             </section>

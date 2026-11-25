@@ -360,7 +360,16 @@ html.theme-wave, html.theme-wave *, html.theme-wave *::before, html.theme-wave *
   html {
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    max-width: 100%;
+    overflow-x: hidden; /* PWA: nada empurra a largura além da tela (celular, tablet e desktop) */
   }
+  #root { min-height: 100vh; min-height: 100dvh; max-width: 100vw; }
+  /* altura dinâmica: no app instalado a barra do navegador some e 100vh passava da tela */
+  .min-h-screen { min-height: 100vh; min-height: 100dvh; }
+  /* tabelas e blocos largos rolam dentro do card em vez de alargar a página */
+  main { min-width: 0; }
+  img, svg, video, canvas { max-width: 100%; }
 
   body {
     font-family: var(--font-sans);

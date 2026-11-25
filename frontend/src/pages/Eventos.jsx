@@ -73,7 +73,6 @@ export default function Eventos() {
           <h1 className="page-title flex items-center gap-2">
             <CalendarRange className="text-brand-fg" size={22} /> Eventos
           </h1>
-          <p className="page-sub">Evento → Torneio → Sessões/fases. Um torneio com vários dias (1A, 1B, Final) continua sendo um só.</p>
         </div>
         {isAdmin && (
           <button onClick={openCreate} className="btn btn-primary flex items-center justify-center">
@@ -118,7 +117,7 @@ export default function Eventos() {
                   <div className="space-y-2 border-t border-line-soft bg-sunken p-4 dark:bg-sunken">
                     {detail.tournaments.length === 0 && <p className="text-sm italic text-fg-subtle">Nenhum torneio neste evento.</p>}
                     {detail.tournaments.map((t) => (
-                      <button key={t._id} onClick={() => navigate(`/torneios?id=${t._id}&tab=salao`)} className="card w-full p-4 text-left hover:border-brand">
+                      <button key={t._id} onClick={() => navigate(`/torneios/${t._id}/salao`)} className="card w-full p-4 text-left hover:border-brand">
                         <div className="flex items-center gap-2 font-bold text-fg">
                           <Trophy size={16} className="text-brand-fg" />
                           {t.number ? <span className="text-brand-fg">#{String(t.number).padStart(2, '0')}</span> : null} {t.name}

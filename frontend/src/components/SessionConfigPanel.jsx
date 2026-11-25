@@ -59,31 +59,29 @@ export default function SessionConfigPanel({ tournamentId, session, templates = 
   const levels = own.filter((r) => !r.row_type || r.row_type === 'level');
 
   return (
-    <form onSubmit={saveConfig} data-testid="session-config" className="card space-y-4 p-6">
-      <div>
-        <h3 className="flex items-center gap-2 text-lg font-bold text-fg"><ListOrdered className="text-brand-fg" size={20} aria-hidden="true" /> Configuração de {session.name}</h3>
-        <p className="text-xs text-fg-muted">
-          {own.length ? `Estrutura própria${session.blind_source ? ` (${session.blind_source})` : ''}: ${levels.length} níveis a partir do Nível ${(levels[0]?.level ?? 1) + (session.level_offset || 0)}.` : 'Usa a estrutura do torneio.'}
-        </p>
-      </div>
+    <form onSubmit={saveConfig} data-testid="session-config" className="card space-y-3 p-4">
+      <h3 className="flex flex-wrap items-center gap-2 text-base font-bold text-fg"><ListOrdered className="text-brand-fg" size={18} aria-hidden="true" /> Configuração de {session.name}
+        <span className="badge">{own.length ? `${levels.length} níveis · a partir do ${(levels[0]?.level ?? 1) + (session.level_offset || 0)}` : 'estrutura do torneio'}</span></h3>
       <div className="grid gap-3 md:grid-cols-4">
         <div><label htmlFor="sc-type" className="label">Tipo da fase</label>
           <CustomSelect id="sc-type" value={f.type || ''} onChange={pick('type')} options={TYPES.map(([value, label]) => ({ value, label }))} /></div>
-        <div><label htmlFor="sc-buy" className="label">Permitir buy-ins</label>
+        <div><label htmlFor="sc-buy" className="label">Buy-ins</label>
           <CustomSelect id="sc-buy" value={f.allow_buyins || ''} onChange={pick('allow_buyins')} options={YES_NO} /></div>
-        <div><label htmlFor="sc-re" className="label">Permitir reentradas</label>
+        <div><label htmlFor="sc-re" className="label">Reentradas</label>
           <CustomSelect id="sc-re" value={f.allow_reentries || ''} onChange={pick('allow_reentries')} options={YES_NO} /></div>
         <div><label htmlFor="sc-close" className="label">Registro fecha após o nível</label>
           <input id="sc-close" type="number" min="1" className="input" placeholder="Sem limite" value={f.close_level ?? ''} onChange={set('close_level')} /></div>
       </div>
-      <label className="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={!!f.close_marker} onChange={set('close_marker')} /> Também encerrar ao passar o evento “Fim do Registro” da estrutura</label>
-      {inheriting && (
-        <div><label htmlFor="sc-mode" className="label">Início da fase</label>
-          <CustomSelect id="sc-mode" value={f.start_mode || 'next'} onChange={pick('start_mode')} options={MODES.map(([value, label]) => ({ value, label }))} /></div>
-      )}
-      <div className="flex justify-end"><button type="submit" disabled={busy} className="btn btn-primary btn-sm"><Save size={14} /> Salvar configuração</button></div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <label className="flex items-center gap-2 text-sm font-bold text-fg-muted"><input type="checkbox" checked={!!f.close_marker} onChange={set('close_marker')} /> Fecha no “Fim do Registro”</label>
+        {inheriting && (
+          <div className="min-w-56 flex-1 md:max-w-sm"><label htmlFor="sc-mode" className="label">Início da fase</label>
+            <CustomSelect id="sc-mode" value={f.start_mode || 'next'} onChange={pick('start_mode')} options={MODES.map(([value, label]) => ({ value, label }))} /></div>
+        )}
+        <button type="submit" disabled={busy} className="btn btn-primary btn-sm"><Save size={14} /> Salvar configuração</button>
+      </div>
 
-      <fieldset className="space-y-3 border-t border-line-soft pt-4" disabled={busy || started}>
+      <fieldset className="space-y-3 border-t border-line-soft pt-3" disabled={busy || started}>
         <legend className="label">Estrutura de blinds desta sessão</legend>
         <div className="grid gap-3 md:grid-cols-4">
           <div className="md:col-span-2"><label htmlFor="sc-src" className="label">Copiar de</label>
@@ -93,8 +91,7 @@ export default function SessionConfigPanel({ tournamentId, session, templates = 
           <div><label htmlFor="sc-to" className="label">Até o nível</label>
             <input id="sc-to" type="number" min="1" className="input" placeholder="último" value={f.level_to ?? ''} onChange={set('level_to')} /></div>
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-fg-subtle">{started ? 'O relógio já começou: edite os valores do nível pelo painel de blinds.' : 'A estrutura é copiada: editar aqui não altera o cadastro nem outras sessões. Valores continuam editáveis.'}</p>
+        <div className="flex justify-end">
           <button type="button" onClick={applyStructure} className="btn btn-secondary btn-sm">Aplicar estrutura</button>
         </div>
       </fieldset>

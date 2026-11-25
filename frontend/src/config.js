@@ -29,7 +29,10 @@ export const ROUTE_AREA = {
   '/tracking-sessao/:tid/:sid': 'mesas', // Tracking da sessão (folha digital, só leitura)
   '/eventos': 'torneios',
   '/torneios': 'torneios',
-  '/tracking-sheet': 'torneios', // Tracking Sheet: consulta (view) para todos; edição só com torneios.manage (admin)
+  '/torneios/:id': 'torneios',
+  '/torneios/:id/:aba': 'torneios',
+  '/estruturas-blinds': 'torneios', // Estruturas de Blinds: consulta (view) para todos; edição só com torneios.manage (admin)
+  '/tracking-sheets': 'mesas',      // lista dos Trackings de todas as sessões (consulta)
   '/chip-race': 'chip_race',
   '/estoque': 'estoque',
   '/livro-estoque': 'estoque',

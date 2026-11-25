@@ -1,5 +1,6 @@
 import { locale } from '../lib/i18n';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Play, Flag, RotateCcw, Plus, Edit2, Trash2, Clock, X } from 'lucide-react';
 import { apiPost, apiPut, apiDelete } from '../lib/api';
 import { useAlert } from '../contexts/AlertContext';
@@ -139,6 +140,9 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
           {canOperate && selected.status === 'running' && (
             <button onClick={finish} className="btn btn-neutral flex items-center"><Flag size={12} /> Encerrar sessão</button>
           )}
+          {selected.status === 'finished' && (
+            <Link to={`/tracking-sessao/${tournamentId}/${selected._id}`} className="btn btn-secondary btn-sm">Tracking</Link>
+          )}
           {selected.status === 'finished' && isAdmin && (
             <button onClick={() => setStatus('running')} className="flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 font-bold text-fg-muted hover:border-brand"><RotateCcw size={12} /> Reabrir</button>
           )}
@@ -170,7 +174,6 @@ export default function SessionBar({ tournamentId, sessions, selectedId, onSelec
                 <input type="time" value={timeForm.time} onChange={(e) => setTimeForm({ ...timeForm, time: e.target.value })} className={`${inputCls} mt-1`} />
               </label>
             </div>
-            <p className="text-xs text-fg-subtle">Horário no fuso do torneio. Deixe o horário vazio para remover.</p>
             <button type="submit" className="w-full rounded-xl bg-brand py-3 font-bold text-white hover:bg-brand-hover">Salvar</button>
           </form>
         </div>

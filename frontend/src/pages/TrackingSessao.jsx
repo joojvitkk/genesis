@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { Printer, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { Printer, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiGet } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
 import { socket, trackRoom, connectSocket } from '../lib/socket';
 import ConnectionStatus from '../components/ConnectionStatus';
+import BackToTournament from '../components/BackToTournament';
 import { fmtTime, fmtDateTime, fmtDuration, sessionBadge, cacheKey } from '../lib/trackingFormat';
 
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'));
@@ -16,6 +17,7 @@ const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'));
  */
 export default function TrackingSessao() {
   const { tid, sid } = useParams();
+  const [search] = useSearchParams();
   const userId = getStoredUser()?.id || getStoredUser()?._id;
   const [sheet, setSheet] = useState(null);
   const [syncedAt, setSyncedAt] = useState(null);
@@ -38,6 +40,9 @@ export default function TrackingSessao() {
   }, [tid, sid, userId]);
 
   useEffect(() => { load(); }, [load]);
+  // vindo da lista de Trackings com ?imprimir=1: abre o diálogo de PDF assim que a folha carrega
+  const printed = useRef(false);
+  useEffect(() => { if (sheet && search.get('imprimir') && !printed.current) { printed.current = true; setTimeout(() => window.print(), 300); } }, [sheet, search]);
   useEffect(() => {
     connectSocket();
     const untrack = trackRoom('joinTournament', 'leaveTournament', tid);
@@ -83,9 +88,10 @@ export default function TrackingSessao() {
     <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-8" data-testid="tracking-sessao">
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link to="/salao" className="inline-flex items-center gap-1 text-xs font-bold text-brand-fg"><ArrowLeft size={12} /> Salão</Link>
+          <BackToTournament tournamentId={tid} sessionId={sid} />
           <h1 className="page-title">{sheet.tournament.number ? `#${String(sheet.tournament.number).padStart(2, '0')} ` : ''}{sheet.tournament.name}</h1>
           <p className="page-sub"><span className={`badge ${sessionBadge(sheet.session._id)}`}>{sheet.session.name}</span> · Tracking da sessão</p>
+          {sheet.now && <p className="mt-2 text-2xl font-bold tabular-nums" data-testid="now-playing">{fmt(sheet.now.playing)} jogando <span className="text-sm font-semibold text-fg-muted">· {fmt(sheet.now.entries_total)} inscritos</span></p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ConnectionStatus />
@@ -162,6 +168,7 @@ export default function TrackingSessao() {
           <div><dt className="text-xs text-fg-subtle">Duração (com / sem pausas)</dt><dd className="font-bold">{fmtDuration(day.duration_ms)} / {fmtDuration(day.duration_net_ms)}</dd></div>
           <div><dt className="text-xs text-fg-subtle">Pico de jogadores · níveis jogados</dt><dd className="font-bold">{fmt(day.peak_players)} · {fmt(day.levels_played)}</dd></div>
           <div><dt className="text-xs text-fg-subtle">Onde parou</dt><dd className="font-bold">{day.stopped || '—'}</dd></div>
+          {day.chips_value_at_close != null && <div><dt className="text-xs text-fg-subtle">Chip Count no fechamento</dt><dd className="font-bold tabular-nums" data-testid="chips-at-close">{fmt(day.chips_value_at_close)}</dd></div>}
         </dl>
         {!sheet.has_history && <p className="text-xs italic text-fg-subtle">Sem histórico: esta sessão não tem registro por nível.</p>}
         <div className="print-only hidden grid-cols-3 gap-4 pt-4 text-xs"><span>Classificados: __________</span><span>Encerramento: __________</span><span>Parou no nível: ______ faltando: ______</span></div>

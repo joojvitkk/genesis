@@ -17,6 +17,7 @@ import Ficharios from './pages/Ficharios';
 import Torneios from './pages/Torneios';
 import Eventos from './pages/Eventos';
 import TrackingSheet from './pages/TrackingSheet';
+import TrackingSheets from './pages/TrackingSheets';
 import ChipRace from './pages/ChipRace';
 import Chat from './pages/Chat';
 import ModelosStack from './pages/ModelosStack';
@@ -217,11 +218,12 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
           onToggleTheme={toggleTheme}
         />
 
-        <div className="flex-1 flex flex-col md:ml-[16.5rem] min-h-screen overflow-x-hidden">
+        <div className="flex-1 min-w-0 flex flex-col md:ml-[16.5rem] min-h-screen overflow-x-hidden">
           <main className="flex-1 p-4 md:p-6 overflow-y-auto pt-[calc(3.5rem+1rem)] md:pt-6
                            pb-[calc(84px+env(safe-area-inset-bottom,0px)+1rem)] md:pb-6">
             <Routes>
               <Route path="/" element={<Navigate to={homeRoute(role)} replace />} />
+              <Route path="/tracking-sheet" element={<Navigate to="/estruturas-blinds" replace />} />
               <Route path="/conta" element={<Conta user={auth.user} onPasswordChanged={onPasswordChanged} onAvatarChanged={onAvatarChanged} />} />
               {Object.entries({
                 '/salao': <Salao />,
@@ -229,7 +231,10 @@ function Shell({ role, auth, theme, toggleTheme, sidebarOpen, setSidebarOpen, ha
                 '/tracking-sessao/:tid/:sid': <TrackingSessao />,
                 '/eventos': <Eventos />,
                 '/torneios': <Torneios />,
-                '/tracking-sheet': <TrackingSheet />,
+                '/torneios/:id': <Torneios />,
+                '/torneios/:id/:aba': <Torneios />,
+                '/estruturas-blinds': <TrackingSheet />,
+                '/tracking-sheets': <TrackingSheets />,
                 '/chip-race': <ChipRace />,
                 '/chat': <Chat />,
                 '/estoque': <Estoque />,

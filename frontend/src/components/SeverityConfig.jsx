@@ -42,7 +42,6 @@ export default function SeverityConfig() {
     <section className="card space-y-6 p-6">
       <div>
         <h3 className="text-lg font-bold">Semáforo de criticidade</h3>
-        <p className="mt-1 text-xs text-fg-muted">Faixas pelo valor nominal da ficha. A mudança vale só para as próximas ocorrências.</p>
       </div>
 
       <div className="space-y-2">

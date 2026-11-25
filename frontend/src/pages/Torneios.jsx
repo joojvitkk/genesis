@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Trophy, Plus, Clock,
   ChevronRight, Trash2,
-  Play, Pause, CheckCircle2, Users, Copy,
-  Settings, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, History, Package, Pencil, BookOpen } from 'lucide-react';
+  Play, Pause, CheckCircle2, Users, Copy, Layout, X, Layers, Monitor, ArrowUpCircle, ArrowDownCircle, History, Package, Pencil, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAlert } from '../contexts/AlertContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
@@ -17,7 +16,7 @@ import MaterialPanel from '../components/MaterialPanel';
 import TournamentBook from '../components/TournamentBook';
 import ConnectionStatus from '../components/ConnectionStatus';
 import BlindRulesPanel from '../components/BlindRulesPanel';
-import PhaseBlindsEditor from '../components/PhaseBlindsEditor';
+import ExtraLevel from '../components/ExtraLevel';
 import SessionConfigPanel from '../components/SessionConfigPanel';
 import { can } from '../config';
 import { getStoredUser } from '../lib/auth';
@@ -25,7 +24,7 @@ import BlindTemplatesModal from '../components/BlindTemplatesModal';
 import BlindRowsTable from '../components/BlindRowsTable';
 import { nextLevelRow, cloneRows } from '../lib/blinds';
 import { tournamentWhen } from '../lib/format';
-import { modalMotion, scrimMotion, SPRING_SHEET, EXIT } from '../lib/motion';
+import { modalMotion, scrimMotion } from '../lib/motion';
 import { isInheritingSession } from '../lib/sessionTypes';
 
 const StatusBadge = ({ status }) => {
@@ -50,7 +49,8 @@ const StatusBadge = ({ status }) => {
 
 export default function Torneios() {
   const { showAlert, showConfirm, showPrompt } = useAlert();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { id: routeId, aba } = useParams();
   const navigate = useNavigate();
   const [tournaments, setTournaments] = useState([]);
   const [allocations, setAllocations] = useState([]);   // fichários VINCULADOS (abertos) a este torneio
@@ -80,26 +80,38 @@ export default function Torneios() {
   const [editing, setEditing] = useState(null);             // torneio AGENDADO em edição (o mesmo modal de criação, pré-preenchido)
   const [duplicateOf, setDuplicateOf] = useState(null);       // torneio de origem enquanto o modal de criação é uma duplicação
   const [copyExtra, setCopyExtra] = useState({});             // blinds/stack copiados (não aparecem no formulário)
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'logistica');
+  // A aba, o torneio e a sessão moram no ENDEREÇO (/torneios/:id/:aba?sessao=): o Voltar do navegador e do celular os restaura
+  const TABS = ['logistica', 'salao', 'material', 'livro'];
+  const activeTab = TABS.includes(aba) ? aba : 'logistica';
+  const sessaoParam = searchParams.get('sessao') || '';
+  const goTab = (tab) => navigate(`/torneios/${routeId}/${tab}${sessionRef.current ? `?sessao=${sessionRef.current}` : ''}`);
   const [blindTplOpen, setBlindTplOpen] = useState(false);
   const [blindTemplates, setBlindTemplates] = useState([]);   // Tracking Sheet: estruturas cadastradas (copiadas por valor ao escolher)
   const [tplPick, setTplPick] = useState('');
 
+  // endereço antigo (/torneios?id=&tab=) → endereço novo
   useEffect(() => {
-    const tournamentId = searchParams.get('id');
-    if (tournamentId) {
-      fetchTournamentDetails(tournamentId);
-      setActiveTab(searchParams.get('tab') || 'salao');
-    }
-  }, [searchParams]);
+    const legacy = searchParams.get('id');
+    if (!routeId && legacy) navigate(`/torneios/${legacy}/${searchParams.get('tab') || 'salao'}`, { replace: true });
+  }, [searchParams, routeId, navigate]);
+
+  // abrir/fechar o torneio acompanha o endereço
+  useEffect(() => {
+    if (!routeId) { setSelectedTournament(null); return; }
+    sessionRef.current = sessaoParam || null;
+    fetchTournamentDetails(routeId, sessaoParam || undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId]);
 
   const emptyForm = () => ({
     name: '',
     date: new Date().toISOString().split('T')[0],
     start_time: '20:00',
     seats_per_table: 9,
+    stacks_per_table: '',
     timezone: 'America/Sao_Paulo',
     stack_model_id: '',
+    stack_models: [],
     event_id: '',
     number: '',
     sessions_text: '',
@@ -120,11 +132,11 @@ export default function Torneios() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchTournamentDetails = async (id) => {
+  const fetchTournamentDetails = async (id, sessionId) => {
     try {
       const data = await apiGet(`/tournaments/${id}`);
       setSelectedTournament(data);
-      fetchFloorData(id);
+      fetchFloorData(id, sessionId);
     } catch (e) {
       if (e.status !== 401) showAlert(e.message || 'Erro ao abrir torneio', 'error');
     }
@@ -145,12 +157,15 @@ export default function Torneios() {
       setStackModels(stacksData);
       setChipsInPlay(inPlayData);
 
-      // sessão ativa: a escolhida, senão a em andamento, senão a primeira
+      // sessão ativa, igual em TODAS as abas: a escolhida (endereço); senão a em andamento; senão a próxima agendada; torneio encerrado → a última
       const wanted = sessionOverride ?? sessionRef.current;
       const current = sessionsData.find((x) => x._id === wanted)
-        || sessionsData.find((x) => x.status === 'running') || sessionsData[0] || null;
+        || sessionsData.find((x) => x.status === 'running')
+        || sessionsData.find((x) => x.status !== 'finished')
+        || sessionsData[sessionsData.length - 1] || null;
       sessionRef.current = current?._id || null;
       setSelectedSessionId(sessionRef.current);
+      if (current && (searchParams.get('sessao') || '') !== String(current._id)) setSearchParams((p) => { const n = new URLSearchParams(p); n.set('sessao', current._id); return n; }, { replace: true });
 
       const [entriesData, sessionData] = await Promise.all([
         apiGet(`/tournaments/${id}/entries`, { session_id: current?._id }),
@@ -190,6 +205,7 @@ export default function Torneios() {
   const selectSession = (sid) => {
     sessionRef.current = sid;
     setSelectedSessionId(sid);
+    setSearchParams((p) => { const n = new URLSearchParams(p); n.set('sessao', sid); return n; }, { replace: true });
     if (selectedTournament) fetchFloorData(selectedTournament._id, sid);
   };
 
@@ -285,8 +301,10 @@ export default function Torneios() {
         : String(t.date || '').slice(0, 10),
       start_time: t.start_time || '20:00',
       seats_per_table: t.seats_per_table ?? 9,
+      stacks_per_table: t.stacks_per_table ?? '',
       timezone: t.timezone || 'America/Sao_Paulo',
       stack_model_id: t.stack_model_id || '',
+      stack_models: (t.stack_models || []).map((m) => ({ action: m.action, stack_model_id: m.stack_model_id })),
       event_id: t.event_id || '',
       number: '',
       sessions_text: sessions.map((x) => x.name).join(', '),
@@ -309,8 +327,10 @@ export default function Torneios() {
         : String(t.date || '').slice(0, 10),
       start_time: t.start_time || '20:00',
       seats_per_table: t.seats_per_table ?? 9,
+      stacks_per_table: t.stacks_per_table ?? '',
       timezone: t.timezone || 'America/Sao_Paulo',
       stack_model_id: t.stack_model_id || '',
+      stack_models: (t.stack_models || []).map((m) => ({ action: m.action, stack_model_id: m.stack_model_id })),
       event_id: t.event_id || '',
       number: t.number ?? '',
       sessions_text: '',
@@ -329,9 +349,15 @@ export default function Torneios() {
     if (editing) {
       const { sessions_text, ...rest } = form; // sessões não mudam por aqui
       void sessions_text;
-      const ok = await handleUpdateTournament(editing._id, {
+      const stackConfig = {
+        stack_model_id: rest.stack_model_id || null,
+        stack_models: (rest.stack_models || []).filter((m) => m.action && m.stack_model_id),
+        stacks_per_table: rest.stacks_per_table ? Number(rest.stacks_per_table) : null,
+      };
+      // depois de iniciado, nome/data/horário/fuso ficam fixos: só a configuração de stack muda
+      const ok = await handleUpdateTournament(editing._id, editing.status !== 'scheduled' ? stackConfig : {
         name: rest.name.trim(), date: rest.date, start_time: rest.start_time, timezone: rest.timezone,
-        seats_per_table: Number(rest.seats_per_table), stack_model_id: rest.stack_model_id || null,
+        seats_per_table: Number(rest.seats_per_table), ...stackConfig,
         event_id: rest.event_id || null, number: rest.number ? Number(rest.number) : null, notes: rest.notes,
         is_ko: !!rest.is_ko, ko_chip_id: rest.is_ko ? rest.ko_chip_id || null : null,
         ...(copyExtra.blind_structure ? { blind_structure: copyExtra.blind_structure } : {}),
@@ -344,7 +370,9 @@ export default function Torneios() {
       const { sessions_text, ...rest } = form;
       const names = isAdmin ? sessions_text.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) : [];
       const created = await apiPost('/tournaments', {
-        ...rest, ko_chip_id: rest.is_ko ? rest.ko_chip_id : undefined, ...copyExtra, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
+        ...rest, stacks_per_table: rest.stacks_per_table ? Number(rest.stacks_per_table) : undefined,
+        stack_models: (rest.stack_models || []).filter((m) => m.action && m.stack_model_id),
+        ko_chip_id: rest.is_ko ? rest.ko_chip_id : undefined, ...copyExtra, event_id: rest.event_id || undefined, number: rest.number ? Number(rest.number) : undefined,
         sessions: names.length ? names : undefined,
       });
       if (isAdmin && createBinders.length) await apiPost(`/tournaments/${created._id}/allocations`, { binder_ids: createBinders });
@@ -453,14 +481,6 @@ export default function Torneios() {
   };
   const buyInVariants = () => stackActions().filter((a) => a.key !== 'buy_in' && !FIXED_ACTIONS.includes(a.key));
 
-  const handleMapStack = async (action, modelId) => {
-    const others = (selectedTournament.stack_models || []).filter((m) => m.action !== action);
-    const next = modelId ? [...others, { action, stack_model_id: modelId }] : others;
-    if (await handleUpdateTournament(selectedTournament._id, { stack_models: next })) fetchFloorData(selectedTournament._id);
-  };
-  const handleDefaultStack = async (modelId) => {
-    if (await handleUpdateTournament(selectedTournament._id, { stack_model_id: modelId || null })) fetchFloorData(selectedTournament._id);
-  };
 
   const releaseAllocation = async (alloc) => {
     const name = alloc.binder_id?.name || 'fichário';
@@ -472,24 +492,30 @@ export default function Torneios() {
     } catch (e) { if (e.status !== 401) showAlert(e.message || 'Erro ao desvincular fichário', 'error'); }
   };
 
+  const closeTournament = () => navigate('/torneios');
   const eventName = (id) => events.find((ev) => ev._id === id)?.name;
   const selectedSession = sessions.find((x) => x._id === selectedSessionId);
   const sessionClosed = selectedSession?.status === 'finished';
+  // Logística mostra a estrutura da SESSÃO selecionada (a copiada para ela), não a do torneio
+  const sessionRows = selectedSession?.blind_structure?.length ? selectedSession.blind_structure : null;
   const isFinalSession = isInheritingSession(selectedSession); // fase de continuação (Dia 2…Final): herda classificados e fichas
   // inscrições são configuração da SESSÃO (padrão: classificatória permite; continuação/final não)
   const allowBuyins = selectedSession?.allow_buyins ?? !isFinalSession;
   const allowReentries = selectedSession?.allow_reentries ?? !isFinalSession;
-  const noNewEntries = isFinalSession && !allowBuyins && !allowReentries;
+  // aceita entradas: configuração da sessão + registro ainda aberto (o servidor calcula e continua bloqueando)
+  const reg = selectedSession?.registration || {};
+  const canBuyin = allowBuyins && !reg.buy_in_block;
+  const canReentry = allowReentries && !reg.re_entry_block;
+  const noNewEntries = !canBuyin && !canReentry;
   // entradas: bloqueadas com o torneio encerrado OU a sessão encerrada
   // o Material só consulta as entradas: quem lança é o Salão (ou o admin)
-  const entriesLocked = ['finished', 'finalized'].includes(selectedTournament?.status) || sessionClosed || noNewEntries || !canOperateFloor;
+  const entriesLocked = ['finished', 'finalized'].includes(selectedTournament?.status) || sessionClosed || !canOperateFloor;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${routeId ? 'hidden' : ''}`}>
         <div>
           <h1 className="page-title">Torneios</h1>
-          <p className="page-sub">Gerenciamento central de eventos e logística de fichas.</p>
         </div>
         {canManage && (
           <button onClick={() => { setDuplicateOf(null); setCopyExtra({}); setEditing(null); setForm(emptyForm()); setCreateBinders([]); setIsCreateModalOpen(true); }} className="px-6 py-3 rounded-xl font-bold bg-brand text-white hover:bg-brand-hover transition-all flex items-center gap-2">
@@ -498,7 +524,7 @@ export default function Torneios() {
         )}
       </div>
 
-      {loading ? (
+      {routeId ? null : loading ? (
         <div className="text-center py-20 text-fg-subtle animate-pulse">Carregando eventos...</div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
@@ -507,9 +533,7 @@ export default function Torneios() {
               <motion.div
                 key={t._id}
                 layoutId={t._id}
-                onClick={() => {
-                  fetchTournamentDetails(t._id);
-                }}
+                onClick={() => navigate(`/torneios/${t._id}/logistica`)}
                 className="card p-5 hover:border-brand transition-all cursor-pointer group flex flex-col md:flex-row md:items-center justify-between gap-4"
               >
                 <div className="flex items-center gap-4">
@@ -548,26 +572,20 @@ export default function Torneios() {
         />
       )}
 
-      {/* Detail Modal Overlay */}
+      {/* Torneio: página com endereço próprio */}
       <AnimatePresence>
         {selectedTournament && (
-          <motion.div
-            {...scrimMotion}
-            className="fixed inset-0 z-50 flex items-end md:items-center justify-center modal-backdrop"
-            onClick={() => setSelectedTournament(null)}
-          >
+          <motion.div {...scrimMotion} className="w-full" data-testid="tournament-page">
             <motion.div
-              initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1, transition: SPRING_SHEET }} exit={{ y: '100%', opacity: 0, transition: EXIT }}
-              className="bg-canvas w-full max-w-6xl rounded-t-3xl md:rounded-3xl flex flex-col overflow-hidden border border-line"
-              style={{ maxHeight: '92dvh' }}
-              onClick={e => e.stopPropagation()}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="mx-auto flex w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-line bg-canvas"
             >
               {/* Modal Header */}
               <div className="p-4 md:p-6 bg-surface border-b border-line sticky top-0 z-10">
                 {/* Row 1: Title + close */}
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3">
-                    <button onClick={() => setSelectedTournament(null)} className="md:hidden p-1.5 rounded-lg text-fg-muted hover:bg-sunken shrink-0"><X size={18} /></button>
+                    <button onClick={() => closeTournament()} className="md:hidden p-1.5 rounded-lg text-fg-muted hover:bg-sunken shrink-0"><X size={18} /></button>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="text-lg md:text-2xl font-bold text-fg leading-tight">{selectedTournament.name}</h2>
@@ -577,7 +595,7 @@ export default function Torneios() {
                       <p className="text-xs text-fg-muted font-medium mt-0.5">{tournamentWhen(selectedTournament)}</p>
                     </div>
                   </div>
-                  <button onClick={() => setSelectedTournament(null)} className="hidden md:flex p-2 rounded-xl text-fg-subtle hover:text-gray-600 transition-all shrink-0"><X size={22} /></button>
+                  <button onClick={() => closeTournament()} className="hidden md:flex p-2 rounded-xl text-fg-subtle hover:text-gray-600 transition-all shrink-0"><X size={22} /></button>
                 </div>
 
                 {/* Row 2: Tabs + Action buttons */}
@@ -585,25 +603,25 @@ export default function Torneios() {
                   {/* Tab switcher — visible on all sizes */}
                   <div className="flex bg-raised p-1 rounded-xl flex-1 md:flex-none">
                     <button
-                      onClick={() => setActiveTab('logistica')}
+                      onClick={() => goTab('logistica')}
                       className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'logistica' ? 'bg-surface dark:bg-zinc-700 text-brand-fg ' : 'text-fg-muted'}`}
                     >
                       <Layout size={13} /> Logística
                     </button>
                     <button
-                      onClick={() => setActiveTab('salao')}
+                      onClick={() => goTab('salao')}
                       className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'salao' ? 'bg-surface dark:bg-zinc-700 text-brand-fg ' : 'text-fg-muted'}`}
                     >
                       <Monitor size={13} /> Salão
                     </button>
                     <button
-                      onClick={() => setActiveTab('material')}
+                      onClick={() => goTab('material')}
                       className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'material' ? 'bg-surface dark:bg-zinc-700 text-brand-fg ' : 'text-fg-muted'}`}
                     >
                       <Package size={13} /> Material
                     </button>
                     <button
-                      onClick={() => setActiveTab('livro')}
+                      onClick={() => goTab('livro')}
                       className={`flex-1 md:flex-none px-3 md:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'livro' ? 'bg-surface dark:bg-zinc-700 text-brand-fg ' : 'text-fg-muted'}`}
                     >
                       <BookOpen size={13} /> Livro
@@ -612,11 +630,6 @@ export default function Torneios() {
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-2 shrink-0">
-                    {/* "Iniciar" do torneio só existe quando inicia o relógio (uma sessão em aberto). Com várias sessões cada uma
-                        tem o seu relógio e o seu Iniciar — um botão que apenas mudasse o status seria redundante. */}
-                    {canOperateFloor && selectedTournament.status === 'scheduled' && sessions.filter((x) => x.status !== 'finished').length <= 1 && (
-                      <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'running' })} className="btn btn-success md:px-5 flex items-center"><Play size={14} /> <span className="hidden sm:inline">Iniciar</span></button>
-                    )}
                     {canOperateFloor && selectedTournament.status === 'running' && (
                       <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'paused' })} className="btn btn-warn md:px-5 flex items-center"><Pause size={14} /> <span className="hidden sm:inline">Pausar</span></button>
                     )}
@@ -626,9 +639,9 @@ export default function Torneios() {
                     {canOperateFloor && ['running', 'paused'].includes(selectedTournament.status) && (
                       <button onClick={() => handleUpdateTournament(selectedTournament._id, { status: 'finished' })} className="btn btn-neutral md:px-5 flex items-center"><CheckCircle2 size={14} /> <span className="hidden sm:inline">Finalizar</span></button>
                     )}
-                    {canManage && selectedTournament.status === 'scheduled' && <button onClick={openEdit} title="Editar torneio" aria-label="Editar torneio" className="btn btn-ghost btn-icon"><Pencil size={16} /></button>}
+                    {canManage && !['finished', 'finalized'].includes(selectedTournament.status) && <button onClick={openEdit} title="Editar torneio" aria-label="Editar torneio" className="btn btn-ghost btn-icon"><Pencil size={16} /></button>}
                     {canManage && <button onClick={openDuplicate} title="Duplicar torneio" className="p-2 rounded-xl text-fg-muted hover:bg-sunken transition-all"><Copy size={16} /></button>}
-                    {canManage && <button onClick={() => handleDeleteTournament(selectedTournament._id).then(() => setSelectedTournament(null))} title="Excluir torneio" className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"><Trash2 size={16} /></button>}
+                    {canManage && <button onClick={() => handleDeleteTournament(selectedTournament._id).then(() => closeTournament())} title="Excluir torneio" className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"><Trash2 size={16} /></button>}
                   </div>
                 </div>
               </div>
@@ -666,7 +679,7 @@ export default function Torneios() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 text-center">
                         {(isFinalSession ? [
                           ['Iniciais (classificados)', counts?.starting_players],
-                          ...(allowBuyins || allowReentries ? [['Novas inscrições', counts?.entries_total]] : []),
+                          ...(canBuyin || canReentry ? [['Novas inscrições', counts?.entries_total]] : []),
                           ['Eliminados', counts?.eliminated],
                         ] : [
                           ['Entradas iniciais', counts?.entries_initial],
@@ -680,9 +693,6 @@ export default function Torneios() {
                           </div>
                         ))}
                       </div>
-                      <p className="text-xs text-fg-subtle mb-4">{isFinalSession
-                        ? 'Dia Final: os jogadores iniciais são a soma dos classificados das sessões classificatórias encerradas. Não há buy-in nem reentrada.'
-                        : 'Inscrições totais = entradas iniciais + reentradas (acumulado, não muda ao eliminar). Jogando = quem ainda está na mesa. Os números são desta sessão.'}</p>
                       <div className="flex items-center gap-4 bg-sunken dark:bg-sunken p-4 rounded-2xl border border-line">
                         <div className="flex-1">
                           <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">Jogando (jogadores ativos)</p>
@@ -705,7 +715,6 @@ export default function Torneios() {
                           </button>
                         )}
                       </div>
-                      {!canOperateFloor && <p className="mt-2 text-xs text-fg-subtle">Quem informa os jogadores ativos é o Salão (ou o administrador); o Material só consulta.</p>}
                     </div>
 
                     {/* Blinds Section */}
@@ -736,50 +745,15 @@ export default function Torneios() {
                         </button>
                       </div>
 
-                      <BlindRowsTable rows={selectedTournament.blind_structure || []} onCell={handleUpdateBlind} onRemove={removeBlindLevel} readOnly={!canManage} />
+                      <BlindRowsTable rows={sessionRows || selectedTournament.blind_structure || []} onCell={handleUpdateBlind} onRemove={removeBlindLevel} readOnly={!canManage || !!sessionRows} />
                     </div>
+                    {selectedSession && !sessionClosed && canManage && (
+                      <ExtraLevel tournamentId={selectedTournament._id} session={selectedSession} fallbackRows={selectedTournament.blind_structure || []} canManage={canManage}
+                        onChanged={() => fetchFloorData(selectedTournament._id, selectedSession._id)} />
+                    )}
                   </div>
 
                   <div className="space-y-8">
-                    {/* "Fichas necessárias" vive na aba Material (demanda × saldo físico REAL dos fichários) — Simulação 3.0 §6 */}
-                    {canManage && <BlindRulesPanel tournamentId={selectedTournament._id} sessions={sessions} sessionId={selectedSessionId} />}
-                  <div className="card p-6">
-                      <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Settings className="text-emerald-500" size={20} /> Stack do torneio</h3>
-                      <p className="text-xs text-fg-muted mb-2">
-                        O cálculo de <b>fichas necessárias</b> (ações × modelo de stack) × saldo físico dos fichários fica na aba <button type="button" onClick={() => setActiveTab('material')} className="font-bold text-brand-fg hover:underline">Material</button>.
-                        Previsão não dá baixa no estoque: só as movimentações registradas alteram os saldos.
-                      </p>
-
-                      <div className="mt-6 pt-5 border-t border-line-soft space-y-3">
-                        <h4 className="text-xs font-bold uppercase tracking-wide text-fg-subtle">Modelo de stack</h4>
-                        <CustomSelect
-                          disabled={selectedTournament.status === 'finished' || !canManage}
-                          options={[{ value: '', label: 'Nenhum' }, ...stackModels.map((m) => ({ value: m._id, label: m.name }))]}
-                          value={selectedTournament.stack_model_id || ''}
-                          onChange={handleDefaultStack}
-                          placeholder="Modelo padrão"
-                        />
-                        {stackActions().length > 0 && (
-                          <details className="text-xs">
-                            <summary className="cursor-pointer font-bold text-fg-muted">Usar outro modelo em uma ação específica</summary>
-                            <div className="mt-3 space-y-3">
-                              {stackActions().map((a) => (
-                                <div key={a.key} className="grid grid-cols-[110px_1fr] items-center gap-2">
-                                  <span className="font-bold text-fg-muted truncate" title={a.label}>{a.label}</span>
-                                  <CustomSelect
-                                    disabled={selectedTournament.status === 'finished'}
-                                    options={[{ value: '', label: '(modelo padrão)' }, ...stackModels.map((m) => ({ value: m._id, label: m.name }))]}
-                                    value={(selectedTournament.stack_models || []).find((m) => m.action === a.key)?.stack_model_id || ''}
-                                    onChange={(v) => handleMapStack(a.key, v)}
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        )}
-                      </div>
-                    </div>
-
                     {/* Fichário do torneio: só a escolha do fichário, sem reserva por denominação/quantidade */}
                     <div className="card overflow-visible">
                       <div className="flex items-center justify-between mb-4">
@@ -806,6 +780,9 @@ export default function Torneios() {
                       </div>
                     </div>
                   </div>
+                  {canManage && !sessionClosed && (
+                    <div className="lg:col-span-3"><BlindRulesPanel tournamentId={selectedTournament._id} sessions={sessions} sessionId={selectedSessionId} /></div>
+                  )}
                 </div>
               )
               : activeTab === 'livro' ? (
@@ -860,26 +837,26 @@ export default function Torneios() {
                         canControl={selectedTournament.status !== 'finished' && !sessionClosed && canOperateFloor}
                       />
                     )}
-                    {isFinalSession && selectedSession?.blind_structure?.length > 0 && !sessionClosed && canOperateFloor && (
-                      <PhaseBlindsEditor tournamentId={selectedTournament._id} sessionId={selectedSessionId} />
+                    {selectedSession && !sessionClosed && canOperateFloor && (
+                      <ExtraLevel tournamentId={selectedTournament._id} session={selectedSession} fallbackRows={selectedTournament.blind_structure || []} canManage={canManage}
+                        onChanged={() => fetchFloorData(selectedTournament._id, selectedSession._id)} />
                     )}
                   </div>
 
                   {/* Visão do Salão View */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    {/* Dia 2 / Dia Final: totais HERDADOS dos classificatórios, só para consulta (Simulação 3.0 §1) */}
-                    <div className="card p-6" data-testid={isFinalSession ? 'inherited-total' : undefined}>
-                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Entradas Totais{isFinalSession ? ' (herdado)' : ''}</p>
-                      <h4 className="text-3xl font-bold text-fg">{isFinalSession ? (selectedSession.players?.inherited?.entries_total ?? 0) : entries.length}</h4>
-                    </div>
-                    <div className="card p-6">
-                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Buy-ins{isFinalSession ? ' (herdado)' : ''}</p>
-                      <h4 className="text-3xl font-bold text-emerald-500">{isFinalSession ? (selectedSession.players?.inherited?.entries_initial ?? 0) : entries.filter(e => e.type === 'buy-in').length}</h4>
-                    </div>
-                    <div className="card p-6">
-                      <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Re-entries{isFinalSession ? ' (herdado)' : ''}</p>
-                      <h4 className="text-3xl font-bold text-blue-500">{isFinalSession ? (selectedSession.players?.inherited?.entries_reentries ?? 0) : entries.filter(e => e.type === 're-entry').length}</h4>
-                    </div>
+                    {(() => {
+                      // totais acumulados do torneio: fases herdadas somam o que vem das origens às entradas da própria fase
+                      const inh = isFinalSession ? selectedSession?.players?.inherited : null;
+                      const buy = (inh?.entries_initial || 0) + entries.filter((e) => e.type === 'buy-in').length;
+                      const re = (inh?.entries_reentries || 0) + entries.filter((e) => e.type === 're-entry').length;
+                      return [['Entradas totais', buy + re, 'text-fg', 'entries-total'], ['Buy-ins', buy, 'text-emerald-500'], ['Re-entries', re, 'text-blue-500']].map(([label, v, cls, tid]) => (
+                        <div key={label} className="card p-6" data-testid={tid}>
+                          <p className="text-xs font-bold text-fg-subtle uppercase mb-1">{label}</p>
+                          <h4 className={`text-3xl font-bold ${cls}`}>{v.toLocaleString()}</h4>
+                        </div>
+                      ));
+                    })()}
                     <div className="card p-6">
                       <p className="text-xs font-bold text-fg-subtle uppercase mb-1">Fichas em Jogo{sessions.length > 1 ? ' (sessão)' : ''}</p>
                       <h4 className="text-3xl font-bold text-amber-500">{(sessionInPlay?.totals.value ?? 0).toLocaleString()}</h4>
@@ -890,15 +867,7 @@ export default function Torneios() {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Entry Registration Form */}
                     <div className="lg:col-span-1 space-y-6">
-                      {noNewEntries ? (
-                        <div className="card p-6" data-testid="final-no-entries">
-                          <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Users className="text-brand-fg" /> Dados herdados</h3>
-                          <p className="text-sm text-fg-muted">
-                            Esta fase começa com os {(selectedSession.players?.starting_players ?? 0).toLocaleString()} classificados e com as fichas em jogo das sessões anteriores
-                            (já com Chip Race, Color Up e descartes). Esta sessão não aceita buy-in nem reentrada — os totais acima são só para consulta (a direção pode permitir inscrições na configuração da sessão).
-                          </p>
-                        </div>
-                      ) : (
+                      {noNewEntries ? null : (
                       <div className="card p-6">
                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><ArrowUpCircle className="text-emerald-500" /> Registrar Entrada</h3>
                         <div className="space-y-4">
@@ -909,26 +878,30 @@ export default function Torneios() {
                               onChange={(e) => setForm({ ...form, entry_quantity: e.target.value })}
                               className="input w-full"
                             />
-                            <p className="mt-1 text-xs text-fg-subtle">Mais de 1 registra várias de uma vez; cada uma é numerada ("Entrada #n"). O stack vem do modelo da ação.</p>
                           </div>
                           <div className="grid grid-cols-2 gap-3 pt-2">
-                            <button
-                              onClick={() => handleRegisterEntry('buy-in', 'buy_in')}
-                              disabled={entriesLocked}
-                              className="btn btn-success flex-col !h-auto gap-1 py-3"
-                            >
-                              <Plus size={18} /> Buy-in
-                            </button>
-                            <button
-                              onClick={() => handleRegisterEntry('re-entry', 're_entry')}
-                              disabled={entriesLocked}
-                              className="btn btn-info flex-col !h-auto gap-1 py-3"
-                            >
-                              <Plus size={18} /> Re-entry
-                            </button>
-                            {buyInVariants().map((a) => (
+                            {canBuyin && (
+                              <button
+                                onClick={() => handleRegisterEntry('buy-in', 'buy_in')}
+                                disabled={entriesLocked}
+                                className="btn btn-success flex-col !h-auto gap-1 py-3"
+                              >
+                                <Plus size={18} /> Buy-in
+                              </button>
+                            )}
+                            {canReentry && (
+                              <button
+                                onClick={() => handleRegisterEntry('re-entry', 're_entry')}
+                                disabled={entriesLocked}
+                                className="btn btn-info flex-col !h-auto gap-1 py-3"
+                              >
+                                <Plus size={18} /> Re-entry
+                              </button>
+                            )}
+                            {canBuyin && buyInVariants().map((a) => (
                               <button
                                 key={a.key}
+                                // eslint-disable-next-line react-hooks/refs
                                 onClick={() => handleRegisterEntry('buy-in', a.key)}
                                 disabled={entriesLocked}
                                 className="btn btn-success col-span-2"
@@ -1087,21 +1060,25 @@ export default function Torneios() {
                     <input required type="time" value={form.start_time} onChange={e => setForm({ ...form, start_time: e.target.value })} className="input w-full" />
                   </div>
                 </div>
-                <div>
-                  <label htmlFor="t-seats" className="label">Lugares por mesa</label>
-                  <input id="t-seats" required type="number" min="2" max="10" value={form.seats_per_table} onChange={e => setForm({ ...form, seats_per_table: e.target.value })} className="input" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="t-seats" className="label">Lugares por mesa</label>
+                    <input id="t-seats" required type="number" min="2" max="10" value={form.seats_per_table} onChange={e => setForm({ ...form, seats_per_table: e.target.value })} className="input" />
+                  </div>
+                  <div>
+                    <label htmlFor="t-stacks" className="label">Stacks por mesa</label>
+                    <input id="t-stacks" type="number" min="1" max="99" placeholder="10" value={form.stacks_per_table} onChange={e => setForm({ ...form, stacks_per_table: e.target.value })} className="input" />
+                  </div>
                 </div>
                 {isAdmin && !editing && (
                   <div>
                     <label className="block text-sm font-bold mb-1">Sessões / fases <span className="font-normal text-fg-subtle">(opcional)</span></label>
                     <input type="text" value={form.sessions_text} onChange={e => setForm({ ...form, sessions_text: e.target.value })} className="input w-full" placeholder="Ex: Dia 1A, Dia 1B, Dia 1C, Dia Final" />
-                    <p className="mt-1 text-xs text-fg-subtle">Separe por vírgula. Todas fazem parte do mesmo torneio. Sem isso, nasce "Dia Único".</p>
                   </div>
                 )}
                 <div>
                   <label className="label">Fuso horário</label>
                   <CustomSelect aria-label="Fuso horário" options={timezoneOptions(form.timezone)} value={form.timezone} onChange={(val) => setForm({ ...form, timezone: val })} />
-                  <p className="field-help">O horário de início vale neste fuso; o relógio e as sessões usam o mesmo.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold mb-1">Modelo de Stack</label>
@@ -1111,6 +1088,23 @@ export default function Torneios() {
                     value={form.stack_model_id}
                     onChange={val => setForm({ ...form, stack_model_id: val })}
                   />
+                  {(editing || duplicateOf) && (
+                    <details className="mt-3 text-sm">
+                      <summary className="cursor-pointer text-xs font-bold text-fg-muted">Outro modelo por ação</summary>
+                      <div className="mt-3 space-y-3">
+                        {stackActions().map((a) => (
+                          <div key={a.key} className="grid grid-cols-[110px_1fr] items-center gap-2">
+                            <span className="truncate text-xs font-bold text-fg-muted" title={a.label}>{a.label}</span>
+                            <CustomSelect
+                              options={[{ value: '', label: '(modelo padrão)' }, ...stackModels.map((m) => ({ value: m._id, label: m.name }))]}
+                              value={(form.stack_models || []).find((m) => m.action === a.key)?.stack_model_id || ''}
+                              onChange={(v) => setForm({ ...form, stack_models: [...(form.stack_models || []).filter((m) => m.action !== a.key), ...(v ? [{ action: a.key, stack_model_id: v }] : [])] })}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
                 {/* Torneio KO (Simulação 3.0 §5): só controle FÍSICO das fichas KO — nenhum pagamento ou valor em dinheiro */}
                 <fieldset>
@@ -1127,7 +1121,6 @@ export default function Torneios() {
                         value={form.ko_chip_id}
                         onChange={(val) => setForm({ ...form, ko_chip_id: val })}
                       />
-                      <p className="field-help">Uma ficha KO física por ação válida (buy-in + reentrada). O envio, o retorno e a conferência ficam na aba Material.</p>
                     </div>
                   )}
                 </fieldset>
@@ -1141,7 +1134,6 @@ export default function Torneios() {
                         setTplPick(v);
                         setCopyExtra((cur) => { const { blind_structure: _drop, ...rest } = cur; return tpl ? { ...rest, blind_structure: cloneRows(tpl.rows) } : rest; });
                       }} />
-                    <p className="mt-1 text-xs text-fg-subtle">A estrutura é <b>copiada</b> para o torneio: editar aqui não altera o cadastro nem outros torneios.</p>
                   </div>
                 )}
                 {isAdmin && !editing && (
@@ -1157,7 +1149,6 @@ export default function Torneios() {
                         ))}
                       </div>
                     )}
-                    <p className="mt-1 text-xs text-fg-subtle">Só escolhe qual fichário será usado. Nenhuma quantidade é reservada e o fichário não fica bloqueado.</p>
                   </fieldset>
                 )}
                 <button type="submit" className="w-full py-4 bg-brand text-white font-bold rounded-xl hover:bg-brand-hover transition-all">{editing ? 'Salvar alterações' : 'Criar Torneio'}</button>

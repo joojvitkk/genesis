@@ -317,7 +317,6 @@ export default function Usuarios() {
                   {form.role !== 'admin' && tournaments.length > 0 && (
                     <fieldset data-testid="tournament-scope">
                       <legend className="text-xs font-bold text-fg-subtle uppercase mb-2 block tracking-wide">Torneios permitidos</legend>
-                      <p className="mb-2 text-xs text-fg-subtle">Nenhum marcado = acessa todos os torneios. Marcando, só enxerga e opera os escolhidos.</p>
                       <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-line-soft p-2">
                         {tournaments.map((t) => (
                           <label key={t._id} className="flex items-center gap-2 text-sm font-medium text-fg">

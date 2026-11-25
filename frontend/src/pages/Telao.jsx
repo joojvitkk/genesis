@@ -57,7 +57,7 @@ export default function Telao() {
     <div className="dark min-h-screen bg-canvas p-4 text-fg md:p-10">
       <div className="mx-auto flex max-w-6xl items-center justify-between pb-4">
         <Link
-          to={`/torneios?id=${id}&tab=salao`}
+          to={`/torneios/${id}/salao`}
           className="inline-flex items-center gap-2 btn btn-secondary btn-sm"
         >
           <ArrowLeft size={14} /> Painel

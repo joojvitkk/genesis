@@ -201,13 +201,12 @@ Seção "Torneios ativos": um cartão por **sessão** rodando/pausada (nome do t
 ---
 
 ### 3.10 Painel do Material e Livro do torneio — `components/MaterialPanel.jsx`, `components/TournamentBook.jsx`
-- **Visão principal curta:** faixa de resumo em `.card` (No salão · Em jogo (Chip Count) · Disponível em **stacks por ação** · Pendências) e, abaixo, botões grandes `.btn .btn-lg`
-  (Enviar, Volta de fichas, Troca, Descarte, Conferir). Enviar e Volta de fichas abrem o formulário na própria tela; Troca e Conferir levam às páginas Chip Race e Ocorrências.
-- **Detalhes sob demanda:** as tabelas técnicas (enviado × em jogo, fichas necessárias, descartes, movimentações) ficam em `<details>` recolhido ("Ver detalhes").
-- **Vocabulário:** "No salão" = fisicamente no salão; "Em jogo (Chip Count)" = entregue aos jogadores; "Disponível" = no salão e ainda não entregue. Cada termo tem `title` com a explicação.
-- **Salão:** a aba do Salão não mostra a tabela de fichas por denominação (só Material/Admin).
-- **Livro do torneio:** aba "Livro", só leitura, `.table-dense` (denominações × sessões; seções Esperado, Trocas, Descartes, Em jogo, Contado, Diferença).
-  No celular vira uma sessão por vez (seletor); botões CSV e PDF. Impressão A4 deitado (`@page` em `@media print`, classe `.no-print` nos controles).
+- **Enxuto:** sem legendas nem parágrafos explicativos embaixo de campos, cards e ações — só o nome do campo. Quando algo for indispensável, usa-se `title` (tooltip), nunca um parágrafo.
+- **Visão principal:** faixa de resumo em `.card` (No salão · Em jogo · Disponível · Pendências). **No salão** e **Disponível** em **stacks por ação**, listando todas as ações (inclusive as zeradas); **Em jogo** em **valor nominal** como número principal.
+  Abaixo, **uma tabela por ação** (`data-testid="action-table"`: Ação · Enviados · Usados · Disponível · Falta) com o valor nominal em jogo no rodapé. A visão por denominação fica recolhida em "Detalhes". Botões grandes `.btn .btn-lg` (Enviar, Volta de fichas, Troca, Descarte, Conferir).
+- **Envio:** a linha já começa no buy-in padrão; "stacks por mesa" é editável (padrão do torneio, `stacks_per_table`); depois de enviar aparece o resumo do que foi gravado (`role="status"`) e o **erro de envio fica na tela até o usuário fechar** (`role="alert"` + botão Fechar), porque o envio é tudo ou nada.
+- **Livro do torneio:** aba "Livro", só leitura, **uma aba por sessão como linha do tempo** (`role="tablist"`): linhas = denominações; colunas na ordem dos acontecimentos — Em jogo (ou Herdado) → Saiu/Entrou de cada troca (Chip Race 1, Color Up 2…) → Descarte → Saldo em jogo → Contado e Diferença; rodapé com o valor nominal de cada coluna e a quebra de cada troca. Aba **Resumo** com a conta de fechamento (ações × montagem + quebra − descartes ± trocas da fase final = saldo final). CSV e PDF saem por aba (`.no-print` nos controles, A4 deitado).
+- **Troca** (`pages/ChipRace.jsx`): tabela única **Ficha · Em jogo · Saída · Entrada**, só com as denominações usadas no torneio; sem pílulas e sem coluna de saldo do fichário (vai para "Detalhes"). Controles **Sai · Entra · Mesas** aplicam o método das mesas (valor por mesa arredondado para cima até um múltiplo da ficha que entra) e preenchem a Entrada; embaixo valor que saiu · valor que entrou · quebra.
 
 ### 3.11 Indicador de conexão — `components/ConnectionStatus.jsx`
 `.badge` sempre visível nas telas do Salão: `badge-ok` Online · `badge-warn` Reconectando… · `badge-danger` Sem conexão — lançamentos bloqueados (o app é só online, sem fila offline). Usa `role="status"` e `aria-live="polite"`.
@@ -219,7 +218,11 @@ Duas partes lado a lado em blocos com `h4` em caixa alta: **1 · Sacos dos jogad
 - **Salão agora** (`components/SalaoAgora.jsx`): cartões `.card` por sessão aberta, com `.badge` colorido por sessão (`sessionBadge`), `badge-warn` para TURBO/HYPER, relógio, nível, inscritos e jogando. Toque abre a tela de um toque já na sessão.
 - **Salão de um toque** (`pages/SalaoSessao.jsx`): torneio e sessão em destaque no topo; ações principais (`.btn .btn-lg`, `min-h-[56px]`) em barra fixa inferior no celular; demais controles com `min-h-[44px]`; confirmação em faixa `role="status"`; "Desfazer (n s)" por 8 s e depois "Cancelar com motivo". Sem stack inicial: o Salão mostra o **Chip Count total** (todos os dias até o final).
 - **Tracking da sessão** (`pages/TrackingSessao.jsx`): somente leitura. Tablet/desktop: grade completa no formato da folha (`.table-dense`); celular: lista compacta com o nível atual fixo (`sticky`) e cabeçalho recolhível. Horário previsto marcado com `*`. Impressão A4 retrato (`@page tracking`) com colunas de anotação em branco (`.print-only`).
-- **Regras de duração dos blinds** (`components/BlindRulesPanel.jsx`): campos `.input`, `CustomSelect` e lista de aplicações registradas.
+- **Regras de duração dos blinds** (`components/BlindRulesPanel.jsx`): quadro na largura toda, **abaixo da Estrutura de Blinds** (Logística). Cada regra numa linha: `Quando [condição] [N] → níveis passam a [Z] min · só esta sessão · Adicionar`; as cadastradas aparecem numa lista curta com editar e excluir.
+- **Nível no fim** (`components/ExtraLevel.jsx`): botão "+ Nível no fim" junto da tabela de blinds (Logística) e no Salão; sugere o próximo nível da progressão com SB, BB, ante e duração editáveis; o nível extra ("Adicional") pode ser editado ou removido enquanto não começou. Criação, edição e remoção ficam registradas com autor e horário.
+- **Campos numéricos grandes** (`components/NumberInput.jsx`): mostram o separador de milhar (`4.000 / 8.000`) em todo campo de blinds e valores; o `onChange` devolve só os dígitos.
+- **Navegação:** o torneio é uma **página com endereço** (`/torneios/:id/:aba?sessao=:sid`): o Voltar do navegador e do celular retorna ao torneio, à aba e à sessão. A sessão escolhida é a mesma em todas as abas (em andamento → próxima agendada → última). Troca, Tracking, Livro e a tela de um toque têm "← Voltar ao torneio" (`components/BackToTournament.jsx`).
+- **Tracking Sheet** (`pages/TrackingSheets.jsx`, menu Gestão e controle): lista dos Trackings de todas as sessões, em andamento e encerradas, com filtro por evento, torneio, data e situação e o PDF de cada um. "Estruturas de Blinds" (`/estruturas-blinds`) é outra coisa. A sessão encerrada mantém o botão **Tracking** e aparece em "Encerradas hoje" no Salão agora.
 
 ## 4. Layout de página
 
@@ -391,3 +394,5 @@ Perfis: **Admin** (tudo; auditoria; encerrar sessões) · **Salão** (entradas, 
 | `frontend/src/lib/timezones.js` | Lista e formatação dos fusos horários |
 | `frontend/src/components/RunningClocks.jsx` | Relógios dos torneios em andamento (Dashboard) |
 | `frontend/src/config.js` | Rotas ↔ áreas de permissão |
+| `frontend/src/lib/sessionTypes.js` | Tipos de sessão: Classificatória e Dia Único (fichas próprias) × Continuação e Dia Final (herdam) |
+| `frontend/src/components/{NumberInput,ExtraLevel,BackToTournament}.jsx` · `pages/TrackingSheets.jsx` | Campo com milhar, nível no fim, voltar ao torneio e lista de Trackings |

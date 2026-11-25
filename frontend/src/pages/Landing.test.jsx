@@ -63,7 +63,7 @@ describe('Landing /site', () => {
   it('faixa de fatos usa números reais do produto (módulos e perfis) e nenhum dinheiro', async () => {
     await mount();
     const facts = container.querySelector('section[aria-label="O Genesis em fatos"]').textContent;
-    expect(facts).toContain('16'); expect(facts).toContain('módulos de operação'); expect(facts).toContain('0valores em dinheiro');
+    expect(facts).toContain('17'); expect(facts).toContain('módulos de operação'); expect(facts).toContain('0valores em dinheiro');
   });
   it('seção de confiança lista as seis garantias', async () => {
     await mount();

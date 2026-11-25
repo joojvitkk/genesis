@@ -310,7 +310,6 @@ export default function Ficharios() {
                   <input aria-label="Nome do fichário" placeholder="Nome (ex.: Drogon)" value={createForm.name} onChange={(e) => setCreateForm(f => ({ ...f, name: e.target.value }))} className="card px-3 py-2 text-sm" />
                   <input aria-label="Código" placeholder="Código" value={createForm.code} onChange={(e) => setCreateForm(f => ({ ...f, code: e.target.value }))} className="card px-3 py-2 text-sm" />
                 </div>
-                <p className="text-xs text-fg-muted">Composição inicial por denominação. Ela gera o saldo inicial e um único lançamento no livro-razão (sem etapa de montagem). Depois do cadastro o saldo só muda por movimentação.</p>
                 <div className="space-y-3">
                   {createRows.map((row, i) => (
                     <div key={i} className="grid grid-cols-[1fr_100px_auto] items-center gap-2 rounded-xl border border-line bg-sunken p-3 dark:bg-sunken">
@@ -347,7 +346,6 @@ export default function Ficharios() {
                 <button type="button" onClick={() => setCountCase(null)} className="text-fg-subtle hover:text-gray-600"><X /></button>
               </div>
               <div className="space-y-3 p-6">
-                <p className="text-xs font-medium text-fg-muted">Informe quantas fichas de cada denominação você contou. Falta vira perda (divergência) e sobra vira ajuste no livro-razão — nada é sobrescrito.</p>
                 {countCase.chips.filter((c) => c.chip_id).map((c) => {
                   const id = c.chip_id._id || c.chip_id;
                   const counted = countValues[id];
@@ -409,7 +407,6 @@ export default function Ficharios() {
                     <button key={v} type="button" role="radio" aria-checked={moveType === v} onClick={() => setMoveType(v)} className={`btn btn-sm ${moveType === v ? 'btn-primary' : 'btn-secondary'}`}>{label}</button>
                   ))}
                 </div>
-                <p className="text-xs text-fg-muted">Entrada de fichas neste fichário. Cada lançamento entra no livro-razão (com o motivo) e pode ser estornada; o saldo inicial do cadastro não é reescrito.</p>
                 <div className="space-y-3">
                   {assembleRows.map((row, i) => (
                     <div key={i} className="grid grid-cols-[1fr_100px_auto] items-center gap-2 rounded-xl border border-line bg-sunken p-3 dark:bg-sunken">
@@ -452,7 +449,6 @@ export default function Ficharios() {
               <div className="space-y-3 py-4">
                 <input aria-label="Nome do fichário" placeholder="Nome" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} className="input w-full" />
                 <input aria-label="Código" placeholder="Código (opcional)" value={editForm.code} onChange={(e) => setEditForm((f) => ({ ...f, code: e.target.value }))} className="input w-full" />
-                <p className="text-xs text-fg-muted">O conteúdo não é editado aqui: só muda por movimentação (adicionar fichas, conferência).</p>
               </div>
               <div className="flex gap-3 border-t border-line-soft pt-4">
                 <button onClick={() => setEditCase(null)} className="btn btn-secondary flex-1">Cancelar</button>

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Package, Briefcase, Trophy, Coins,
   MessageSquare, Layers, BarChart, MonitorPlay, ClipboardList,
-  Users, BookOpen, ListOrdered, ShieldAlert, Target, CalendarRange, X, LogOut, Sun, Moon, ChevronRight, Menu
+  Users, BookOpen, ListOrdered, ClipboardCheck, ShieldAlert, Target, CalendarRange, X, LogOut, Sun, Moon, ChevronRight, Menu
 } from 'lucide-react';
 import { can } from '../config';
 import { useT } from '../lib/i18n.jsx';
@@ -20,7 +20,7 @@ export const NAV_GROUPS = [
     { to: '/dashboard',     icon: LayoutDashboard, key: 'nav.dashboard',   area: 'dashboard' },
     { to: '/eventos',       icon: CalendarRange,   key: 'nav.eventos',     area: 'torneios' },
     { to: '/torneios',      icon: Trophy,          key: 'nav.torneios',    area: 'torneios' },
-    { to: '/tracking-sheet',icon: ListOrdered,     key: 'nav.tracking',    area: 'torneios' },
+    { to: '/estruturas-blinds', icon: ListOrdered,  key: 'nav.tracking',    area: 'torneios' },
   ] },
   { key: 'nav.group.operation', items: [
     { to: '/salao',         icon: MonitorPlay,     key: 'nav.salao',       area: 'mesas' },
@@ -35,6 +35,7 @@ export const NAV_GROUPS = [
     { to: '/modelos-stack', icon: Layers,          key: 'nav.stacks',      area: 'modelos_stack' },
   ] },
   { key: 'nav.group.control', items: [
+    { to: '/tracking-sheets', icon: ClipboardCheck, key: 'nav.trackingSheet', area: 'mesas' },
     { to: '/relatorios',    icon: BarChart,        key: 'nav.relatorios',  area: 'relatorios' },
     { to: '/livro-estoque', icon: BookOpen,        key: 'nav.livroEstoque',area: 'estoque' },
     { to: '/auditoria',     icon: ClipboardList,   key: 'nav.auditoria',   area: 'auditoria' },

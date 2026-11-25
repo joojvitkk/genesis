@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Coffee, Trash2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
+import NumberInput from './NumberInput';
 import { levelNumberAt, isLevelRow } from '../lib/blinds';
 
 /**
@@ -25,7 +26,7 @@ const BREAK_DURATIONS = [10, 15, 20, 30, 45, 60, 90];
  * Controlada: o pai guarda as linhas. `onCell(idx, field, value)` edita; `onRemove(idx)` exclui. `readOnly` só consulta.
  */
 export default function BlindRowsTable({ rows = [], onCell, onRemove, readOnly = false }) {
-  const cell = 'input !min-h-8 w-20 px-2 py-1 text-sm';
+  const cell = 'input !min-h-8 w-24 px-2 py-1 text-sm tabular-nums';
   const trash = (idx) => !readOnly && (
     <button type="button" onClick={() => onRemove(idx)} aria-label="Remover linha" className="btn btn-ghost btn-icon hover:!text-danger"><Trash2 size={16} /></button>
   );
@@ -73,8 +74,8 @@ export default function BlindRowsTable({ rows = [], onCell, onRemove, readOnly =
             const before = rows.slice(0, idx).filter(isLevelRow).length;
             const onNumber = (n) => onCell(firstIdx, 'level', n - before);
             const field = (name, w) => (readOnly
-              ? <span>{row[name]}</span>
-              : <input type="number" min="0" aria-label={`${name} nível ${num}`} value={row[name] ?? ''} onChange={(e) => onCell(idx, name, e.target.value)} className={`${cell} ${w || ''}`} />);
+              ? <span className="tabular-nums">{row[name] == null || row[name] === '' ? '' : Number(row[name]).toLocaleString('pt-BR')}</span>
+              : <NumberInput aria-label={`${name} nível ${num}`} value={row[name] ?? ''} onChange={(v) => onCell(idx, name, v)} className={`${cell} ${w || ''}`} />);
             return (
               <tr key={idx} className="border-b border-line-soft hover:bg-sunken/50">
                 <td className="py-2 pr-4 font-semibold text-fg-muted">

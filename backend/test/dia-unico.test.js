@@ -88,3 +88,16 @@ test('sem inscrições, o tipo muda livremente (e Final solitária com inscriç�
   assert.equal((await put(admin, sp(t, t.sessions[1]), { type: 'FINAL' })).status, 200);
   assert.equal((await put(admin, sp(t, t.sessions[1]), { type: 'CONTINUATION' })).status, 200);
 });
+
+test('item 10/17: a lista de sessões diz quando buy-in e reentrada não são aceitos (a tela esconde os botões)', async () => {
+  const { admin, t } = await scene(['Dia 1A', 'Dia Final']);
+  const list = async () => (await get(admin, `/api/tournaments/${t._id}/sessions`)).body;
+  const [a, f] = await list();
+  assert.equal(a.registration.buy_in_block, null);
+  assert.match(f.registration.buy_in_block, /não aceita buy-in/);
+  assert.match(f.registration.re_entry_block, /não aceita reentrada/);
+  // a direção abre entradas no Dia Final (torneio especial): os bloqueios somem
+  await put(admin, sp(t, t.sessions[1]), { allow_buyins: true, allow_reentries: true });
+  const f2 = (await list())[1];
+  assert.deepEqual([f2.registration.buy_in_block, f2.registration.re_entry_block], [null, null]);
+});

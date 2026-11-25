@@ -1991,6 +1991,11 @@ router.get('/tournaments/:id/sessions', verifyToken, async (req, res) => {
         counts: counters[String(s._id)] || { total: 0, by_type: {}, by_action: {} },
         chips_value: inPlay.totals.value,
         players, // ativos/inscrições DESTA sessão (Dia Final: jogadores iniciais = soma dos classificados)
+        // motivo pelo qual a sessão não aceita buy-in/reentrada agora (configuração ou registro encerrado): a tela esconde os botões
+        registration: {
+          buy_in_block: sessionsLib.registrationBlock(s, 'buy-in', clockView(t, s)),
+          re_entry_block: sessionsLib.registrationBlock(s, 're-entry', clockView(t, s)),
+        },
         clock: clockPayload(clockView(t, s)),
       });
     }

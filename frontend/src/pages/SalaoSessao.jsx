@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import BackToTournament from '../components/BackToTournament';
+import ExtraLevel from '../components/ExtraLevel';
 import { ArrowUpCircle, RotateCcw, UserMinus, ClipboardCheck, Play, Pause, SkipForward, SkipBack, PackageMinus, Undo2, ListOrdered } from 'lucide-react';
 import { apiGet, apiPost, apiPut, newOpId } from '../lib/api';
 import { getStoredUser } from '../lib/auth';
@@ -27,6 +29,7 @@ export default function SalaoSessao() {
   const role = getStoredUser()?.role;
   const canFloor = can(role, 'mesas', 'operate');
   const canMaterial = can(role, 'torneios', 'operate');
+  const canManage = can(role, 'torneios', 'manage');
   const conn = useConnection();
   const clock = useTournamentClock(tid, { sessionId: sid });
   const [meta, setMeta] = useState(null);
@@ -69,6 +72,11 @@ export default function SalaoSessao() {
   }, []);
 
   const closed = meta?.session?.status === 'finished';
+  // buy-in/reentrada só aparecem quando a sessão aceita (configuração da sessão e registro ainda aberto)
+  const sess = meta?.session;
+  const inheriting = sess && (sess.type === 'CONTINUATION' || sess.type === 'FINAL');
+  const canBuyin = !sess || (sess.allow_buyins ?? !inheriting) && !sess.registration?.buy_in_block;
+  const canReentry = !sess || (sess.allow_reentries ?? !inheriting) && !sess.registration?.re_entry_block;
   const disabled = busy || conn !== 'online' || !canFloor || closed;
 
   /** Antes de gravar a partir de uma sessão diferente da escolhida no painel "Salão agora", pede confirmação (uma vez). */
@@ -150,6 +158,7 @@ export default function SalaoSessao() {
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4 pb-40 md:pb-8" data-testid="salao-sessao">
       <header className="card flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
+          <BackToTournament tournamentId={tid} sessionId={sid} />
           <p className="text-xs font-bold uppercase text-fg-subtle">{meta?.tournament?.number ? `#${String(meta.tournament.number).padStart(2, '0')} · ` : ''}Torneio</p>
           <h1 className="text-xl font-bold md:text-2xl">{meta?.tournament?.name || '…'}</h1>
           <span className={`badge ${sessionBadge(sid)} mt-1 !text-sm`} data-testid="session-badge">{sName || 'Sessão'}{meta?.session?.type && meta.session.type !== 'QUALIFIER' ? ` · ${meta.session.type}` : ''}</span>
@@ -157,6 +166,7 @@ export default function SalaoSessao() {
         <div className="flex flex-col items-end gap-2">
           <ConnectionStatus />
           <Link to={`/tracking-sessao/${tid}/${sid}`} className="inline-flex items-center gap-1 text-xs font-bold text-brand-fg"><ListOrdered size={13} /> Tracking da sessão</Link>
+          <Link to={`/chip-race?tournament=${tid}&session=${sid}`} className="inline-flex items-center gap-1 text-xs font-bold text-brand-fg">Troca</Link>
         </div>
       </header>
 
@@ -209,16 +219,18 @@ export default function SalaoSessao() {
         </div>
       </section>
 
+      {meta?.session && !closed && <ExtraLevel tournamentId={tid} session={meta.session} fallbackRows={meta.tournament?.blind_structure || []} canManage={canManage}
+        onChanged={async () => { const list = await apiGet(`/tournaments/${tid}/sessions`); setMeta((m) => ({ ...m, session: list.find((x) => x._id === sid) || m.session })); }} />}
+
       {/* ações principais: fixas na parte de baixo (alcance do polegar no celular) */}
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] md:static md:z-auto md:border-0 md:bg-transparent md:p-0" data-testid="primary-actions">
         <div className="mx-auto flex max-w-3xl flex-col gap-2">
           <div className="flex items-center gap-2">
             <input type="number" inputMode="numeric" min="1" max="500" step="1" value={batch} onChange={(e) => setBatch(e.target.value)} placeholder="Lote (opcional)" aria-label="Quantidade em lote" className="input min-h-[44px] w-36" />
-            <span className="text-xs text-fg-muted">vazio = 1 por toque</span>
           </div>
           <div className="flex gap-2">
-            <button type="button" disabled={disabled} onClick={() => addEntry('buy-in', Number(batch) || 1)} className={`${big} btn-success`}><ArrowUpCircle size={18} /> +{Number(batch) || 1} entrada</button>
-            <button type="button" disabled={disabled} onClick={() => addEntry('re-entry', Number(batch) || 1)} className={`${big} btn-info`}><RotateCcw size={18} /> +{Number(batch) || 1} reentrada</button>
+            {canBuyin && <button type="button" disabled={disabled} onClick={() => addEntry('buy-in', Number(batch) || 1)} className={`${big} btn-success`}><ArrowUpCircle size={18} /> +{Number(batch) || 1} entrada</button>}
+            {canReentry && <button type="button" disabled={disabled} onClick={() => addEntry('re-entry', Number(batch) || 1)} className={`${big} btn-info`}><RotateCcw size={18} /> +{Number(batch) || 1} reentrada</button>}
             <button type="button" disabled={disabled} onClick={eliminate} className={`${big} btn-danger-solid`}><UserMinus size={18} /> −1 eliminação</button>
           </div>
         </div>

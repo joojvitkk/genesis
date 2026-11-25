@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,9 +29,9 @@ async function mount(props = {}) {
   root = createRoot(container);
   await act(async () => {
     root.render(
-      <AlertProvider>
+      <MemoryRouter><AlertProvider>
         <SessionBar tournamentId="t1" sessions={sessions} selectedId="s2" onSelect={onSelect} onChanged={onChanged} isAdmin={false} tournamentClosed={false} {...props} />
-      </AlertProvider>,
+      </AlertProvider></MemoryRouter>,
     );
   });
   return { onSelect, onChanged };
@@ -69,6 +70,12 @@ describe('SessionBar', () => {
   it('Dia Final: mostra os jogadores iniciais (soma dos classificados)', async () => {
     await mount({ selectedId: 's3' });
     expect(container.textContent).toContain('iniciais 11');
+  });
+
+  it('sessão encerrada tem o botão Tracking (a folha continua acessível depois do encerramento)', async () => {
+    await mount({ selectedId: 's1' });
+    const link = [...container.querySelectorAll('a')].find((a) => a.textContent === 'Tracking');
+    expect(link.getAttribute('href')).toBe('/tracking-sessao/t1/s1');
   });
 
   it('classificatória encerrada mostra os classificados e oferece correção auditável', async () => {

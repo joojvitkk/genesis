@@ -31,13 +31,16 @@ export default function SalaoAgora() {
   }, [load]);
 
   if (!rows) return null;
+  const open = rows.filter((r) => !r.ended);
+  const ended = rows.filter((r) => r.ended);
   if (!rows.length) return <p className="text-sm italic text-fg-subtle" data-testid="agora-empty">Nenhuma sessão aberta ou em andamento agora.</p>;
 
   return (
     <section aria-label="Salão agora" data-testid="salao-agora" className="space-y-3">
       <h2 className="text-xl font-bold text-fg">Salão agora</h2>
+      {open.length === 0 && <p className="text-sm italic text-fg-subtle" data-testid="agora-empty">Nenhuma sessão aberta ou em andamento agora.</p>}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {rows.map((r) => {
+        {open.map((r) => {
           const left = r.clock_status === 'running' ? Math.max(0, r.remaining_ms - (now - r.server_time)) : r.remaining_ms;
           return (
             <Link key={r.session_id} to={`/salao-sessao/${r.tournament_id}/${r.session_id}`}
@@ -61,6 +64,24 @@ export default function SalaoAgora() {
           );
         })}
       </div>
+      {ended.length > 0 && (
+        <div className="space-y-2" data-testid="agora-encerradas">
+          <h3 className="text-sm font-bold uppercase tracking-wide text-fg-subtle">Encerradas hoje</h3>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {ended.map((r) => (
+              <div key={r.session_id} className="card space-y-2 p-4" data-testid="agora-encerrada">
+                <div className="flex flex-wrap items-center gap-2"><span className={`badge ${sessionBadge(r.session_id)}`}>{r.session_name}</span><span className="badge">Encerrada</span></div>
+                <p className="text-lg font-bold leading-tight">{r.tournament_number ? `#${String(r.tournament_number).padStart(2, '0')} ` : ''}{r.tournament_name}</p>
+                <p className="text-sm">Inscritos <b className="tabular-nums">{r.entries_total}</b> · Classificados <b className="tabular-nums">{r.qualified_count ?? r.playing}</b></p>
+                <div className="flex flex-wrap gap-2">
+                  <Link to={`/tracking-sessao/${r.tournament_id}/${r.session_id}`} className="btn btn-secondary btn-sm">Tracking</Link>
+                  <Link to={`/torneios/${r.tournament_id}/salao?sessao=${r.session_id}`} className="btn btn-ghost btn-sm">Torneio</Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

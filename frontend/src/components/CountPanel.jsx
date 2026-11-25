@@ -87,7 +87,6 @@ export default function CountPanel({ onDone }) {
     <section className="card space-y-4 p-6">
       <div>
         <h3 className="flex items-center gap-2 text-lg font-bold"><PackageCheck size={18} className="text-brand-fg" /> Conferência física</h3>
-        <p className="mt-1 text-xs text-fg-muted">Conte e informe. O sistema compara com o saldo e abre uma ocorrência para cada diferença — nada é sobrescrito. A quebra matemática do Chip Race não é perda: a conferência é por quantidade.</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
@@ -101,7 +100,6 @@ export default function CountPanel({ onDone }) {
       {targetId && rows.length === 0 && <p className="text-sm italic text-fg-subtle">Nada esperado {scope === 'binder' ? 'neste fichário' : 'em jogo'}.</p>}
       {scope === 'eod' && rows.length > 0 && (
         <div className="space-y-4" data-testid="eod-parts">
-          <p className="text-xs text-fg-muted">Parte 1: sacos/stacks dos jogadores × Chip Count esperado. Parte 2 (opcional): sobra no salão × disponível. A quebra das trocas explica a diferença em valor — não é perda.</p>
           <div>
             <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-fg-subtle">1 · Sacos dos jogadores (Chip Count)</h4>
             <div className="flex flex-wrap gap-3">
