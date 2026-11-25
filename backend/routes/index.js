@@ -39,6 +39,7 @@ const allocationLib = require('../lib/allocation');
 const playersLib = require('../lib/headcount');
 const conversionRequests = require('../lib/conversionRequests');
 const material = require('../lib/material');
+const conversionLib = require('../lib/conversion');
 const { idempotent } = require('../middlewares/idempotency');
 const levelLog = require('../lib/levelLog');
 const occurrences = require('../lib/occurrences');
@@ -1314,12 +1315,34 @@ router.post('/tournaments/:tid/sessions/:sid/blinds/append', verifyToken, requir
   } catch (err) { sendError(res, err); }
 });
 
+router.put('/tournaments/:tid/sessions/:sid/blinds/extra/:index', verifyToken, requirePageAccess('torneios', 'manage'), idempotent, async (req, res) => {
+  try {
+    const { change } = await blindRules.changeExtraLevel(req.params.sid, req.params.index, req.body || {}, req.user, req.app.get('io'));
+    await logActivity('Nível Adicional Editado', 'tournament', `${req.params.sid} | linha ${req.params.index}`, req.user);
+    res.json(change);
+  } catch (err) { sendError(res, err); }
+});
+router.delete('/tournaments/:tid/sessions/:sid/blinds/extra/:index', verifyToken, requirePageAccess('torneios', 'manage'), idempotent, async (req, res) => {
+  try {
+    const { change } = await blindRules.changeExtraLevel(req.params.sid, req.params.index, null, req.user, req.app.get('io'));
+    await logActivity('Nível Adicional Removido', 'tournament', `${req.params.sid} | linha ${req.params.index}`, req.user);
+    res.json(change);
+  } catch (err) { sendError(res, err); }
+});
+
 // Tracking da sessão (folha digital: horário real nos níveis jogados, previsto nos próximos) e painel "Salão agora".
 router.get('/tournaments/:tid/sessions/:sid/tracking', verifyToken, async (req, res) => {
   try {
     const allowed = await allowedTournaments(req.user);
     if (allowed && !allowed.includes(String(req.params.tid))) throw new HttpError(403, 'Você não tem acesso a este torneio.');
     res.json(await require('../lib/tracking').trackingSheet(req.params.tid, req.params.sid));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+router.get('/tracking-sheets', verifyToken, async (req, res) => {
+  try {
+    res.json(await require('../lib/tracking').trackingList(await allowedTournaments(req.user), pick(req.query, ['event_id', 'tournament_id', 'date', 'status'])));
   } catch (err) {
     sendError(res, err);
   }
@@ -2762,6 +2785,24 @@ const CONVERSION_POPULATE = [
 router.post('/conversions/preview', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
   try {
     res.json(await material.preview(req.body));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Plano da troca pelo método das mesas: { tournament_id, session_id?, chip_out_id, chip_in_id, tables }
+router.post('/conversions/plan', verifyToken, requirePageAccess('chip_race'), async (req, res) => {
+  try {
+    const { tournament_id, session_id, chip_out_id, chip_in_id, tables } = req.body || {};
+    if (![tournament_id, chip_out_id, chip_in_id].every((x) => mongoose.isValidObjectId(x))) throw new HttpError(400, 'Informe o torneio, a ficha que sai e a que entra.');
+    const [outChip, inChip] = await Promise.all([Chip.findById(chip_out_id).lean(), Chip.findById(chip_in_id).lean()]);
+    if (!outChip || !inChip) throw new HttpError(404, 'Ficha não encontrada.');
+    const sum = await material.summary(tournament_id, { sessionId: session_id || undefined });
+    const row = sum.rows.find((r) => String(r.chip._id) === String(chip_out_id));
+    const inPlay = row?.in_play || 0;
+    let plan;
+    try { plan = conversionLib.tablePlan({ outValueInPlay: inPlay * outChip.value, tables, enterValue: inChip.value }); } catch (e) { throw new HttpError(400, e.message); }
+    res.json({ chip_out: { _id: outChip._id, value: outChip.value, in_play: inPlay, value_in_play: inPlay * outChip.value }, chip_in: { _id: inChip._id, value: inChip.value }, ...plan });
   } catch (err) {
     sendError(res, err);
   }

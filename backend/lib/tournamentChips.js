@@ -314,4 +314,4 @@ async function entryAction(tournament, type, action) {
   return action;
 }
 
-module.exports = { defaultAction: (type) => calc.ACTION_BY_ENTRY_TYPE[type], entryAction, normalizeStackConfig, chipsInPlay, needsForTournament, needsForStackModel, refreshTournamentChips, cleanCounts, actionOf, groupEntries };
+module.exports = { defaultAction: (type) => calc.ACTION_BY_ENTRY_TYPE[type], entryAction, normalizeStackConfig, chipsInPlay, needsForTournament, needsForStackModel, refreshTournamentChips, cleanCounts, actionOf, groupEntries, entriesBase };

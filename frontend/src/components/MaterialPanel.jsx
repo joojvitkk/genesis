@@ -27,11 +27,12 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
   const [moves, setMoves] = useState([]);
   const [discards, setDiscards] = useState([]);
   const [discarding, setDiscarding] = useState(false);
-  const [rows, setRows] = useState([{ action: '', count: '' }]);   // envio por ação
+  const [rows, setRows] = useState([{ action: 'buy_in', count: '' }]);   // envio por ação: já começa no buy-in padrão
   const [plan, setPlan] = useState(null);                            // fichas calculadas pelo servidor
   const [extra, setExtra] = useState({});                            // envio adicional: { chipId: qtd }
   const [ret, setRet] = useState({ binder_id: '', chips: {}, reason: '' });
-  const [tables, setTables] = useState({ count: '', per: String(tournament.seats_per_table || 9), action: 'buy_in' }); // envio por mesas
+  const [tables, setTables] = useState({ count: '', per: String(tournament.stacks_per_table || tournament.seats_per_table || 10), action: 'buy_in' }); // envio por mesas: stacks por mesa editável (padrão do torneio)
+  const [sentSummary, setSentSummary] = useState(null);             // resumo do que foi gravado no último envio
   const [active, setActive] = useState(null);                       // formulário aberto: 'send' | 'return'
   const [pending, setPending] = useState({ occurrences: 0, requests: 0 });
   const [sug, setSug] = useState(null);                              // sugestão da volta de fichas (por ação, em stacks)
@@ -119,8 +120,10 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
     setBusy(true); setError(null);
     try {
       await apiPost(`/tournaments/${tid}/sends`, { items: items.length ? items : undefined, chips: chips.length ? chips : undefined, session_id: sessionId || undefined });
-      showAlert('Fichas enviadas!', 'success');
-      setRows([{ action: '', count: '' }]); setExtra({}); setPlan(null);
+      const sess = sessions.find((x) => x._id === sessionId);
+      const label = (a) => stackActions.find((x) => x.key === a)?.label || a;
+      setSentSummary(`Enviado: ${[...items.map((i) => `${fmt(i.count)} stacks de ${label(i.action).toLowerCase()}`), ...(chips.length ? [`${chips.length} ficha(s) avulsa(s)`] : [])].join(' · ')}${sess ? ` · ${sess.name}` : ''}`);
+      setRows([{ action: 'buy_in', count: '' }]); setExtra({}); setPlan(null);
       await load(); onChanged?.();
     } catch (e) {
       if (e.status !== 401) setError(e.message || 'Erro ao enviar');
@@ -158,7 +161,6 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
   const t = summary?.totals;
   // Dia 2 / Dia Final (Simulação 3.0 §2): só a posição ATUAL das fichas em jogo — não é uma nova distribuição inicial
   const isFinalPhase = summary?.phase === 'final';
-  const needRows = (summary?.rows || []).filter((r) => r.in_play > 0 || r.pending > 0);
 
   return (
     <div className="space-y-8 p-4 md:p-8">
@@ -200,13 +202,34 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
       {!isFinalPhase && summary && (
         <section className="card p-6" data-testid="material-overview">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div title="Fichas fisicamente no salão: enviado − devolvido ± trocas."><p className="text-xs font-bold uppercase text-fg-subtle">No salão</p><p className="text-3xl font-bold tabular-nums">{fmt(summary.rows.reduce((s, r) => s + r.on_table, 0))}</p><p className="text-xs text-fg-muted">fichas</p></div>
-            <div title="O que as entradas já entregaram aos jogadores (ações × montagem ± trocas − descartes)."><p className="text-xs font-bold uppercase text-fg-subtle">Em jogo (Chip Count)</p><p className="text-3xl font-bold tabular-nums">{fmt(summary.chip_count?.quantity)}</p><p className="text-xs text-fg-muted">fichas</p></div>
-            <div title="No salão e ainda não entregue aos jogadores, em stacks completos por ação (remanejamento)."><p className="text-xs font-bold uppercase text-fg-subtle">Disponível</p>
-              {(summary.stacks || []).length === 0 ? <p className="text-sm text-fg-subtle">—</p> : (summary.stacks || []).map((s) => <p key={s.action} className="text-sm"><b className="text-2xl tabular-nums">{fmt(s.stacks)}</b> <span className="text-fg-muted">stacks · {s.label}</span></p>)}
-            </div>
-            <div title="Ocorrências abertas do torneio e chamados de troca em aberto."><p className="text-xs font-bold uppercase text-fg-subtle">Pendências</p><p className="text-3xl font-bold tabular-nums">{pending.occurrences + pending.requests}</p><p className="text-xs text-fg-muted">{pending.occurrences} ocorrência(s) · {pending.requests} chamado(s)</p></div>
+            <div><p className="text-xs font-bold uppercase text-fg-subtle">No salão</p>
+              {(summary.by_action || []).map((a) => <p key={a.action} className="text-sm" data-testid={`hall-${a.action}`}><span className="text-fg-muted">{a.label}:</span> <b className="text-xl tabular-nums">{fmt(a.sent)}</b></p>)}</div>
+            <div><p className="text-xs font-bold uppercase text-fg-subtle">Em jogo</p><p className="text-3xl font-bold tabular-nums" data-testid="in-play-value">{fmt(summary.chip_count?.value)}</p></div>
+            <div><p className="text-xs font-bold uppercase text-fg-subtle">Disponível</p>
+              {(summary.by_action || []).map((a) => <p key={a.action} className="text-sm" data-testid={`avail-${a.action}`}><span className="text-fg-muted">{a.label}:</span> <b className="text-xl tabular-nums">{fmt(a.available)}</b></p>)}</div>
+            <div><p className="text-xs font-bold uppercase text-fg-subtle">Pendências</p><p className="text-3xl font-bold tabular-nums">{pending.occurrences + pending.requests}</p></div>
           </div>
+          {summary.by_action?.length > 0 && (
+            <div className="mt-6 overflow-x-auto" data-testid="action-table">
+              <table className="w-full min-w-[420px] text-sm">
+                <thead><tr className="text-xs uppercase tracking-wide text-fg-subtle">
+                  {['Ação', 'Enviados', 'Usados', 'Disponível', 'Falta'].map((h, i) => <th key={h} className={`py-2 font-bold ${i === 0 ? 'pr-3 text-left' : 'px-2 text-right'}`}>{h}</th>)}
+                </tr></thead>
+                <tbody className="divide-y divide-line-soft">
+                  {summary.by_action.map((a) => (
+                    <tr key={a.action}>
+                      <td className="py-2 pr-3 font-bold text-fg">{a.label}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{fmt(a.sent)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{fmt(a.used)}</td>
+                      <td className="px-2 py-2 text-right font-bold tabular-nums text-ok">{fmt(a.available)}</td>
+                      <td className={`px-2 py-2 text-right font-bold tabular-nums ${a.missing > 0 ? 'text-warn' : 'text-fg-subtle'}`}>{fmt(a.missing)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr className="border-t-2 border-line text-xs font-bold"><td className="py-2 pr-3 uppercase tracking-wide text-fg-subtle">Valor nominal em jogo</td><td colSpan={4} className="px-2 py-2 text-right tabular-nums">{fmt(summary.chip_count?.value)}</td></tr></tfoot>
+              </table>
+            </div>
+          )}
           {canOperate && (
             <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5" data-testid="material-actions">
               {!closed && <button type="button" onClick={() => setActive(active === 'send' ? null : 'send')} className="btn btn-success btn-lg"><Send size={16} /> Enviar</button>}
@@ -220,17 +243,13 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
       )}
 
       <details className="card p-6" data-testid="material-details">
-        <summary className="cursor-pointer text-sm font-bold">Ver detalhes · enviado × em jogo e fichas necessárias</summary>
+        <summary className="cursor-pointer text-sm font-bold">Detalhes · por denominação</summary>
         <div className="mt-6 space-y-8">
 
       {/* esperado × em jogo */}
       {!isFinalPhase && (
       <section className="card p-6">
-        <h3 className="mb-1 text-lg font-bold">Material: enviado × em jogo</h3>
-        <p className="mb-4 text-xs text-fg-muted">
-          <b>Enviado</b> = movimentação física ao Salão (acumulado). <b>No Salão</b> = enviado − devolvido ± conversões. <b>Em jogo</b> = o que as entradas já entregaram aos jogadores (ações × stack ± conversões = Chip Count).
-          {' '}<b>Disponível no Salão</b> = no Salão − em jogo (ainda não usado). <b>Falta enviar</b> = em jogo − no Salão, quando positivo. Só informa; divergência formal é a conferência física.
-        </p>
+        <h3 className="mb-3 text-lg font-bold">Por denominação</h3>
         {!summary || summary.rows.length === 0 ? <p className="py-6 text-center text-sm italic text-fg-subtle">Nada enviado nem em jogo ainda.</p> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
@@ -275,40 +294,6 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
       </section>
       )}
 
-      {/* Fichas necessárias × saldo físico REAL dos fichários (Simulação 3.0 §6): previsão, nunca baixa de estoque */}
-      {!isFinalPhase && (
-        <section className="card p-6" data-testid="needed-chips">
-          <h3 className="mb-1 text-lg font-bold">Fichas necessárias</h3>
-          <p className="mb-4 text-xs text-fg-muted">
-            Demanda prevista (ações registradas × modelo de stack) comparada ao saldo físico REAL dos fichários vinculados. É só uma previsão: não dá baixa no estoque — apenas os envios e retornos registrados movimentam as fichas.
-          </p>
-          {needRows.length === 0 ? <p className="py-4 text-center text-sm italic text-fg-subtle">Ainda não há fichas calculadas. Escolha o modelo de stack e registre as entradas na aba Salão.</p> : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-sm">
-                <thead><tr className="text-xs uppercase tracking-wide text-fg-subtle">
-                  {['Ficha', 'Previsto em jogo', 'Já no Salão', 'A enviar', 'Saldo físico dos fichários', 'Situação'].map((h, i) => <th key={h} className={`py-2 font-bold ${i === 0 ? 'pr-3 text-left' : 'px-2 text-right'}`}>{h}</th>)}
-                </tr></thead>
-                <tbody className="divide-y divide-line-soft">
-                  {needRows.map((r) => {
-                    const toSend = Math.max(0, r.pending);
-                    const short = toSend - r.binder_balance;
-                    return (
-                      <tr key={r.chip._id}>
-                        <td className="py-2 pr-3 font-bold text-fg"><span className="mr-2 inline-block h-3 w-3 rounded-full border border-line align-middle" style={{ backgroundColor: r.chip.color }} />{fmt(r.chip.value)}</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-fg-muted">{fmt(r.in_play)}</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-fg-muted">{fmt(r.on_table)}</td>
-                        <td className="px-2 py-2 text-right font-bold tabular-nums text-fg">{fmt(toSend)}</td>
-                        <td className="px-2 py-2 text-right font-bold tabular-nums text-fg">{fmt(r.binder_balance)}</td>
-                        <td className="px-2 py-2 text-right"><span className={`badge ${short > 0 ? 'badge-danger' : 'badge-ok'}`}>{short > 0 ? `faltam ${fmt(short)}` : 'saldo cobre'}</span></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
         </div>
       </details>
 
@@ -319,11 +304,16 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
         </div>
       )}
 
+      {sentSummary && (
+        <div role="status" className="flex items-start justify-between gap-3 rounded-xl border border-ok bg-ok-soft p-3 text-sm font-bold text-fg" data-testid="sent-summary">
+          <span>{sentSummary}</span>
+          <button type="button" onClick={() => setSentSummary(null)} className="btn btn-neutral btn-sm shrink-0">Fechar</button>
+        </div>
+      )}
       <div className={active === 'send' ? '' : 'hidden'}>
       {canOperate && !closed && !isFinalPhase && (
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><Send size={18} className="text-emerald-500" /> Enviar fichas ao torneio</h3>
-          <p className="mb-4 text-xs text-fg-muted">{sessions.length > 1 ? 'Vai para a sessão selecionada. ' : ''}Por ação: informe só a quantidade; as fichas por denominação são calculadas pelo modelo de stack.</p>
 
           <div className="mb-4 flex flex-wrap items-end gap-2" data-testid="send-tables">
             <div className="w-48"><CustomSelect options={actionOptions} value={tables.action} onChange={(v) => setTables((t) => ({ ...t, action: v }))} placeholder="Ação" /></div>
@@ -336,7 +326,7 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
               <div key={i} className="grid grid-cols-[1fr_110px_auto] items-center gap-2">
                 <CustomSelect options={actionOptions} value={r.action} onChange={(v) => setRows((x) => x.map((y, j) => (j === i ? { ...y, action: v } : y)))} placeholder="Ação (buy-in, reentrada…)" />
                 <input type="number" min="1" step="1" placeholder="Qtd" value={r.count} onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, count: e.target.value } : y)))} className={numCls} />
-                <button onClick={() => setRows((x) => (x.length > 1 ? x.filter((_, j) => j !== i) : [{ action: '', count: '' }]))} className="p-2 text-fg-subtle hover:text-red-500"><Trash2 size={15} /></button>
+                <button onClick={() => setRows((x) => (x.length > 1 ? x.filter((_, j) => j !== i) : [{ action: 'buy_in', count: '' }]))} className="p-2 text-fg-subtle hover:text-red-500"><Trash2 size={15} /></button>
               </div>
             ))}
             <button onClick={() => setRows((x) => [...x, { action: '', count: '' }])} className="flex items-center gap-1 text-xs font-bold text-brand-fg"><Plus size={13} /> Outra ação</button>
@@ -368,7 +358,12 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
             </div>
           </details>
 
-          {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-xs font-bold text-red-600 dark:bg-red-500/10">{error}</p>}
+          {error && (
+            <div role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-danger-soft p-3 text-sm font-bold text-danger" data-testid="send-error">
+              <span>{error}</span>
+              <button type="button" onClick={() => setError(null)} className="btn btn-neutral btn-sm shrink-0">Fechar</button>
+            </div>
+          )}
           <button onClick={sendNow} disabled={busy || allocations.length === 0} className="btn btn-success mt-4 disabled:opacity-40">{busy ? 'Enviando…' : 'Enviar'}</button>
         </section>
       )}
@@ -380,7 +375,6 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
       {canOperate && (
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><Undo2 size={18} className="text-blue-500" /> Retornar fichas ao fichário</h3>
-          <p className="mb-4 text-xs text-fg-muted">Volta de fichas: o sistema sugere enviados − usados, em stacks. Confirme com um toque ou ajuste; sobras que não fecham um stack entram como fichas avulsas.</p>
           <div className="mb-3 max-w-sm">
             <CustomSelect options={allocations.map((a) => ({ value: a.binder_id?._id, label: a.binder_id?.name }))} value={ret.binder_id} onChange={(v) => setRet((r) => ({ ...r, binder_id: v }))} placeholder="Fichário que recebe…" />
           </div>
@@ -425,7 +419,6 @@ export default function MaterialPanel({ onNavigate, tournament, sessions, sessio
       {canOperate && !closed && (
         <section className="card p-6">
           <h3 className="mb-1 flex items-center gap-2 text-lg font-bold"><PackageMinus size={18} className="text-red-500" /> Descarte de stack</h3>
-          <p className="mb-4 text-xs text-fg-muted">O stack foi abandonado: as fichas saem do jogo e voltam ao fichário na hora. Reduz o esperado em jogo.</p>
           <button onClick={() => setDiscarding(true)} disabled={allocations.length === 0} className="btn btn-danger-solid">Descartar stack</button>
         </section>
       )}

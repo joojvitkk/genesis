@@ -31,16 +31,26 @@ async function bookOf(tournamentId) {
       const c = cell(id);
       c.in_play = r.quantity;
       c.discarded = r.discarded || 0;
-      c.expected = r.quantity - (r.conversion || 0) + (r.discarded || 0); // antes de trocas e descartes
     }
     for (const cv of convs) {
       for (const l of cv.outs) cell(sid(l.chip_id)).out += l.quantity;
       for (const l of cv.ins) cell(sid(l.chip_id)).in += l.quantity;
     }
+    // Valor de ENTRADA = ações × montagem (ou o herdado): em jogo − (entrou − saiu) + descartes. Vale também para a ficha que
+    // saiu por inteiro das trocas (em jogo 0) — antes ela sumia do "Esperado".
+    for (const c of Object.values(by)) c.expected = c.in_play - (c.in - c.out) + c.discarded;
+    const inheriting = sessionsLib.isInheriting(s);
+    // fases herdadas: só as entradas PRÓPRIAS da fase somam ao total do torneio (o herdado já está nas origens)
+    const ownEntries = inheriting && entries.length ? await tournamentChips.entriesBase(tournament, entries) : null;
     for (const l of count?.players || []) { const c = cell(sid(l.chip_id)); c.counted = l.counted; c.diff = l.counted - l.expected; }
 
     out.push({
-      session_id: sid(s._id), name: s.name, type: s.type, status: s.status, actions,
+      session_id: sid(s._id), name: s.name, type: s.type, status: s.status, inherits: inheriting, own_entries_value: ownEntries?.totals?.value || 0, actions,
+      // linha do tempo da sessão: uma troca por vez, na ordem em que aconteceram
+      trades: convs.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map((cv, i) => ({
+        n: i + 1, type: cv.type, id: sid(cv._id), at: cv.createdAt, value_out: cv.value_out, value_in: cv.value_in, breakage: cv.math_breakage || 0,
+        outs: Object.fromEntries(cv.outs.map((l) => [sid(l.chip_id), l.quantity])), ins: Object.fromEntries(cv.ins.map((l) => [sid(l.chip_id), l.quantity])),
+      })),
       total_actions: Object.values(actions).reduce((a, b) => a + b, 0),
       by_chip: by,
       breakage: convs.reduce((sum, cv) => sum + (cv.math_breakage || 0), 0),
@@ -66,10 +76,21 @@ async function bookOf(tournamentId) {
   }
   const rows = [...chips.entries()].map(([id, chip]) => ({ chip: { _id: id, name: chip.name, value: chip.value, color: chip.color } }))
     .sort((a, b) => (a.chip.value || 0) - (b.chip.value || 0));
-  const total = (f) => out.reduce((t, s) => t + (s.totals[f] || 0), 0);
+  // O total do torneio NUNCA soma o herdado com as origens: fases herdadas entram só com as entradas próprias.
+  const own = (s, f) => (s.inherits ? (f === 'expected' || f === 'in_play' ? s.own_entries_value : 0) : (s.totals[f] || 0));
+  const total = (f) => out.reduce((t, s) => t + own(s, f), 0);
+  const sumAll = (f) => out.reduce((t, s) => t + (s.totals[f] || 0), 0);
+  const breakageOwn = out.filter((s) => !s.inherits).reduce((t, s) => t + s.breakage, 0);
+  const breakageFinal = out.filter((s) => s.inherits).reduce((t, s) => t + s.breakage, 0);
+  const delivered = total('expected');
   return {
     tournament: { _id: sid(tournament._id), name: tournament.name }, chips: rows.map((r) => r.chip), sessions: out,
-    totals: { expected: total('expected'), out: total('out'), in: total('in'), discarded: total('discarded'), in_play: total('in_play'), breakage: out.reduce((t, s) => t + s.breakage, 0), actions: out.reduce((t, s) => t + s.total_actions, 0) },
+    totals: {
+      expected: delivered, out: sumAll('out'), in: sumAll('in'), discarded: sumAll('discarded'), in_play: total('in_play'),
+      breakage: breakageOwn + breakageFinal, actions: out.reduce((t, s) => t + s.total_actions, 0),
+      // conta de fechamento: ações × montagem + quebra acumulada − descartes ± trocas da fase final = saldo final
+      closing: { delivered, breakage: breakageOwn, discarded: sumAll('discarded'), final_trades: breakageFinal, balance: delivered + breakageOwn - sumAll('discarded') + breakageFinal },
+    },
   };
 }
 

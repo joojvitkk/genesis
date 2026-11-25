@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const BlindChangeSchema = new mongoose.Schema({
   tournament_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament', required: true },
   session_id: { type: mongoose.Schema.Types.ObjectId, ref: 'TournamentSession', required: true, index: true },
-  kind: { type: String, enum: ['rule_applied', 'levels_added'], required: true },
+  kind: { type: String, enum: ['rule_applied', 'levels_added', 'level_edited', 'level_removed'], required: true },
   rule_id: { type: mongoose.Schema.Types.ObjectId, ref: 'BlindRule', default: null },
   rule_name: { type: String },
   level_number: { type: Number, default: null },  // nível em andamento quando aconteceu

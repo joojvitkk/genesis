@@ -23,10 +23,11 @@ async function snapshot(session) {
     const inPlay = await tournamentChips.chipsInPlay(session.tournament_id, { sessionId: session._id });
     avg = Math.round((inPlay.totals?.value || 0) / counts.active);
   }
-  return {
-    entries_initial: counts.entries_initial, entries_reentries: counts.entries_reentries, entries_total: counts.entries_total,
-    playing: counts.active, avg_stack: avg,
-  };
+  // fases herdadas: "Inscritos" mostra o ACUMULADO do torneio (herdado + da fase), não só as entradas próprias
+  const inh = counts.inherited;
+  const initial = counts.entries_initial + (inh?.entries_initial || 0);
+  const reentries = counts.entries_reentries + (inh?.entries_reentries || 0);
+  return { entries_initial: initial, entries_reentries: reentries, entries_total: initial + reentries, playing: counts.active, avg_stack: avg };
 }
 
 const rowsOf = (tournament, session) => sessionsLib.clockView(tournament, session).blind_structure || [];

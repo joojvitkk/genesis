@@ -110,4 +110,36 @@ async function appendLevels(sessionId, rowsIn, user, io) {
   return { session, change };
 }
 
-module.exports = { evaluate, confirm, appendLevels, rulesFor };
+/**
+ * Nível EXTRA (rótulo "Adicional"): editável e removível enquanto ainda não começou (linha depois da atual, ou relógio nunca iniciado).
+ * Toda edição/remoção fica no registro de mudanças com autor e horário.
+ */
+async function changeExtraLevel(sessionId, index, patch, user, io) {
+  const session = await TournamentSession.findById(sessionId);
+  if (!session) throw new HttpError(404, 'Sessão não encontrada.');
+  if (session.status === 'finished') throw new HttpError(409, `A sessão "${session.name}" está encerrada.`);
+  const rows = (session.blind_structure || []).map((r) => { const o = r.toObject ? r.toObject() : { ...r }; return o; });
+  const i = Number(index);
+  const row = rows[i];
+  if (!Number.isInteger(i) || !row || row.label !== 'Adicional') throw new HttpError(404, 'Nível adicional não encontrado.');
+  if (session.level_started_at && i <= (session.current_level || 0)) throw new HttpError(409, 'Este nível já começou: não pode mais ser alterado.');
+  let kind = 'level_removed';
+  if (patch) {
+    const sb = Number(patch.small_blind ?? row.small_blind); const bb = Number(patch.big_blind ?? row.big_blind); const dur = Number(patch.duration ?? row.duration);
+    if (!Number.isFinite(sb) || !Number.isFinite(bb) || sb <= 0 || bb < sb) throw new HttpError(400, 'Blinds inválidos: o big blind não pode ser menor que o small blind.');
+    if (!Number.isFinite(dur) || dur < 1) throw new HttpError(400, 'A duração do nível deve ser de pelo menos 1 minuto.');
+    rows[i] = { ...row, small_blind: sb, big_blind: bb, ante: Number(patch.ante ?? row.ante) || 0, duration: dur };
+    kind = 'level_edited';
+  } else {
+    rows.splice(i, 1);
+  }
+  rows.forEach((r) => { delete r._id; });
+  session.blind_structure = rows;
+  session.blinds_edited = true;
+  await session.save();
+  const change = await record(session, kind, { rows_affected: 1, user_name: actor(user), auto: false });
+  io?.emit('tournamentsChanged', { tournament_id: session.tournament_id, session_id: session._id });
+  return { session, change };
+}
+
+module.exports = { evaluate, confirm, appendLevels, changeExtraLevel, rulesFor };

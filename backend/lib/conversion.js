@@ -66,4 +66,21 @@ function compute(outs, ins, chipsById) {
   return { outs: o, ins: i, value_out, value_in, math_breakage: value_in - value_out };
 }
 
-module.exports = { TYPES, OUT_TYPE, IN_TYPE, normalizeSide, normalize, netSides, compute };
+/**
+ * Plano da troca pelo MÉTODO REAL (modo enxuto, item 30). O operador escolhe a ficha que ENTRA e informa as mesas abertas:
+ *   valor por mesa  = valor em jogo da ficha que sai ÷ mesas, arredondado PARA CIMA até um múltiplo da ficha que entra;
+ *   quantidade      = mesas × (valor por mesa ÷ ficha que entra).
+ * Ex.: Chip Race de 100 → 100.000 ÷ 36 = 2.778 → 5.000 por mesa → 36 × 5.000. Color Up de 500 → 186.000 ÷ 24 = 7.750 → 25.000 → 24 × 25.000.
+ */
+function tablePlan({ outValueInPlay, tables, enterValue }) {
+  const value = Number(outValueInPlay); const n = Number(tables); const enter = Number(enterValue);
+  if (!Number.isFinite(value) || value < 0) throw new Error('Valor em jogo da ficha que sai inválido.');
+  if (!Number.isInteger(n) || n < 1) throw new Error('Informe as mesas abertas (inteiro ≥ 1).');
+  if (!Number.isFinite(enter) || enter <= 0) throw new Error('Informe a ficha que entra.');
+  const raw = value / n;
+  const perTableValue = Math.ceil(raw / enter) * enter;
+  const perTableQuantity = perTableValue / enter;
+  return { tables: n, raw_per_table: Math.ceil(raw), per_table_value: perTableValue, per_table_quantity: perTableQuantity, quantity_in: n * perTableQuantity, value_in: n * perTableValue };
+}
+
+module.exports = { TYPES, OUT_TYPE, IN_TYPE, normalizeSide, normalize, netSides, compute, tablePlan };

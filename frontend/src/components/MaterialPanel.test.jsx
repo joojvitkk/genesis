@@ -22,6 +22,11 @@ const summary = {
   ],
   totals: { expected_value: 300000, on_table_value: 300000, in_play_value: 300000, available_value: 50000, pending_value: 0 }, uncovered: [],
   stacks: [{ action: 're_entry', label: 'Reentrada', stacks: 90, composition: [{ chip: c500, quantity: 2 }] }],
+  chip_count: { quantity: 1400, value: 300000 },
+  by_action: [
+    { action: 'buy_in', label: 'Buy-in padrão', sent: 10, used: 100, available: 0, missing: 90 },
+    { action: 're_entry', label: 'Reentrada', sent: 100, used: 97, available: 3, missing: 0 },
+  ],
 };
 const data = {
   '/tournaments/t1/material': summary,
@@ -76,8 +81,8 @@ describe('MaterialPanel', () => {
       ? { rows: [{ chip: c100, quantity: 1000 }, { chip: c500, quantity: 400 }], totals: { quantity: 1400, value: 300000 }, counts: { buy_in: 100 } }
       : { movements: [] }));
     const { onChanged } = await mount();
-    await act(async () => { button('Ação (buy-in').click(); });
-    await act(async () => { option('Buy-in padrão').click(); });
+    // a linha de envio já começa no buy-in padrão
+    expect(container.querySelector('[data-testid="send-tables"]')).toBeTruthy();
     await act(async () => { setValue(container.querySelector('input[placeholder="Qtd"]'), '100'); });
     await flush(400);
 
@@ -91,6 +96,35 @@ describe('MaterialPanel', () => {
     await flush();
     expect(api.apiPost).toHaveBeenCalledWith('/tournaments/t1/sends', { items: [{ action: 'buy_in', count: 100 }], chips: undefined, session_id: undefined });
     expect(onChanged).toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="sent-summary"]').textContent).toContain('Enviado: 100 stacks de buy-in padrão');
+  });
+
+  it('cards em stacks por ação (inclusive as zeradas), valor nominal em jogo e tabela única por ação', async () => {
+    await mount();
+    expect(container.querySelector('[data-testid="hall-buy_in"]').textContent).toContain('10');
+    expect(container.querySelector('[data-testid="hall-re_entry"]').textContent).toContain('100');
+    expect(container.querySelector('[data-testid="avail-buy_in"]').textContent).toContain('0');
+    expect(container.querySelector('[data-testid="avail-re_entry"]').textContent).toContain('3');
+    expect(container.querySelector('[data-testid="in-play-value"]').textContent).toBe('300.000');
+    const heads = [...container.querySelectorAll('[data-testid="action-table"] thead th')].map((h) => h.textContent);
+    expect(heads).toEqual(['Ação', 'Enviados', 'Usados', 'Disponível', 'Falta']);
+    const row = container.querySelectorAll('[data-testid="action-table"] tbody tr')[0].textContent;
+    expect(row).toContain('Buy-in padrão'); expect(row).toContain('90');
+    expect(container.textContent).not.toContain('Fichas necessárias');
+  });
+
+  it('o erro de envio fica na tela até o usuário fechar', async () => {
+    api.apiPost.mockImplementation(async (path) => { if (path === '/tournaments/t1/needs') return { rows: [], totals: { quantity: 0, value: 0 }, counts: {} }; throw Object.assign(new Error('Fichas insuficientes'), { status: 409 }); });
+    await mount();
+    await act(async () => { setValue(container.querySelector('input[placeholder="Qtd"]'), '3'); });
+    await flush(400);
+    await act(async () => { submitSend().click(); });
+    await flush();
+    await act(async () => { button('Confirmar').click(); });
+    await flush(1500);
+    expect(container.querySelector('[data-testid="send-error"]').textContent).toContain('Fichas insuficientes');
+    await act(async () => { button('Fechar').click(); });
+    expect(container.querySelector('[data-testid="send-error"]')).toBeNull();
   });
 
   it('erro 409 do servidor no envio é exibido (fichas insuficientes nos fichários alocados)', async () => {
@@ -99,8 +133,6 @@ describe('MaterialPanel', () => {
       throw Object.assign(new Error('Fichas insuficientes nos fichários alocados ao torneio: Ficha 100 (faltam 5 de 1000).'), { status: 409 });
     });
     await mount();
-    await act(async () => { button('Ação (buy-in').click(); });
-    await act(async () => { option('Reentrada').click(); });
     await act(async () => { setValue(container.querySelector('input[placeholder="Qtd"]'), '3'); });
     await flush(400);
     await act(async () => { submitSend().click(); });

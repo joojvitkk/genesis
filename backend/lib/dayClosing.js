@@ -3,6 +3,7 @@
 const { TournamentSession, SessionLevelLog } = require('../models');
 const sessionsLib = require('./sessions');
 const headcount = require('./headcount');
+const tournamentChips = require('./tournamentChips');
 const { HttpError } = require('./catalog');
 
 const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
@@ -29,7 +30,10 @@ async function sessionSummary(tournamentId, sessionId) {
   const peak = logs.reduce((m, l) => Math.max(m, l.playing || 0, l.at_start?.playing || 0), counts.active);
 
   const inherited = counts.inherited?.entries_total || 0;
+  // valor NOMINAL em jogo no encerramento (junto do horário, dos classificados e de onde o dia parou)
+  const chipsValueAtClose = session.status === 'finished' ? ((await tournamentChips.chipsInPlay(tournamentId, { sessionId: session._id })).totals?.value ?? null) : null;
   return {
+    chips_value_at_close: chipsValueAtClose,
     session_id: String(session._id), name: session.name, type: session.type, status: session.status,
     entries_initial: counts.entries_initial, entries_reentries: counts.entries_reentries, entries_total: counts.entries_total,
     // fases de continuação: inscritos acumulados somam os herdados dos dias anteriores (até o final)
